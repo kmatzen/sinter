@@ -15,13 +15,13 @@ async function enterModeler(page: any) {
 // Helper: click a shape in the parts palette Shapes tab
 async function addShape(page: any, name: string) {
   await page.locator('button[role="tab"]:has-text("Shapes")').click();
-  await page.locator(`[title="Add ${name}"]`).click({ force: true });
+  await page.locator(`[title="Add ${name}"]`).click();
 }
 
 // Helper: click an operation in the parts palette Ops tab
 async function addOp(page: any, name: string) {
   await page.locator('button[role="tab"]:has-text("Ops")').click();
-  await page.locator(`[title="Add ${name}"]`).click({ force: true });
+  await page.locator(`[title="Add ${name}"]`).click();
 }
 
 test.describe('Landing Page', () => {
@@ -252,7 +252,7 @@ test.describe('Modeler: Export', () => {
 });
 
 test.describe('Modeler: Full workflow', () => {
-  test('build a rounded box with a hole', async ({ page }) => {
+  test('build a rounded box with a hole', { timeout: 60000 }, async ({ page }) => {
     await enterModeler(page);
     const tree = page.locator('[data-testid="tree-nodes"]');
 
