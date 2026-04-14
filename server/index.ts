@@ -29,30 +29,12 @@ if (!isDev && (!process.env.SESSION_SECRET || process.env.SESSION_SECRET === 'de
 app.use(express.json({ limit: '10mb' }));
 
 // Site password gate (set SITE_PASSWORD to enable).
-// When set, OAuth sign-in routes require Basic Auth.
-// Landing page and static files remain public.
+// Visit /gate to unlock via Basic Auth — sets a session flag.
 const sitePassword = process.env.SITE_PASSWORD;
-if (sitePassword) {
-  const gatedPaths = ['/api/auth/google', '/api/auth/github'];
-  app.use((req, res, next) => {
-    if (!gatedPaths.some((p) => req.path.startsWith(p))) return next();
-    const auth = req.headers.authorization;
-    if (auth) {
-      const [scheme, encoded] = auth.split(' ');
-      if (scheme === 'Basic') {
-        const [, pass] = Buffer.from(encoded, 'base64').toString().split(':');
-        if (pass === sitePassword) return next();
-      }
-    }
-    res.setHeader('WWW-Authenticate', 'Basic realm="Sinter"');
-    res.status(401).send('Access restricted');
-  });
-}
 
-// Tell the frontend whether sign-in is available
-app.get('/api/auth/config', (_req, res) => {
-  res.json({ signInEnabled: !sitePassword });
-});
+function isGateUnlocked(req: any): boolean {
+  return !sitePassword || req.session?.gateUnlocked === true;
+}
 
 // Security headers
 app.use((_req, res, next) => {
@@ -88,6 +70,39 @@ app.use(session({
 setupAuth();
 app.use(passport.initialize());
 app.use(passport.session());
+
+// Site password gate routes (need session to be available)
+if (sitePassword) {
+  // /gate — Basic Auth prompt that unlocks the session
+  app.get('/gate', (req: any, res) => {
+    const auth = req.headers.authorization;
+    if (auth) {
+      const [scheme, encoded] = auth.split(' ');
+      if (scheme === 'Basic') {
+        const [, pass] = Buffer.from(encoded, 'base64').toString().split(':');
+        if (pass === sitePassword) {
+          req.session.gateUnlocked = true;
+          return res.redirect('/app');
+        }
+      }
+    }
+    res.setHeader('WWW-Authenticate', 'Basic realm="Sinter"');
+    res.status(401).send('Access restricted');
+  });
+
+  // Block OAuth routes unless gate is unlocked
+  const gatedPaths = ['/api/auth/google', '/api/auth/github'];
+  app.use((req: any, res, next) => {
+    if (!gatedPaths.some((p) => req.path.startsWith(p))) return next();
+    if (isGateUnlocked(req)) return next();
+    res.status(403).json({ error: 'Sign-in not available yet' });
+  });
+}
+
+// Tell the frontend whether sign-in is available (checks session gate)
+app.get('/api/auth/config', (req: any, res) => {
+  res.json({ signInEnabled: isGateUnlocked(req) });
+});
 
 // Allowlist check (after auth, before API routes)
 app.use('/api/projects', checkAllowlist);
