@@ -4,14 +4,19 @@ import { HeroDemo } from './HeroDemo';
 
 export function LandingPage({ onLaunch }: { onLaunch: () => void }) {
   const [showTOS, setShowTOS] = useState(false);
+  const [showPrivacy, setShowPrivacy] = useState(false);
   const [signInEnabled, setSignInEnabled] = useState(!features.auth);
 
   useEffect(() => {
-    if (!features.auth) return;
-    fetch('/api/auth/config')
-      .then((r) => r.json())
-      .then((d) => setSignInEnabled(d.signInEnabled))
-      .catch(() => {});
+    if (features.auth) {
+      fetch('/api/auth/config')
+        .then((r) => r.json())
+        .then((d) => setSignInEnabled(d.signInEnabled))
+        .catch(() => {});
+    }
+    const handler = () => setShowPrivacy(true);
+    window.addEventListener('show-privacy', handler);
+    return () => window.removeEventListener('show-privacy', handler);
   }, []);
 
   return (
@@ -263,6 +268,8 @@ export function LandingPage({ onLaunch }: { onLaunch: () => void }) {
           <a href="/LICENSE" className="hover:underline" style={{ color: 'var(--text-secondary)' }}>License</a>
           {' · '}
           <button onClick={() => setShowTOS(true)} className="hover:underline" style={{ color: 'var(--text-secondary)' }}>Terms of Service</button>
+          {' · '}
+          <button onClick={() => setShowPrivacy(true)} className="hover:underline" style={{ color: 'var(--text-secondary)' }}>Privacy Policy</button>
         </p>
       </footer>
 
@@ -312,6 +319,63 @@ export function LandingPage({ onLaunch }: { onLaunch: () => void }) {
 
               <h3 className="font-semibold mt-6" style={{ color: 'var(--text-primary)' }}>11. Contact</h3>
               <p>For questions about these terms, open an issue on <a href="https://github.com/kmatzen/sinter" className="underline" style={{ color: 'var(--accent)' }}>GitHub</a>.</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Privacy Policy Modal */}
+      {showPrivacy && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.7)' }}
+             onClick={() => setShowPrivacy(false)}>
+          <div className="w-full max-w-2xl max-h-[80vh] overflow-y-auto rounded-lg p-8"
+               style={{ background: 'var(--bg-panel)', border: '1px solid var(--border-default)' }}
+               onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>Privacy Policy</h2>
+              <button onClick={() => setShowPrivacy(false)} className="text-lg" style={{ color: 'var(--text-muted)' }}>{'\u2715'}</button>
+            </div>
+            <div className="text-sm leading-relaxed space-y-2" style={{ color: 'var(--text-secondary)' }}>
+              <p className="text-xs" style={{ color: 'var(--text-muted)' }}>Last updated: April 2026</p>
+
+              <h3 className="font-semibold mt-6" style={{ color: 'var(--text-primary)' }}>1. Information We Collect</h3>
+              <p><strong>Account information:</strong> When you sign in with Google or GitHub, we receive your name, email address, and profile photo. We do not access any other data from these services.</p>
+              <p><strong>Project data:</strong> If you use cloud storage, your 3D model data (node trees as JSON) is stored on our servers.</p>
+              <p><strong>Payment information:</strong> Payments are processed by Stripe. We do not store your credit card details. Stripe may collect information as described in their privacy policy.</p>
+              <p><strong>Usage data:</strong> We log AI chat token usage per user for billing purposes. We do not log the content of your prompts or AI responses.</p>
+
+              <h3 className="font-semibold mt-6" style={{ color: 'var(--text-primary)' }}>2. Cookies and Local Storage</h3>
+              <p><strong>Session cookie:</strong> A single HTTP-only session cookie is used for authentication. It expires after 30 days of inactivity.</p>
+              <p><strong>Local storage:</strong> We use browser local storage to save your project locally, remember your preferences, and track cookie consent. No tracking cookies or third-party analytics are used.</p>
+
+              <h3 className="font-semibold mt-6" style={{ color: 'var(--text-primary)' }}>3. How We Use Your Information</h3>
+              <p>We use your information solely to: provide and maintain the service, process payments, send your prompts to AI providers (Anthropic) for model generation, and communicate with you about your account.</p>
+
+              <h3 className="font-semibold mt-6" style={{ color: 'var(--text-primary)' }}>4. AI Processing</h3>
+              <p>When you use AI chat, your messages and viewport screenshots are sent to Anthropic's API for processing. This data is subject to Anthropic's usage policies. We do not use your prompts or models to train AI systems.</p>
+
+              <h3 className="font-semibold mt-6" style={{ color: 'var(--text-primary)' }}>5. Data Sharing</h3>
+              <p>We do not sell, rent, or share your personal information with third parties, except:</p>
+              <ul className="list-disc ml-5 space-y-1">
+                <li>Stripe, for payment processing</li>
+                <li>Anthropic, for AI chat functionality</li>
+                <li>When required by law</li>
+              </ul>
+
+              <h3 className="font-semibold mt-6" style={{ color: 'var(--text-primary)' }}>6. Data Storage and Security</h3>
+              <p>Your data is stored on servers we operate. Project data is stored as files on disk, account data in SQLite. We use HTTPS, HTTP-only cookies, and standard security practices. No system is 100% secure.</p>
+
+              <h3 className="font-semibold mt-6" style={{ color: 'var(--text-primary)' }}>7. Your Rights</h3>
+              <p>You can: access and download your project data at any time, delete your account and all associated data by contacting us, and request a copy of all personal data we hold about you. For EU residents, you have additional rights under GDPR including the right to erasure, portability, and objection to processing.</p>
+
+              <h3 className="font-semibold mt-6" style={{ color: 'var(--text-primary)' }}>8. Data Retention</h3>
+              <p>Account and project data is retained as long as your account is active. If you delete your account, all data is removed within 30 days. If cloud storage credits expire, projects are retained for a 30-day grace period before deletion.</p>
+
+              <h3 className="font-semibold mt-6" style={{ color: 'var(--text-primary)' }}>9. Changes to This Policy</h3>
+              <p>We may update this policy from time to time. Continued use of the service constitutes acceptance of any changes.</p>
+
+              <h3 className="font-semibold mt-6" style={{ color: 'var(--text-primary)' }}>10. Contact</h3>
+              <p>For privacy questions, open an issue on <a href="https://github.com/kmatzen/sinter" className="underline" style={{ color: 'var(--accent)' }}>GitHub</a>.</p>
             </div>
           </div>
         </div>
