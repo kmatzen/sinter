@@ -33,9 +33,11 @@ export function LandingPage({ onLaunch }: { onLaunch: () => void }) {
           <a href="#features" className="text-sm transition-colors" style={{ color: 'var(--text-secondary)' }}
             onMouseEnter={(e) => e.currentTarget.style.color = 'var(--text-primary)'}
             onMouseLeave={(e) => e.currentTarget.style.color = 'var(--text-secondary)'}>Features</a>
-          <a href="#pricing" className="text-sm transition-colors" style={{ color: 'var(--text-secondary)' }}
-            onMouseEnter={(e) => e.currentTarget.style.color = 'var(--text-primary)'}
-            onMouseLeave={(e) => e.currentTarget.style.color = 'var(--text-secondary)'}>Pricing</a>
+          {features.billing && (
+            <a href="#pricing" className="text-sm transition-colors" style={{ color: 'var(--text-secondary)' }}
+              onMouseEnter={(e) => e.currentTarget.style.color = 'var(--text-primary)'}
+              onMouseLeave={(e) => e.currentTarget.style.color = 'var(--text-secondary)'}>Pricing</a>
+          )}
           <a href="https://github.com/kmatzen/sinter" className="text-sm transition-colors" style={{ color: 'var(--text-secondary)' }}
             onMouseEnter={(e) => e.currentTarget.style.color = 'var(--text-primary)'}
             onMouseLeave={(e) => e.currentTarget.style.color = 'var(--text-secondary)'}>GitHub</a>
@@ -175,13 +177,17 @@ export function LandingPage({ onLaunch }: { onLaunch: () => void }) {
         </div>
       </section>
 
-      {/* Pricing */}
+      {/* Pricing — paid edition only */}
+      {features.billing && (
       <section id="pricing" className="relative z-10 max-w-4xl mx-auto px-6 py-16">
         <div className="text-center mb-10">
           <p className="font-mono text-[11px] tracking-[0.2em] uppercase mb-3" style={{ color: 'var(--accent)' }}>Pricing</p>
           <h2 className="text-3xl font-bold tracking-tight mb-3">Pay for what you use</h2>
           <p className="max-w-lg mx-auto leading-relaxed" style={{ color: 'var(--text-muted)' }}>
-            The full modeling engine is free — no login required. Buy credit packs for AI features, cloud storage, and project sharing. Credits are valid for 30 days.
+            The full modeling engine is free — no login required. Credit packs unlock AI features, cloud storage, and project sharing. Credits are valid for 30 days.
+          </p>
+          <p className="max-w-md mx-auto mt-2 text-xs leading-relaxed" style={{ color: 'var(--text-muted)' }}>
+            Credit purchases help Kevin Blackburn-Matzen cover Anthropic API and hosting costs for this project.
           </p>
         </div>
 
@@ -254,6 +260,7 @@ export function LandingPage({ onLaunch }: { onLaunch: () => void }) {
           </div>
         </div>
       </section>
+      )}
 
       {/* Bottom CTA */}
       <section className="relative z-10 max-w-3xl mx-auto px-6 py-16 text-center">

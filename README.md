@@ -87,6 +87,7 @@ For AI chat (community edition), click the gear icon in the chat panel and enter
 - Read-only share links
 - Credit-based pricing (1 credit = ~$0.05, AI chat costs 1–15 credits per message)
 - Credits expire 30 days after purchase
+- Credit purchases help Kevin Blackburn-Matzen cover Anthropic API and hosting costs
 - Available at [sinter-3d.com](https://sinter-3d.com)
 
 ## Self-Hosting (Paid Edition)
