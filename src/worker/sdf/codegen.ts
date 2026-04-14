@@ -1,9 +1,35 @@
 import type { SDFNode } from './types';
 
 let varCounter = 0;
+let paramIndex = 0;
+let paramValues: number[] = [];
+let textures: TextureData[] = [];
 
 function nextVar(): string {
   return `d${varCounter++}`;
+}
+
+// Register a parameter value as a uniform slot — returns GLSL reference
+function up(value: number): string {
+  if (!isFinite(value) || isNaN(value)) value = 0;
+  const idx = paramIndex++;
+  paramValues.push(value);
+  return `u_p[${idx}]`;
+}
+
+// Hardcoded constant (for non-parametric values like axis directions)
+function g(n: number): string {
+  if (!isFinite(n) || isNaN(n)) return '0.0';
+  return n.toFixed(6);
+}
+
+// Bbox early-out disabled: the SDF discontinuity at the threshold boundary
+// caused visible jagged artifacts on sharp features.
+// Bbox early-out disabled: the SDF discontinuity at the threshold boundary
+// caused visible jagged artifacts on sharp features. The performance cost of
+// evaluating all nodes every step is acceptable for correctness.
+function emitBBoxEarlyOut(_node: SDFNode, _pVar: string, _result: string, _lines: string[]): boolean {
+  return false;
 }
 
 function emitNode(node: SDFNode, pVar: string, lines: string[]): string {
@@ -11,103 +37,126 @@ function emitNode(node: SDFNode, pVar: string, lines: string[]): string {
 
   switch (node.kind) {
     case 'box': {
-      const [w, h, d] = [node.size[0] / 2, node.size[1] / 2, node.size[2] / 2];
-      lines.push(`vec3 q_${result} = abs(${pVar}) - vec3(${w}, ${h}, ${d});`);
+      lines.push(`vec3 q_${result} = abs(${pVar}) - vec3(${up(node.size[0]/2)}, ${up(node.size[1]/2)}, ${up(node.size[2]/2)});`);
       lines.push(`float ${result} = length(max(q_${result}, 0.0)) + min(max(q_${result}.x, max(q_${result}.y, q_${result}.z)), 0.0);`);
       return result;
     }
     case 'sphere':
-      lines.push(`float ${result} = length(${pVar}) - ${node.radius.toFixed(6)};`);
+      lines.push(`float ${result} = length(${pVar}) - ${up(node.radius)};`);
       return result;
     case 'cylinder': {
-      const r = node.radius;
-      const hh = node.height / 2;
-      lines.push(`vec2 cd_${result} = abs(vec2(length(${pVar}.xz), ${pVar}.y)) - vec2(${r}, ${hh});`);
+      lines.push(`vec2 cd_${result} = abs(vec2(length(${pVar}.xz), ${pVar}.y)) - vec2(${up(node.radius)}, ${up(node.height / 2)});`);
       lines.push(`float ${result} = min(max(cd_${result}.x, cd_${result}.y), 0.0) + length(max(cd_${result}, 0.0));`);
       return result;
     }
     case 'torus': {
-      lines.push(`vec2 tq_${result} = vec2(length(${pVar}.xz) - ${node.major.toFixed(6)}, ${pVar}.y);`);
-      lines.push(`float ${result} = length(tq_${result}) - ${node.minor.toFixed(6)};`);
+      lines.push(`vec2 tq_${result} = vec2(length(${pVar}.xz) - ${up(node.major)}, ${pVar}.y);`);
+      lines.push(`float ${result} = length(tq_${result}) - ${up(node.minor)};`);
+      return result;
+    }
+    case 'cone': {
+      // IQ sdCappedCone: base radius r at y=-h/2, apex (radius 0) at y=+h/2
+      const r1 = up(node.radius);
+      const hh = up(node.height / 2);
+      lines.push(`float cq_${result} = length(${pVar}.xz);`);
+      // ca: distance to nearest cap edge (top or bottom)
+      lines.push(`vec2 cca_${result} = vec2(cq_${result} - min(cq_${result}, (${pVar}.y < 0.0) ? ${r1} : 0.0), abs(${pVar}.y) - ${hh});`);
+      // cb: distance to the slanted surface. Project (q,y) onto the line from base-edge to apex
+      lines.push(`vec2 cbA_${result} = vec2(cq_${result}, ${pVar}.y) - vec2(${r1}, -${hh});`);
+      lines.push(`vec2 cbB_${result} = vec2(-${r1}, 2.0 * ${hh});`);
+      lines.push(`float cbt_${result} = clamp(dot(cbA_${result}, cbB_${result}) / dot(cbB_${result}, cbB_${result}), 0.0, 1.0);`);
+      lines.push(`vec2 ccb_${result} = cbA_${result} - cbB_${result} * cbt_${result};`);
+      // Sign: negative if inside both tests
+      lines.push(`float cs_${result} = (ccb_${result}.x < 0.0 && cca_${result}.y < 0.0) ? -1.0 : 1.0;`);
+      lines.push(`float ${result} = cs_${result} * sqrt(min(dot(cca_${result}, cca_${result}), dot(ccb_${result}, ccb_${result})));`);
+      return result;
+    }
+    case 'capsule': {
+      lines.push(`float chh_${result} = ${up(node.height)} * 0.5 - ${up(node.radius)};`);
+      lines.push(`float cpy_${result} = clamp(${pVar}.y, -chh_${result}, chh_${result});`);
+      lines.push(`float ${result} = length(vec3(${pVar}.x, ${pVar}.y - cpy_${result}, ${pVar}.z)) - ${up(node.radius)};`);
+      return result;
+    }
+    case 'ellipsoid': {
+      lines.push(`vec3 ep_${result} = ${pVar} / vec3(${up(node.size[0]/2)}, ${up(node.size[1]/2)}, ${up(node.size[2]/2)});`);
+      lines.push(`float ${result} = (length(ep_${result}) - 1.0) * ${up(Math.min(node.size[0]/2, node.size[1]/2, node.size[2]/2))};`);
       return result;
     }
     case 'union': {
+      const hasBBox = emitBBoxEarlyOut(node, pVar, result, lines);
       const a = emitNode(node.a, pVar, lines);
       const b = emitNode(node.b, pVar, lines);
       if (node.k > 0) {
-        lines.push(`float h_${result} = clamp(0.5 + 0.5 * (${b} - ${a}) / ${node.k.toFixed(6)}, 0.0, 1.0);`);
-        lines.push(`float ${result} = mix(${b}, ${a}, h_${result}) - ${node.k.toFixed(6)} * h_${result} * (1.0 - h_${result});`);
+        lines.push(`float h_${result} = clamp(0.5 + 0.5 * (${b} - ${a}) / ${up(node.k)}, 0.0, 1.0);`);
+        lines.push(`${hasBBox ? '' : 'float '}${result} = mix(${b}, ${a}, h_${result}) - ${up(node.k)} * h_${result} * (1.0 - h_${result});`);
       } else {
-        lines.push(`float ${result} = min(${a}, ${b});`);
+        lines.push(`${hasBBox ? '' : 'float '}${result} = min(${a}, ${b});`);
       }
+      if (hasBBox) lines.push(`}`);
       return result;
     }
     case 'subtract': {
+      const hasBBox = emitBBoxEarlyOut(node, pVar, result, lines);
       const a = emitNode(node.a, pVar, lines);
       const b = emitNode(node.b, pVar, lines);
       if (node.k > 0) {
-        lines.push(`float h_${result} = clamp(0.5 - 0.5 * (${a} + ${b}) / ${node.k.toFixed(6)}, 0.0, 1.0);`);
-        lines.push(`float ${result} = mix(${a}, -${b}, h_${result}) + ${node.k.toFixed(6)} * h_${result} * (1.0 - h_${result});`);
+        lines.push(`float h_${result} = clamp(0.5 - 0.5 * (${a} + ${b}) / ${up(node.k)}, 0.0, 1.0);`);
+        lines.push(`${hasBBox ? '' : 'float '}${result} = mix(${a}, -${b}, h_${result}) + ${up(node.k)} * h_${result} * (1.0 - h_${result});`);
       } else {
-        lines.push(`float ${result} = max(${a}, -${b});`);
+        lines.push(`${hasBBox ? '' : 'float '}${result} = max(${a}, -${b});`);
       }
+      if (hasBBox) lines.push(`}`);
       return result;
     }
     case 'intersect': {
+      const hasBBox = emitBBoxEarlyOut(node, pVar, result, lines);
       const a = emitNode(node.a, pVar, lines);
       const b = emitNode(node.b, pVar, lines);
       if (node.k > 0) {
-        lines.push(`float h_${result} = clamp(0.5 - 0.5 * (${b} - ${a}) / ${node.k.toFixed(6)}, 0.0, 1.0);`);
-        lines.push(`float ${result} = mix(${b}, ${a}, h_${result}) + ${node.k.toFixed(6)} * h_${result} * (1.0 - h_${result});`);
+        lines.push(`float h_${result} = clamp(0.5 - 0.5 * (${b} - ${a}) / ${up(node.k)}, 0.0, 1.0);`);
+        lines.push(`${hasBBox ? '' : 'float '}${result} = mix(${b}, ${a}, h_${result}) + ${up(node.k)} * h_${result} * (1.0 - h_${result});`);
       } else {
-        lines.push(`float ${result} = max(${a}, ${b});`);
+        lines.push(`${hasBBox ? '' : 'float '}${result} = max(${a}, ${b});`);
       }
+      if (hasBBox) lines.push(`}`);
       return result;
     }
     case 'shell': {
       const child = emitNode(node.child, pVar, lines);
-      lines.push(`float ${result} = abs(${child}) - ${(node.thickness / 2).toFixed(6)};`);
+      lines.push(`float ${result} = abs(${child}) - ${up(node.thickness / 2)};`);
       return result;
     }
     case 'offset': {
       const child = emitNode(node.child, pVar, lines);
-      lines.push(`float ${result} = ${child} - ${node.distance.toFixed(6)};`);
+      lines.push(`float ${result} = ${child} - ${up(node.distance)};`);
       return result;
     }
     case 'round': {
       const child = emitNode(node.child, pVar, lines);
-      lines.push(`float ${result} = ${child} - ${node.radius.toFixed(6)};`);
+      lines.push(`float ${result} = ${child} - ${up(node.radius)};`);
       return result;
     }
     case 'transform': {
-      // Apply inverse transform to the point
       const tp = `tp_${result}`;
-      lines.push(`vec3 ${tp} = ${pVar} - vec3(${node.tx.toFixed(6)}, ${node.ty.toFixed(6)}, ${node.tz.toFixed(6)});`);
-      // Apply inverse scale
-      if (node.sx !== 1 || node.sy !== 1 || node.sz !== 1) {
-        lines.push(`${tp} = ${tp} / vec3(${node.sx.toFixed(6)}, ${node.sy.toFixed(6)}, ${node.sz.toFixed(6)});`);
-      }
-      // Apply inverse rotation (Z, Y, X order - reversed for inverse)
-      if (node.rz !== 0) {
-        const a = (-node.rz * Math.PI / 180).toFixed(6);
-        lines.push(`${tp} = vec3(${tp}.x * cos(${a}) - ${tp}.y * sin(${a}), ${tp}.x * sin(${a}) + ${tp}.y * cos(${a}), ${tp}.z);`);
-      }
-      if (node.ry !== 0) {
-        const a = (-node.ry * Math.PI / 180).toFixed(6);
-        lines.push(`${tp} = vec3(${tp}.x * cos(${a}) + ${tp}.z * sin(${a}), ${tp}.y, -${tp}.x * sin(${a}) + ${tp}.z * cos(${a}));`);
-      }
-      if (node.rx !== 0) {
-        const a = (-node.rx * Math.PI / 180).toFixed(6);
-        lines.push(`${tp} = vec3(${tp}.x, ${tp}.y * cos(${a}) - ${tp}.z * sin(${a}), ${tp}.y * sin(${a}) + ${tp}.z * cos(${a}));`);
-      }
+      lines.push(`vec3 ${tp} = ${pVar} - vec3(${up(node.tx)}, ${up(node.ty)}, ${up(node.tz)});`);
+      // Always emit scale (uniform can change from 1 to non-1)
+      lines.push(`${tp} = ${tp} / vec3(${up(node.sx)}, ${up(node.sy)}, ${up(node.sz)});`);
+      // Rotation as a 3x3 matrix (9 uniforms) — computed on CPU from Euler angles.
+      // This avoids all Euler decomposition issues in the shader.
+      const cx = Math.cos(-node.rx * Math.PI / 180), sx = Math.sin(-node.rx * Math.PI / 180);
+      const cy = Math.cos(-node.ry * Math.PI / 180), sy = Math.sin(-node.ry * Math.PI / 180);
+      const cz = Math.cos(-node.rz * Math.PI / 180), sz = Math.sin(-node.rz * Math.PI / 180);
+      // Inverse rotation matrix = Rz(-rz) * Ry(-ry) * Rx(-rx) (column-major multiply)
+      const m00 = cy*cz,           m01 = sx*sy*cz - cx*sz,  m02 = cx*sy*cz + sx*sz;
+      const m10 = cy*sz,           m11 = sx*sy*sz + cx*cz,  m12 = cx*sy*sz - sx*cz;
+      const m20 = -sy,             m21 = sx*cy,             m22 = cx*cy;
+      const r00=up(m00), r01=up(m01), r02=up(m02);
+      const r10=up(m10), r11=up(m11), r12=up(m12);
+      const r20=up(m20), r21=up(m21), r22=up(m22);
+      lines.push(`${tp} = vec3(${r00}*${tp}.x + ${r01}*${tp}.y + ${r02}*${tp}.z, ${r10}*${tp}.x + ${r11}*${tp}.y + ${r12}*${tp}.z, ${r20}*${tp}.x + ${r21}*${tp}.y + ${r22}*${tp}.z);`);
       const child = emitNode(node.child, tp, lines);
-      // Scale correction for non-uniform scale
-      const minScale = Math.min(node.sx, node.sy, node.sz);
-      if (minScale !== 1) {
-        lines.push(`float ${result} = ${child} * ${minScale.toFixed(6)};`);
-      } else {
-        lines.push(`float ${result} = ${child};`);
-      }
+      const ms = up(Math.min(node.sx, node.sy, node.sz));
+      lines.push(`float ${result} = ${child} * ${ms};`);
       return result;
     }
     case 'mirror': {
@@ -123,21 +172,18 @@ function emitNode(node: SDFNode, pVar: string, lines: string[]): string {
     case 'linearPattern': {
       const lp = `lp_${result}`;
       const ax = node.axis;
-      const totalLen = (node.spacing * (node.count - 1)).toFixed(6);
-      lines.push(`float ldot_${result} = dot(${pVar}, vec3(${ax[0]}, ${ax[1]}, ${ax[2]}));`);
-      lines.push(`float lclamped_${result} = clamp(ldot_${result}, 0.0, ${totalLen});`);
-      lines.push(`float lidx_${result} = floor(lclamped_${result} / ${node.spacing.toFixed(6)} + 0.5);`);
-      lines.push(`float loff_${result} = lidx_${result} * ${node.spacing.toFixed(6)};`);
-      lines.push(`vec3 ${lp} = ${pVar} - vec3(${ax[0]}, ${ax[1]}, ${ax[2]}) * loff_${result};`);
+      lines.push(`float ldot_${result} = dot(${pVar}, vec3(${g(ax[0])}, ${g(ax[1])}, ${g(ax[2])}));`);
+      lines.push(`float lclamped_${result} = clamp(ldot_${result}, 0.0, ${up(node.spacing * (node.count - 1))});`);
+      lines.push(`float lidx_${result} = floor(lclamped_${result} / ${up(node.spacing)} + 0.5);`);
+      lines.push(`float loff_${result} = lidx_${result} * ${up(node.spacing)};`);
+      lines.push(`vec3 ${lp} = ${pVar} - vec3(${g(ax[0])}, ${g(ax[1])}, ${g(ax[2])}) * loff_${result};`);
       const child = emitNode(node.child, lp, lines);
       lines.push(`float ${result} = ${child};`);
       return result;
     }
     case 'circularPattern': {
       const cp = `cp_${result}`;
-      const n = node.count;
-      const sector = (2 * Math.PI / n).toFixed(6);
-      // Assume Y-axis rotation for now (most common for 3D printing)
+      const sector = up(2 * Math.PI / node.count);
       lines.push(`float cang_${result} = atan(${pVar}.z, ${pVar}.x);`);
       lines.push(`float crad_${result} = length(${pVar}.xz);`);
       lines.push(`cang_${result} -= ${sector} * floor(cang_${result} / ${sector} + 0.5);`);
@@ -148,16 +194,65 @@ function emitNode(node: SDFNode, pVar: string, lines: string[]): string {
     }
     case 'halfSpace': {
       const component = node.axis === 'x' ? 'x' : node.axis === 'y' ? 'y' : 'z';
-      lines.push(`float ${result} = ${pVar}.${component} - ${node.position.toFixed(6)};`);
+      if (node.flip) {
+        lines.push(`float ${result} = ${up(node.position)} - ${pVar}.${component};`);
+      } else {
+        lines.push(`float ${result} = ${pVar}.${component} - ${up(node.position)};`);
+      }
+      return result;
+    }
+    case 'text': {
+      // GPU: box approximation (fast). CPU evaluator uses full glyph paths for export.
+      const charW = node.size * 0.6;
+      const totalW = node.text.length * charW;
+      lines.push(`vec3 qt_${result} = abs(${pVar}) - vec3(${up(totalW / 2)}, ${up(node.size / 2)}, ${up(node.depth / 2)});`);
+      lines.push(`float ${result} = length(max(qt_${result}, 0.0)) + min(max(qt_${result}.x, max(qt_${result}.y, qt_${result}.z)), 0.0);`);
       return result;
     }
   }
 }
 
-export function generateGLSL(root: SDFNode): string {
+export interface TextureData {
+  name: string;
+  width: number;
+  height: number;
+  data: number[];
+}
+
+export interface SDFCompileResult {
+  glsl: string;
+  paramCount: number;
+  paramValues: number[];
+  textures: TextureData[];
+}
+
+// Compile SDF tree to GLSL with uniform parameters
+export function generateSDFFunction(root: SDFNode): SDFCompileResult {
   varCounter = 0;
+  paramIndex = 0;
+  paramValues = [];
+  textures = [];
   const lines: string[] = [];
   const finalVar = emitNode(root, 'p', lines);
+
+  const count = Math.max(paramIndex, 1);
+  // Emit texture uniform declarations before the SDF function
+  const texDecls = textures.map((t) => `uniform sampler2D ${t.name};`).join('\n');
+  const glsl = `${texDecls}${texDecls ? '\n' : ''}float sdf(vec3 p) {
+  ${lines.join('\n  ')}
+  return ${finalVar};
+}`;
+
+  return { glsl, paramCount: count, paramValues: [...paramValues], textures: [...textures] };
+}
+
+// Legacy: baked constants for export (no uniforms)
+export function generateGLSL(root: SDFNode): string {
+  const result = generateSDFFunction(root);
+  let sdfBody = result.glsl;
+  for (let i = result.paramCount - 1; i >= 0; i--) {
+    sdfBody = sdfBody.split(`u_p[${i}]`).join(g(result.paramValues[i]));
+  }
 
   return `
 precision highp float;
@@ -167,10 +262,7 @@ uniform vec3 u_bbMin;
 uniform vec3 u_bbMax;
 uniform vec2 u_resolution;
 
-float sdf(vec3 p) {
-  ${lines.join('\n  ')}
-  return ${finalVar};
-}
+${sdfBody}
 
 void main() {
   vec2 uv = gl_FragCoord.xy / u_resolution;

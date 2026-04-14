@@ -1,5 +1,6 @@
-import type { WorkerRequest, WorkerResponse, TriangulatedMesh, ClipPlane } from '../types/geometry';
+import type { WorkerRequest, WorkerResponse, ClipPlane } from '../types/geometry';
 import type { SDFNodeUI } from '../types/operations';
+import type { SDFDisplayData } from '../store/modelerStore';
 
 type ResponseHandler = (response: WorkerResponse) => void;
 
@@ -8,6 +9,7 @@ class WorkerBridge {
   private readyPromise: Promise<void>;
   private resolveReady!: () => void;
   private responseHandler: ResponseHandler | null = null;
+  private evalSeq = 0;
 
   constructor() {
     this.readyPromise = new Promise((resolve) => { this.resolveReady = resolve; });
@@ -23,27 +25,22 @@ class WorkerBridge {
     this.worker.onerror = (err) => console.error('Worker error:', err);
   }
 
-  async evaluate(tree: SDFNodeUI | null, resolution?: number, clip?: ClipPlane): Promise<TriangulatedMesh | null> {
+  async evaluate(tree: SDFNodeUI | null, _resolution?: number, clip?: ClipPlane): Promise<SDFDisplayData | null> {
     await this.readyPromise;
+    const seq = ++this.evalSeq;
     return new Promise((resolve, reject) => {
       this.responseHandler = (msg) => {
-        if (msg.type === 'mesh') {
-          if (msg.positions.byteLength === 0) {
+        // Ignore responses for stale evaluate calls
+        if (seq !== this.evalSeq) return;
+        if (msg.type === 'sdf') {
+          if (!msg.glsl) {
             resolve(null);
           } else {
-            const result: any = {
-              positions: new Float32Array(msg.positions),
-              normals: new Float32Array(msg.normals),
-              indices: new Uint32Array(msg.indices),
-            };
-            if ((msg as any).thickness) {
-              result.thickness = new Float32Array((msg as any).thickness);
-            }
-            resolve(result);
+            resolve({ glsl: msg.glsl, paramCount: msg.paramCount, paramValues: msg.paramValues, textures: msg.textures || [], bbMin: msg.bbMin, bbMax: msg.bbMax });
           }
         } else if (msg.type === 'error') reject(new Error(msg.message));
       };
-      const req: WorkerRequest = { type: 'evaluate', tree, resolution, clip };
+      const req: WorkerRequest = { type: 'evaluate', tree, clip };
       this.worker.postMessage(req);
     });
   }

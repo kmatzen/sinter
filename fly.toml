@@ -1,0 +1,26 @@
+app = 'sinter-3d'
+primary_region = 'iad'
+
+[build]
+
+[env]
+  NODE_ENV = 'production'
+  PORT = '3000'
+  DATA_DIR = '/data'
+  VITE_EDITION = 'paid'
+
+[http_service]
+  internal_port = 3000
+  force_https = true
+  auto_stop_machines = 'stop'
+  auto_start_machines = true
+  min_machines_running = 1
+
+[[vm]]
+  memory = '512mb'
+  cpu_kind = 'shared'
+  cpus = 1
+
+[mounts]
+  source = 'sinter_data'
+  destination = '/data'

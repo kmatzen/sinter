@@ -6,103 +6,15 @@ import type { SDFNodeUI } from '../types/operations';
 import type { SDFNode, BBox } from './sdf/types';
 import { evaluateSDF } from './sdf/evaluate';
 import { computeBounds } from './sdf/bounds';
-import { generateGLSL } from './sdf/codegen';
-import { GPUEvaluator } from './sdf/gpu';
+import { generateSDFFunction } from './sdf/codegen';
 import { marchingCubes } from './sdf/marchingCubes';
 import { exportBinarySTL } from './stlExporter';
 import { export3MF } from './exporters';
-import { computeThickness } from './sdf/thickness';
+import { toSDFNode } from './sdf/convert';
 
-const RESOLUTION = 128;
+const RESOLUTION = 192;
 
-let gpu: GPUEvaluator | null = null;
-
-function init() {
-  try {
-    gpu = new GPUEvaluator();
-  } catch (err: any) {
-    console.warn('GPU not available, using CPU fallback:', err.message);
-  }
-  self.postMessage({ type: 'ready' });
-}
-
-init();
-
-// Convert UI tree to internal SDFNode (strip UI metadata)
-function toSDFNode(ui: SDFNodeUI): SDFNode | null {
-  if (!ui.enabled) return null;
-
-  const p = ui.params;
-  const children = ui.children.map(toSDFNode).filter((c): c is SDFNode => c !== null);
-
-  switch (ui.kind) {
-    case 'box': return { kind: 'box', size: [p.width, p.height, p.depth] };
-    case 'sphere': return { kind: 'sphere', radius: p.radius };
-    case 'cylinder': return { kind: 'cylinder', radius: p.radius, height: p.height };
-    case 'torus': return { kind: 'torus', major: p.majorRadius, minor: p.minorRadius };
-
-    case 'union':
-    case 'subtract':
-    case 'intersect':
-      if (children.length < 2) return children[0] || null;
-      return { kind: ui.kind as 'union' | 'subtract' | 'intersect', a: children[0], b: children[1], k: p.smooth || 0 };
-
-    case 'shell':
-      if (children.length < 1) return null;
-      return { kind: 'shell', child: children[0], thickness: p.thickness };
-
-    case 'offset':
-      if (children.length < 1) return null;
-      return { kind: 'offset', child: children[0], distance: p.distance };
-
-    case 'round':
-      if (children.length < 1) return null;
-      return { kind: 'round', child: children[0], radius: p.radius };
-
-    case 'translate':
-    case 'rotate':
-    case 'scale':
-      if (children.length < 1) return null;
-      return {
-        kind: 'transform',
-        child: children[0],
-        tx: ui.kind === 'translate' ? p.x : 0,
-        ty: ui.kind === 'translate' ? p.y : 0,
-        tz: ui.kind === 'translate' ? p.z : 0,
-        rx: ui.kind === 'rotate' ? p.x : 0,
-        ry: ui.kind === 'rotate' ? p.y : 0,
-        rz: ui.kind === 'rotate' ? p.z : 0,
-        sx: ui.kind === 'scale' ? p.x : 1,
-        sy: ui.kind === 'scale' ? p.y : 1,
-        sz: ui.kind === 'scale' ? p.z : 1,
-      };
-
-    case 'mirror':
-      if (children.length < 1) return null;
-      return { kind: 'mirror', child: children[0], axes: [p.mirrorX ? 1 : 0, p.mirrorY ? 1 : 0, p.mirrorZ ? 1 : 0] as [number, number, number] };
-
-    case 'linearPattern':
-      if (children.length < 1) return null;
-      return {
-        kind: 'linearPattern',
-        child: children[0],
-        axis: [p.axisX || 0, p.axisY || 0, p.axisZ || 0] as [number, number, number],
-        count: p.count || 2,
-        spacing: p.spacing || 10,
-      };
-
-    case 'circularPattern':
-      if (children.length < 1) return null;
-      return {
-        kind: 'circularPattern',
-        child: children[0],
-        axis: [p.axisX || 0, p.axisY || 1, p.axisZ || 0] as [number, number, number],
-        count: p.count || 4,
-      };
-
-    default: return null;
-  }
-}
+self.postMessage({ type: 'ready' });
 
 function evaluateAndMesh(tree: SDFNodeUI | null, resolution = RESOLUTION, _clip?: ClipPlane) {
   if (!tree) return null;
@@ -121,22 +33,9 @@ function evaluateAndMesh(tree: SDFNodeUI | null, resolution = RESOLUTION, _clip?
   bbox.min = [bbox.min[0] - margin, bbox.min[1] - margin, bbox.min[2] - margin];
   bbox.max = [bbox.max[0] + margin, bbox.max[1] + margin, bbox.max[2] + margin];
 
-  let grid: Float32Array;
-
-  if (gpu) {
-    const glsl = generateGLSL(root);
-    grid = gpu.evaluate(glsl, bbox, resolution);
-  } else {
-    grid = evaluateCPU(root, bbox, resolution);
-  }
+  const grid = evaluateCPU(root, bbox, resolution);
 
   const mesh = marchingCubes(grid, resolution, bbox);
-
-  // Compute wall thickness for each vertex
-  if (mesh.positions.length > 0) {
-    const thick = computeThickness(mesh.positions, mesh.normals, grid, resolution, bbox);
-    return { ...mesh, thickness: thick };
-  }
 
   return mesh;
 }
@@ -167,22 +66,26 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
   try {
     switch (req.type) {
       case 'evaluate': {
-        const mesh = evaluateAndMesh(req.tree, req.resolution || RESOLUTION, req.clip);
-        if (!mesh) {
-          const empty = new ArrayBuffer(0);
-          self.postMessage({ type: 'mesh', positions: empty, normals: empty, indices: empty }, [empty]);
+        if (!req.tree) {
+          self.postMessage({ type: 'sdf', glsl: '', paramCount: 0, paramValues: [], bbMin: [0,0,0], bbMax: [0,0,0] });
           return;
         }
-        const posBuf = mesh.positions.buffer as ArrayBuffer;
-        const normBuf = mesh.normals.buffer as ArrayBuffer;
-        const idxBuf = mesh.indices.buffer as ArrayBuffer;
-        const transfers = [posBuf, normBuf, idxBuf];
-        const msg: any = { type: 'mesh', positions: posBuf, normals: normBuf, indices: idxBuf };
-        if (mesh.thickness) {
-          msg.thickness = mesh.thickness.buffer as ArrayBuffer;
-          transfers.push(msg.thickness);
+        const root = toSDFNode(req.tree);
+        if (!root) {
+          self.postMessage({ type: 'sdf', glsl: '', paramCount: 0, paramValues: [], bbMin: [0,0,0], bbMax: [0,0,0] });
+          return;
         }
-        self.postMessage(msg, transfers);
+        const bbox = computeBounds(root);
+        const margin = Math.max(
+          (bbox.max[0] - bbox.min[0]) * 0.1,
+          (bbox.max[1] - bbox.min[1]) * 0.1,
+          (bbox.max[2] - bbox.min[2]) * 0.1,
+          1,
+        );
+        const bbMin: [number, number, number] = [bbox.min[0] - margin, bbox.min[1] - margin, bbox.min[2] - margin];
+        const bbMax: [number, number, number] = [bbox.max[0] + margin, bbox.max[1] + margin, bbox.max[2] + margin];
+        const compiled = generateSDFFunction(root);
+        self.postMessage({ type: 'sdf', glsl: compiled.glsl, paramCount: compiled.paramCount, paramValues: compiled.paramValues, textures: compiled.textures, bbMin, bbMax });
         break;
       }
 

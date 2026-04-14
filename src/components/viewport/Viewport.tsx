@@ -1,37 +1,43 @@
-import { Canvas } from '@react-three/fiber';
-import { OrbitControls, Environment } from '@react-three/drei';
-import { ModelMesh } from './ModelMesh';
-import { Grid } from './Grid';
-import { ViewportCameraController } from './ViewportControls';
+import { useRef, useEffect, useState } from 'react';
+import { ThreeEngine } from '../../engine/ThreeEngine';
 import { ViewportToolbar } from './ViewportToolbar';
-import { DimensionsOverlay } from './DimensionsOverlay';
-import { ClipPlaneIndicator } from './ClipPlaneIndicator';
+import { ShortcutOverlay } from './ShortcutOverlay';
+import { DimensionLabels } from './DimensionLabels';
 import { useModelerStore } from '../../store/modelerStore';
+import { setEngineRef } from '../../engine/engineRef';
 
 export function Viewport() {
   const evaluating = useModelerStore((s) => s.evaluating);
   const error = useModelerStore((s) => s.error);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [engine, setEngine] = useState<ThreeEngine | null>(null);
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const eng = new ThreeEngine(containerRef.current);
+    setEngine(eng);
+    setEngineRef(eng);
+    return () => {
+      eng.dispose();
+      setEngine(null);
+      setEngineRef(null);
+    };
+  }, []);
 
   return (
-    <div className="flex-1 relative min-w-0">
-      <Canvas camera={{ position: [100, 80, 100], fov: 50 }} gl={{ stencil: true }}>
-        <ambientLight intensity={0.4} />
-        <directionalLight position={[50, 100, 50]} intensity={0.8} castShadow />
-        <directionalLight position={[-30, 40, -50]} intensity={0.3} />
-        <ModelMesh />
-        <Grid />
-        <DimensionsOverlay />
-        <ClipPlaneIndicator />
-        <OrbitControls makeDefault />
-        <ViewportCameraController />
-        <Environment preset="studio" />
-      </Canvas>
+    <div className="flex-1 relative min-w-0 overflow-hidden">
+      <div className="absolute inset-0" style={{ background: 'radial-gradient(ellipse at 50% 40%, #252538 0%, #111118 100%)' }} />
+      <div ref={containerRef} className="absolute inset-0" />
 
-      <ViewportToolbar />
+      <DimensionLabels engine={engine} />
+      <ViewportToolbar engine={engine} />
+      <ShortcutOverlay />
 
+      {/* Evaluating overlay — centered spinner on the shape */}
       {evaluating && (
-        <div className="absolute top-3 left-3 bg-zinc-800/80 px-3 py-1.5 rounded text-sm text-zinc-300">
-          Evaluating...
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10">
+          <div className="w-8 h-8 border-2 rounded-full animate-spin"
+               style={{ borderColor: 'var(--accent)', borderTopColor: 'transparent' }} />
         </div>
       )}
       {error && (

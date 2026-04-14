@@ -3,15 +3,16 @@ export interface SDFNodeUI {
   kind: string;
   label: string;
   params: Record<string, number>;
+  data?: Record<string, string>;  // for string params like text content
   children: SDFNodeUI[];
   enabled: boolean;
 }
 
 // All valid node kinds
 export const NODE_KINDS = {
-  primitives: ['box', 'sphere', 'cylinder', 'torus'] as const,
+  primitives: ['box', 'sphere', 'cylinder', 'torus', 'cone', 'capsule'] as const,
   booleans: ['union', 'subtract', 'intersect'] as const,
-  modifiers: ['shell', 'offset', 'round', 'mirror'] as const,
+  modifiers: ['shell', 'offset', 'round', 'mirror', 'halfSpace'] as const,
   patterns: ['linearPattern', 'circularPattern'] as const,
   transforms: ['translate', 'rotate', 'scale'] as const,
 };
@@ -21,6 +22,10 @@ export const NODE_LABELS: Record<string, string> = {
   sphere: 'Sphere',
   cylinder: 'Cylinder',
   torus: 'Torus',
+  cone: 'Cone',
+  capsule: 'Capsule',
+  ellipsoid: 'Ellipsoid',
+  text: 'Text',
   union: 'Union',
   subtract: 'Subtract',
   intersect: 'Intersect',
@@ -28,6 +33,7 @@ export const NODE_LABELS: Record<string, string> = {
   offset: 'Offset',
   round: 'Round',
   mirror: 'Mirror',
+  halfSpace: 'Half-Space Cut',
   linearPattern: 'Linear Pattern',
   circularPattern: 'Circular Pattern',
   translate: 'Translate',
@@ -40,6 +46,10 @@ export const NODE_DEFAULTS: Record<string, Record<string, number>> = {
   sphere: { radius: 20 },
   cylinder: { radius: 15, height: 30 },
   torus: { majorRadius: 20, minorRadius: 5 },
+  cone: { radius: 15, height: 30 },
+  capsule: { radius: 10, height: 30 },
+  ellipsoid: { width: 30, height: 20, depth: 40 },
+  text: { size: 10, depth: 2 },
   union: { smooth: 0 },
   subtract: { smooth: 0 },
   intersect: { smooth: 0 },
@@ -47,6 +57,7 @@ export const NODE_DEFAULTS: Record<string, Record<string, number>> = {
   offset: { distance: 1 },
   round: { radius: 2 },
   mirror: { mirrorX: 1, mirrorY: 0, mirrorZ: 0 },
+  halfSpace: { axis: 1, position: 0, flip: 0 },
   linearPattern: { axisX: 1, axisY: 0, axisZ: 0, count: 3, spacing: 20 },
   circularPattern: { axisX: 0, axisY: 1, axisZ: 0, count: 6 },
   translate: { x: 0, y: 0, z: 0 },
@@ -59,6 +70,15 @@ export function expectedChildren(kind: string): number {
   if (NODE_KINDS.primitives.includes(kind as any)) return 0;
   if (NODE_KINDS.booleans.includes(kind as any)) return 2;
   return 1; // modifiers, transforms, patterns wrap one child
+}
+
+// Check if a tree is complete (all required children filled)
+export function isTreeValid(node: SDFNodeUI | null): boolean {
+  if (!node) return false;
+  if (!node.enabled) return true; // disabled nodes don't count
+  const expected = expectedChildren(node.kind);
+  if (node.children.length < expected) return false;
+  return node.children.every(child => isTreeValid(child));
 }
 
 export function isPrimitive(kind: string): boolean {
@@ -76,6 +96,9 @@ export function nodeSummary(node: SDFNodeUI): string {
     case 'sphere': return `r=${p.radius}`;
     case 'cylinder': return `r=${p.radius} h=${p.height}`;
     case 'torus': return `R=${p.majorRadius} r=${p.minorRadius}`;
+    case 'cone': return `r=${p.radius} h=${p.height}`;
+    case 'capsule': return `r=${p.radius} h=${p.height}`;
+    case 'ellipsoid': return `${p.width}\u00d7${p.height}\u00d7${p.depth}`;
     case 'union': case 'subtract': case 'intersect':
       return p.smooth > 0 ? `smooth=${p.smooth}` : 'sharp';
     case 'shell': return `${p.thickness}mm`;
@@ -90,6 +113,7 @@ export function nodeSummary(node: SDFNodeUI): string {
     }
     case 'linearPattern': return `${p.count}\u00d7 @ ${p.spacing}mm`;
     case 'circularPattern': return `${p.count}\u00d7 circular`;
+    case 'text': return `"${node.data?.text || 'Text'}" ${p.size}mm`;
     default: return '';
   }
 }

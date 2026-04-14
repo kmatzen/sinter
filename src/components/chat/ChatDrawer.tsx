@@ -1,5 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useChatStore } from '../../store/chatStore';
+import { features } from '../../config';
+import { Send, Settings, X } from 'lucide-react';
 
 export function ChatDrawer() {
   const isOpen = useChatStore((s) => s.isOpen);
@@ -31,89 +33,100 @@ export function ChatDrawer() {
   if (!isOpen) return null;
 
   return (
-    <div className="absolute right-0 top-10 bottom-0 w-96 bg-zinc-900 border-l border-zinc-700 flex flex-col z-50 shadow-2xl overflow-hidden">
-      {/* Header */}
-      <div className="px-3 py-2 border-b border-zinc-700 flex items-center justify-between">
-        <span className="text-sm font-medium text-zinc-300">AI Assistant</span>
-        <button onClick={toggleSettings} className="text-zinc-400 hover:text-zinc-200 text-sm">
-          {showSettings ? '\u2715' : '\u2699'}
-        </button>
+    <div className="absolute right-0 top-10 bottom-0 w-96 flex flex-col z-50 overflow-hidden"
+         style={{ background: 'var(--bg-panel)', borderLeft: '1px solid var(--border-subtle)', boxShadow: 'var(--shadow-lg)' }}>
+      <div className="px-3 py-2 flex items-center justify-between" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+        <span className="font-mono text-[10px] tracking-[0.15em] uppercase" style={{ color: 'var(--text-muted)' }}>AI Assistant</span>
+        {features.byok && (
+          <button onClick={toggleSettings} style={{ color: 'var(--text-muted)' }} className="hover:opacity-80">
+            {showSettings ? <X size={16} /> : <Settings size={16} />}
+          </button>
+        )}
       </div>
 
-      {/* Settings */}
-      {showSettings && (
-        <div className="p-3 border-b border-zinc-700 space-y-2 bg-zinc-800/50">
+      {/* BYOK settings — community edition only */}
+      {features.byok && showSettings && (
+        <div className="p-3 space-y-2" style={{ borderBottom: '1px solid var(--border-subtle)', background: 'var(--bg-surface)' }}>
           <div>
-            <label className="text-[10px] text-zinc-400 uppercase">Provider</label>
+            <label className="text-[10px] uppercase font-mono tracking-wider" style={{ color: 'var(--text-muted)' }}>Provider</label>
             <select
               value={provider}
               onChange={(e) => setApiConfig({ provider: e.target.value as 'openai' | 'anthropic' })}
-              className="w-full bg-zinc-700 border border-zinc-600 rounded px-2 py-1 text-sm text-zinc-100"
+              className="w-full rounded px-2 py-1 text-sm focus:outline-none"
+              style={{ background: 'var(--bg-elevated)', color: 'var(--text-primary)', border: '1px solid var(--border-default)' }}
             >
               <option value="anthropic">Anthropic</option>
               <option value="openai">OpenAI</option>
             </select>
           </div>
           <div>
-            <label className="text-[10px] text-zinc-400 uppercase">API Key</label>
+            <label className="text-[10px] uppercase font-mono tracking-wider" style={{ color: 'var(--text-muted)' }}>API Key</label>
             <input
               type="password"
               value={apiKey}
               onChange={(e) => setApiConfig({ apiKey: e.target.value })}
               placeholder="Enter API key..."
-              className="w-full bg-zinc-700 border border-zinc-600 rounded px-2 py-1 text-sm text-zinc-100"
+              className="w-full rounded px-2 py-1 text-sm focus:outline-none"
+              style={{ background: 'var(--bg-elevated)', color: 'var(--text-primary)', border: '1px solid var(--border-default)' }}
             />
           </div>
           <div>
-            <label className="text-[10px] text-zinc-400 uppercase">Model</label>
+            <label className="text-[10px] uppercase font-mono tracking-wider" style={{ color: 'var(--text-muted)' }}>Model</label>
             <input
               value={model}
               onChange={(e) => setApiConfig({ model: e.target.value })}
-              className="w-full bg-zinc-700 border border-zinc-600 rounded px-2 py-1 text-sm text-zinc-100"
+              className="w-full rounded px-2 py-1 text-sm focus:outline-none"
+              style={{ background: 'var(--bg-elevated)', color: 'var(--text-primary)', border: '1px solid var(--border-default)' }}
             />
           </div>
           <div>
-            <label className="text-[10px] text-zinc-400 uppercase">API Endpoint (optional)</label>
+            <label className="text-[10px] uppercase font-mono tracking-wider" style={{ color: 'var(--text-muted)' }}>API Endpoint (optional)</label>
             <input
               value={apiEndpoint}
               onChange={(e) => setApiConfig({ apiEndpoint: e.target.value })}
               placeholder="https://api.anthropic.com"
-              className="w-full bg-zinc-700 border border-zinc-600 rounded px-2 py-1 text-sm text-zinc-100"
+              className="w-full rounded px-2 py-1 text-sm focus:outline-none"
+              style={{ background: 'var(--bg-elevated)', color: 'var(--text-primary)', border: '1px solid var(--border-default)' }}
             />
           </div>
         </div>
       )}
 
-      {/* Messages */}
       <div className="flex-1 overflow-y-auto p-3 space-y-3">
         {messages.length === 0 && (
-          <div className="text-sm text-zinc-500 text-center mt-8">
-            <p className="mb-2">Describe what you want to model.</p>
-            <p className="text-xs">Example: "Make a box for an Arduino Uno with 2mm walls and rounded corners"</p>
+          <div className="text-center mt-8">
+            <p className="text-sm mb-2" style={{ color: 'var(--text-secondary)' }}>Describe what you want to model.</p>
+            <p className="text-xs" style={{ color: 'var(--text-muted)' }}>Example: "Make a box for an Arduino Uno with 2mm walls and rounded corners"</p>
           </div>
         )}
         {messages.map((msg, i) => (
           <div
             key={i}
-            className={`text-sm rounded-lg px-3 py-2 ${
-              msg.role === 'user'
-                ? 'bg-blue-900/40 text-blue-100 ml-8'
-                : 'bg-zinc-800 text-zinc-200 mr-8'
-            }`}
+            className={`text-sm rounded-lg px-3 py-2 ${msg.role === 'user' ? 'ml-8' : 'mr-8'}`}
+            style={{
+              background: msg.role === 'user' ? 'var(--accent-subtle)' : 'var(--bg-surface)',
+              color: msg.role === 'user' ? 'var(--accent)' : 'var(--text-secondary)',
+            }}
           >
+            {msg.images && msg.images.length > 0 && (
+              <div className="flex gap-1 mb-1.5 overflow-x-auto">
+                {msg.images.map((src, j) => (
+                  <img key={j} src={src} alt="" className="w-14 h-14 rounded object-cover shrink-0" style={{ border: '1px solid var(--border-subtle)' }} />
+                ))}
+              </div>
+            )}
             <pre className="whitespace-pre-wrap break-words overflow-hidden font-sans">{msg.content}</pre>
           </div>
         ))}
         {isLoading && (
-          <div className="bg-zinc-800 text-zinc-400 text-sm rounded-lg px-3 py-2 mr-8 animate-pulse">
+          <div className="text-sm rounded-lg px-3 py-2 mr-8 animate-pulse" style={{ background: 'var(--bg-surface)', color: 'var(--text-muted)' }}>
             Thinking...
           </div>
         )}
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Input */}
-      <div className="p-3 border-t border-zinc-700">
+      <div className="p-3" style={{ borderTop: '1px solid var(--border-subtle)' }}>
         <div className="flex gap-2">
           <input
             value={input}
@@ -121,14 +134,17 @@ export function ChatDrawer() {
             onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
             placeholder="Describe your model..."
             disabled={isLoading}
-            className="flex-1 bg-zinc-700 border border-zinc-600 rounded px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:border-blue-500 disabled:opacity-50"
+            className="flex-1 rounded px-3 py-2 text-sm focus:outline-none disabled:opacity-50"
+            style={{ background: 'var(--bg-surface)', color: 'var(--text-primary)', border: '1px solid var(--border-default)' }}
           />
           <button
             onClick={handleSend}
             disabled={isLoading || !input.trim()}
-            className="px-3 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 rounded text-sm text-white"
+            title="Send"
+            className="px-3 py-2 rounded flex items-center justify-center disabled:opacity-40"
+            style={{ background: 'var(--accent)', color: 'var(--bg-deep)' }}
           >
-            Send
+            <Send size={16} />
           </button>
         </div>
       </div>

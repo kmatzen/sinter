@@ -1,49 +1,53 @@
 import { useEffect, useRef } from 'react';
 import { useModelerStore } from '../store/modelerStore';
-import { useViewportStore } from '../store/viewportStore';
 import { workerBridge } from './workerBridge';
-import type { ClipPlane } from '../types/geometry';
+import { isTreeValid } from '../types/operations';
 
 export function useEvaluator() {
   const prevKeyRef = useRef<string>('');
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const evalSeqRef = useRef(0);
 
   useEffect(() => {
     function triggerEval() {
-      const tree = useModelerStore.getState().tree;
-      const { resolution, clipEnabled, clipAxis, clipPosition } = useViewportStore.getState();
-
+      // Cancel any pending evaluation
       if (debounceRef.current) clearTimeout(debounceRef.current);
 
+      // Evaluate immediately — codegen is <1ms, no need for debounce
       debounceRef.current = setTimeout(() => {
-        const clip: ClipPlane | undefined = clipEnabled
-          ? { axis: clipAxis, position: clipPosition }
-          : undefined;
-        const key = JSON.stringify(tree) + ':' + resolution + ':' + JSON.stringify(clip);
+        const tree = useModelerStore.getState().tree;
+        const key = JSON.stringify(tree);
         if (key === prevKeyRef.current) return;
         prevKeyRef.current = key;
 
+        if (tree && !isTreeValid(tree)) {
+          useModelerStore.getState().setSDFDisplay(null);
+          useModelerStore.getState().setEvaluating(false);
+          return;
+        }
+
+        const seq = ++evalSeqRef.current;
         useModelerStore.getState().setEvaluating(true);
         useModelerStore.getState().setError(null);
 
-        workerBridge.evaluate(tree, resolution, clip)
-          .then((mesh) => {
-            useModelerStore.getState().setMesh(mesh);
+        workerBridge.evaluate(tree)
+          .then((sdf) => {
+            if (seq !== evalSeqRef.current) return;
+            useModelerStore.getState().setSDFDisplay(sdf);
             useModelerStore.getState().setEvaluating(false);
           })
           .catch((err) => {
+            if (seq !== evalSeqRef.current) return;
             useModelerStore.getState().setError(err.message);
             useModelerStore.getState().setEvaluating(false);
           });
-      }, 100);
+      }, 0); // Immediate — codegen is <1ms
     }
 
     const unsub1 = useModelerStore.subscribe(triggerEval);
-    const unsub2 = useViewportStore.subscribe(triggerEval);
 
     return () => {
       unsub1();
-      unsub2();
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
   }, []);
