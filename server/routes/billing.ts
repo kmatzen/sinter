@@ -2,6 +2,7 @@ import { Router } from 'express';
 import fs from 'fs';
 import path from 'path';
 import { requireAuth } from '../middleware/requireAuth';
+import { rateLimit } from '../middleware/rateLimit';
 import db from '../db';
 import type { User } from '../auth';
 
@@ -70,7 +71,8 @@ router.post('/allocate-storage', requireAuth, (req, res) => {
 });
 
 // Purchase credits
-router.post('/checkout', requireAuth, async (req, res) => {
+const checkoutLimit = rateLimit({ windowMs: 60_000, max: 5, message: 'Too many checkout attempts.' });
+router.post('/checkout', requireAuth, checkoutLimit, async (req, res) => {
   const stripe = getStripe();
   if (!stripe) return res.status(500).json({ error: 'Payments not configured' });
 
@@ -123,17 +125,16 @@ router.post('/verify', requireAuth, async (req, res) => {
 
     if (userId !== user.id) return res.status(403).json({ error: 'Session mismatch' });
 
-    // Check if already credited (idempotent)
+    // Atomic: insert session key first to prevent double-credit race condition
     const key = `checkout_${sessionId}`;
-    const existing = db.prepare('SELECT 1 FROM used_sessions WHERE key = ?').get(key);
-    if (existing) return res.json({ credited: false, already: true });
+    const inserted = db.prepare('INSERT OR IGNORE INTO used_sessions (key) VALUES (?)').run(key);
+    if (inserted.changes === 0) {
+      return res.json({ credited: false, already: true });
+    }
 
     console.log('[billing] crediting', credits, 'credits to user', userId);
     const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
     db.prepare('UPDATE users SET credits = credits + ?, credits_expire_at = ?, grace_period_start = NULL WHERE id = ?').run(credits, expiresAt, userId);
-
-    // Mark as used
-    db.prepare('INSERT OR IGNORE INTO used_sessions (key) VALUES (?)').run(key);
 
     res.json({ credited: true, credits });
   } catch (err: any) {
@@ -152,8 +153,10 @@ router.post('/webhook', async (req, res) => {
   if (!webhookSecret) return res.status(403).json({ error: 'Not configured' });
 
   try {
+    // req.body is a raw Buffer when using express.raw() middleware
+    const rawBody = Buffer.isBuffer(req.body) ? req.body : JSON.stringify(req.body);
     const event = stripe.webhooks.constructEvent(
-      JSON.stringify(req.body),
+      rawBody,
       sig,
       webhookSecret,
     );
@@ -175,17 +178,7 @@ router.post('/webhook', async (req, res) => {
   }
 });
 
-// Track usage — deduct 1 credit per request
-export function trackUsage(userId: string): { allowed: boolean; remaining: number } {
-  const user = db.prepare('SELECT credits FROM users WHERE id = ?').get(userId) as any;
-  if (!user) return { allowed: false, remaining: 0 };
 
-  const credits = user.credits ?? 0;
-  if (credits <= 0) return { allowed: false, remaining: 0 };
-
-  db.prepare('UPDATE users SET credits = credits - 1 WHERE id = ?').run(userId);
-  return { allowed: true, remaining: credits - 1 };
-}
 
 import Stripe from 'stripe';
 import { allocateStorage, getUserStorageBytes } from '../storageBilling';

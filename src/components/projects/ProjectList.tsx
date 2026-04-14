@@ -122,7 +122,8 @@ export function ProjectList({ onSelect, onNew, onClose, onImport }: Props) {
     e.stopPropagation();
     const legacy = localStorage.getItem('sinter_local_project');
     if (!legacy) return;
-    const data = JSON.parse(legacy);
+    let data: any;
+    try { data = JSON.parse(legacy); } catch { return; }
     try {
       const res = await fetch('/api/projects', {
         method: 'POST',
