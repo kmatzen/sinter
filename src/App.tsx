@@ -21,7 +21,6 @@ function App() {
   const hasAppPath = window.location.pathname.startsWith('/app');
   const hasBillingReturn = new URLSearchParams(window.location.search).has('session_id');
   const initialShareMatch = window.location.pathname.match(/^\/share\/([0-9a-f]{64})$/i);
-  const returningUser = !!localStorage.getItem('sinter_launched');
   const [shareToken, setShareToken] = useState<string | null>(initialShareMatch ? initialShareMatch[1] : null);
   const [showLanding, setShowLanding] = useState(!hasAppPath && !hasBillingReturn && !initialShareMatch);
   const user = useAuthStore((s) => s.user);
