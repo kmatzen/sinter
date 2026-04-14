@@ -260,21 +260,20 @@ test.describe('Modeler: Full workflow', () => {
     await addShape(page, 'Box');
     await expect(page.locator(`text=50\u00d730\u00d750`)).toBeVisible();
 
-    // 2. Select box and wrap in subtract (will need a second child)
-    await page.locator(`text=50\u00d730\u00d750`).click();
-    await addOp(page, 'Subtract');
-    await expect(page.locator('text=Subtract').first()).toBeVisible();
-    await expect(page.locator('text=drop here')).toBeVisible();
-
-    // 3. Click the placeholder to select subtract, then add cylinder as second child
-    await page.locator('text=Subtract').first().click();
-    await addShape(page, 'Cylinder');
-    await expect(page.locator('text=Cylinder').first()).toBeVisible();
-
-    // 4. Select box and wrap in round
+    // 2. Wrap box in round
     await page.locator(`text=50\u00d730\u00d750`).click();
     await addOp(page, 'Round');
     await expect(page.locator('text=Round').first()).toBeVisible();
+
+    // 3. Add a subtract wrapping the round
+    await page.locator('text=Round').first().click();
+    await addOp(page, 'Subtract');
+    await expect(page.locator('text=Subtract').first()).toBeVisible();
+
+    // 4. Add cylinder as second child of subtract
+    await page.locator('text=Subtract').first().click();
+    await addShape(page, 'Cylinder');
+    await expect(page.locator('text=Cylinder').first()).toBeVisible();
 
     // 5. Verify tree structure
     await expect(page.locator('text=Subtract').first()).toBeVisible();
