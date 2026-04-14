@@ -25,7 +25,8 @@ if (!isDev && (!process.env.SESSION_SECRET || process.env.SESSION_SECRET === 'de
   process.exit(1);
 }
 
-// Middleware
+// Middleware — raw body for Stripe webhook, JSON for everything else
+app.use('/api/billing/webhook', express.raw({ type: 'application/json' }));
 app.use(express.json({ limit: '10mb' }));
 
 // Site password gate (set SITE_PASSWORD to enable).
@@ -37,16 +38,24 @@ function isGateUnlocked(req: any): boolean {
 }
 
 // Security headers
-app.use((_req, res, next) => {
+app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('X-XSS-Protection', '1; mode=block');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  if (req.path.startsWith('/api/')) {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+  }
   next();
 });
 
+if (!isDev && !process.env.BASE_URL) {
+  console.error('FATAL: BASE_URL must be set in production');
+  process.exit(1);
+}
+
 app.use(cors({
-  origin: isDev ? 'http://localhost:5173' : (process.env.BASE_URL || false),
+  origin: isDev ? 'http://localhost:5173' : process.env.BASE_URL!,
   credentials: true,
 }));
 

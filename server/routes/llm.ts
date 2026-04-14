@@ -1,9 +1,11 @@
 import { Router } from 'express';
 import { requireAuth } from '../middleware/requireAuth';
+import { rateLimit } from '../middleware/rateLimit';
 import db from '../db';
 
 const router = Router();
 router.use(requireAuth);
+router.use(rateLimit({ windowMs: 60_000, max: 20, message: 'Too many AI requests. Please wait a moment.' }));
 
 // Anthropic pricing (per token)
 const INPUT_COST = 3 / 1_000_000;    // $3 per 1M input tokens

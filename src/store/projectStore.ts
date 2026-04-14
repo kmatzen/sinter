@@ -95,7 +95,8 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     const store = useModelerStore.getState();
     store.setProjectName(data.name || 'Untitled');
     if (data.tree_json) {
-      const tree = typeof data.tree_json === 'string' ? JSON.parse(data.tree_json) : data.tree_json;
+      let tree;
+      try { tree = typeof data.tree_json === 'string' ? JSON.parse(data.tree_json) : data.tree_json; } catch { tree = null; }
       store.setTree(tree);
     } else {
       store.setTree(null);
