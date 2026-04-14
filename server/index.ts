@@ -80,12 +80,12 @@ setupAuth();
 const passportInit = passport.initialize();
 const passportSession = passport.session();
 
-// Only attach session + passport when consent cookie exists, or on auth/gate routes
-const consentPaths = ['/api/auth', '/gate', '/api/llm', '/api/projects', '/api/billing'];
+// Only attach session + passport when consent cookie exists.
+// /api/auth/config is exempt (informational, no cookies set).
 app.use((req, res, next) => {
+  if (req.path === '/api/auth/config') return next();
   const hasConsent = req.headers.cookie?.includes('sinter_cookie_consent=accepted');
-  const needsSession = hasConsent || consentPaths.some((p) => req.path.startsWith(p));
-  if (!needsSession) return next();
+  if (!hasConsent) return next();
   sessionMiddleware(req, res, () => {
     passportInit(req, res, () => {
       passportSession(req, res, next);
