@@ -42,11 +42,14 @@ function App() {
     return () => window.removeEventListener('show-landing', handler);
   }, []);
 
+  // In paid mode, require cookie consent before showing auth or app pages
+  const hasConsent = !features.auth || !!localStorage.getItem('sinter_cookie_consent');
+
   let content;
 
   if (shareToken) {
     content = <SharedViewer token={shareToken} onOpenEditor={() => setShareToken(null)} />;
-  } else if (showLanding) {
+  } else if (showLanding || (features.auth && !hasConsent)) {
     content = <LandingPage onLaunch={() => { localStorage.setItem('sinter_launched', '1'); setShowLanding(false); }} />;
   } else if (features.auth && !localStorage.getItem('sinter_launched') && (loading || !checked)) {
     content = (
