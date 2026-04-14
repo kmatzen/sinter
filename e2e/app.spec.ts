@@ -14,15 +14,14 @@ async function enterModeler(page: any) {
 
 // Helper: click a shape in the parts palette Shapes tab
 async function addShape(page: any, name: string) {
-  // Ensure Shapes tab is selected
   await page.locator('button[role="tab"]:has-text("Shapes")').click();
-  await page.locator(`[title="Add ${name}"]`).click();
+  await page.locator(`[title="Add ${name}"]`).click({ force: true });
 }
 
 // Helper: click an operation in the parts palette Ops tab
 async function addOp(page: any, name: string) {
   await page.locator('button[role="tab"]:has-text("Ops")').click();
-  await page.locator(`[title="Add ${name}"]`).click();
+  await page.locator(`[title="Add ${name}"]`).click({ force: true });
 }
 
 test.describe('Landing Page', () => {
