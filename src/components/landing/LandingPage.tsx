@@ -1,8 +1,30 @@
 import { useState, useEffect } from 'react';
 import { features } from '../../config';
 import { HeroDemo } from './HeroDemo';
+import { hasConsent, requestConsent } from '../ui/CookieConsent';
 
 export function LandingPage({ onLaunch }: { onLaunch: () => void }) {
+  // Wrap onLaunch to check consent first
+  const handleLaunch = () => {
+    if (features.auth && !hasConsent()) {
+      requestConsent();
+      // Listen for acceptance, then proceed
+      const handler = () => { onLaunch(); window.removeEventListener('cookie-consent-accepted', handler); };
+      window.addEventListener('cookie-consent-accepted', handler);
+      return;
+    }
+    onLaunch();
+  };
+
+  const handleSignIn = () => {
+    if (!hasConsent()) {
+      requestConsent();
+      const handler = () => { window.location.href = '/app'; window.removeEventListener('cookie-consent-accepted', handler); };
+      window.addEventListener('cookie-consent-accepted', handler);
+      return;
+    }
+    window.location.href = '/app';
+  };
   const [showTOS, setShowTOS] = useState(false);
   const [showPrivacy, setShowPrivacy] = useState(false);
   const [signInEnabled, setSignInEnabled] = useState(!features.auth);
@@ -43,12 +65,12 @@ export function LandingPage({ onLaunch }: { onLaunch: () => void }) {
             onMouseLeave={(e) => e.currentTarget.style.color = 'var(--text-secondary)'}>GitHub</a>
           {signInEnabled ? (
             features.auth ? (
-              <a href="/app" className="text-sm px-4 py-2 rounded-md font-medium"
+              <button onClick={handleSignIn} className="text-sm px-4 py-2 rounded-md font-medium"
                  style={{ background: 'var(--accent)', color: 'var(--bg-deep)' }}>
                 Sign In
-              </a>
+              </button>
             ) : (
-              <button onClick={onLaunch} className="text-sm px-4 py-2 rounded-md font-medium"
+              <button onClick={handleLaunch} className="text-sm px-4 py-2 rounded-md font-medium"
                       style={{ background: 'var(--accent)', color: 'var(--bg-deep)' }}>
                 Launch App
               </button>
@@ -90,7 +112,7 @@ export function LandingPage({ onLaunch }: { onLaunch: () => void }) {
         <div className="flex gap-3 justify-center">
           {signInEnabled ? (
             <button
-              onClick={onLaunch}
+              onClick={handleLaunch}
               className="group px-7 py-3 rounded-md font-medium text-base flex items-center gap-2"
               style={{ background: 'var(--accent)', color: 'var(--bg-deep)' }}
             >
@@ -205,8 +227,8 @@ export function LandingPage({ onLaunch }: { onLaunch: () => void }) {
               <div className="text-2xl font-bold mb-1" style={{ color: 'var(--text-primary)' }}>${pack.price}</div>
               <p className="text-[11px] mb-5" style={{ color: 'var(--text-muted)' }}>${pack.perCredit}/credit</p>
               {signInEnabled ? (
-                <a href={features.auth ? '/app' : '#'}
-                   onClick={features.auth ? undefined : onLaunch}
+                <button
+                   onClick={features.auth ? handleSignIn : handleLaunch}
                    className="block w-full py-2 rounded-md text-sm font-medium text-center"
                    style={{
                      background: pack.popular ? 'var(--accent)' : 'var(--bg-elevated)',
@@ -214,7 +236,7 @@ export function LandingPage({ onLaunch }: { onLaunch: () => void }) {
                      border: pack.popular ? '1px solid var(--accent)' : '1px solid var(--border-default)',
                    }}>
                   {features.auth ? 'Sign In to Buy' : 'Get Started'}
-                </a>
+                </button>
               ) : (
                 <span
                    className="block w-full py-2 rounded-md text-sm font-medium text-center"
@@ -268,7 +290,7 @@ export function LandingPage({ onLaunch }: { onLaunch: () => void }) {
         <p className="text-sm mb-6" style={{ color: 'var(--text-muted)' }}>No account required. Open the app and start building.</p>
         {signInEnabled ? (
           <button
-            onClick={onLaunch}
+            onClick={handleLaunch}
             className="group px-7 py-3 rounded-md font-medium text-base inline-flex items-center gap-2"
             style={{ background: 'var(--accent)', color: 'var(--bg-deep)' }}
           >
