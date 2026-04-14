@@ -39,16 +39,23 @@ export function LandingPage({ onLaunch }: { onLaunch: () => void }) {
           <a href="https://github.com/kmatzen/sinter" className="text-sm transition-colors" style={{ color: 'var(--text-secondary)' }}
             onMouseEnter={(e) => e.currentTarget.style.color = 'var(--text-primary)'}
             onMouseLeave={(e) => e.currentTarget.style.color = 'var(--text-secondary)'}>GitHub</a>
-          {features.auth ? (
-            <a href="/app" className="text-sm px-4 py-2 rounded-md font-medium"
-               style={{ background: 'var(--accent)', color: 'var(--bg-deep)' }}>
-              Sign In
-            </a>
+          {signInEnabled ? (
+            features.auth ? (
+              <a href="/app" className="text-sm px-4 py-2 rounded-md font-medium"
+                 style={{ background: 'var(--accent)', color: 'var(--bg-deep)' }}>
+                Sign In
+              </a>
+            ) : (
+              <button onClick={onLaunch} className="text-sm px-4 py-2 rounded-md font-medium"
+                      style={{ background: 'var(--accent)', color: 'var(--bg-deep)' }}>
+                Launch App
+              </button>
+            )
           ) : (
-            <button onClick={onLaunch} className="text-sm px-4 py-2 rounded-md font-medium"
-                    style={{ background: 'var(--accent)', color: 'var(--bg-deep)' }}>
-              Launch App
-            </button>
+            <span className="text-sm px-4 py-2 rounded-md font-medium"
+                  style={{ background: 'var(--bg-surface)', color: 'var(--text-muted)', border: '1px solid var(--border-subtle)' }}>
+              Coming Soon
+            </span>
           )}
         </div>
       </nav>
@@ -79,14 +86,23 @@ export function LandingPage({ onLaunch }: { onLaunch: () => void }) {
         </p>
 
         <div className="flex gap-3 justify-center">
-          <button
-            onClick={onLaunch}
-            className="group px-7 py-3 rounded-md font-medium text-base flex items-center gap-2"
-            style={{ background: 'var(--accent)', color: 'var(--bg-deep)' }}
-          >
-            Start Modeling
-            <span className="group-hover:translate-x-0.5 transition-transform">&rarr;</span>
-          </button>
+          {signInEnabled ? (
+            <button
+              onClick={onLaunch}
+              className="group px-7 py-3 rounded-md font-medium text-base flex items-center gap-2"
+              style={{ background: 'var(--accent)', color: 'var(--bg-deep)' }}
+            >
+              Start Modeling
+              <span className="group-hover:translate-x-0.5 transition-transform">&rarr;</span>
+            </button>
+          ) : (
+            <span
+              className="px-7 py-3 rounded-md font-medium text-base"
+              style={{ background: 'var(--bg-surface)', color: 'var(--text-muted)', border: '1px solid var(--border-subtle)' }}
+            >
+              Coming Soon
+            </span>
+          )}
           <a
             href="https://github.com/kmatzen/sinter"
             className="px-7 py-3 rounded-md font-medium text-base"
@@ -243,14 +259,23 @@ export function LandingPage({ onLaunch }: { onLaunch: () => void }) {
       <section className="relative z-10 max-w-3xl mx-auto px-6 py-16 text-center">
         <h2 className="text-2xl font-bold tracking-tight mb-3" style={{ color: 'var(--text-primary)' }}>Ready to start modeling?</h2>
         <p className="text-sm mb-6" style={{ color: 'var(--text-muted)' }}>No account required. Open the app and start building.</p>
-        <button
-          onClick={onLaunch}
-          className="group px-7 py-3 rounded-md font-medium text-base inline-flex items-center gap-2"
-          style={{ background: 'var(--accent)', color: 'var(--bg-deep)' }}
-        >
-          Start Modeling
-          <span className="group-hover:translate-x-0.5 transition-transform">&rarr;</span>
-        </button>
+        {signInEnabled ? (
+          <button
+            onClick={onLaunch}
+            className="group px-7 py-3 rounded-md font-medium text-base inline-flex items-center gap-2"
+            style={{ background: 'var(--accent)', color: 'var(--bg-deep)' }}
+          >
+            Start Modeling
+            <span className="group-hover:translate-x-0.5 transition-transform">&rarr;</span>
+          </button>
+        ) : (
+          <span
+            className="px-7 py-3 rounded-md font-medium text-base inline-block"
+            style={{ background: 'var(--bg-surface)', color: 'var(--text-muted)', border: '1px solid var(--border-subtle)' }}
+          >
+            Coming Soon
+          </span>
+        )}
       </section>
 
       {/* Footer */}
