@@ -54,28 +54,30 @@ export function LoginPage() {
             </a>
           </div>
         ) : (
-          <div className="w-72 text-center space-y-3">
+          <div className="w-72 text-center">
             <div className="px-4 py-3 rounded-lg" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)' }}>
-              <p className="text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>Sign in coming soon</p>
+              <p className="text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>Coming Soon</p>
               <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-                Cloud storage and AI features are launching shortly.
+                Sign in, cloud storage, and AI features are launching shortly.
               </p>
             </div>
           </div>
         )}
 
-        <button
-          onClick={() => {
-            localStorage.setItem('sinter_launched', '1');
-            window.location.href = '/app';
-          }}
-          className="text-sm font-medium px-4 py-2 rounded-md transition-colors"
-          style={{ background: 'var(--bg-elevated)', color: 'var(--text-secondary)', border: '1px solid var(--border-subtle)' }}
-          onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--border-default)'; }}
-          onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--border-subtle)'; }}
-        >
-          Continue without account
-        </button>
+        {signInEnabled && (
+          <button
+            onClick={() => {
+              localStorage.setItem('sinter_launched', '1');
+              window.location.href = '/app';
+            }}
+            className="text-sm font-medium px-4 py-2 rounded-md transition-colors"
+            style={{ background: 'var(--bg-elevated)', color: 'var(--text-secondary)', border: '1px solid var(--border-subtle)' }}
+            onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--border-default)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--border-subtle)'; }}
+          >
+            Continue without account
+          </button>
+        )}
 
         <button
           onClick={() => window.dispatchEvent(new Event('show-landing'))}

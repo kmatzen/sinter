@@ -7,6 +7,7 @@ import { ChatDrawer } from './components/chat/ChatDrawer';
 import { LoginPage } from './components/auth/LoginPage';
 import { LandingPage } from './components/landing/LandingPage';
 import { SharedViewer } from './components/share/SharedViewer';
+import { CookieConsent } from './components/ui/CookieConsent';
 import { useEvaluator } from './engine/useEvaluator';
 import { useModelerStore } from './store/modelerStore';
 import { useViewportStore } from './store/viewportStore';
@@ -20,9 +21,8 @@ function App() {
   const hasAppPath = window.location.pathname.startsWith('/app');
   const hasBillingReturn = new URLSearchParams(window.location.search).has('session_id');
   const initialShareMatch = window.location.pathname.match(/^\/share\/([0-9a-f]{64})$/i);
-  const returningUser = !!localStorage.getItem('sinter_launched');
   const [shareToken, setShareToken] = useState<string | null>(initialShareMatch ? initialShareMatch[1] : null);
-  const [showLanding, setShowLanding] = useState(!hasAppPath && !hasBillingReturn && !initialShareMatch && !returningUser);
+  const [showLanding, setShowLanding] = useState(!hasAppPath && !hasBillingReturn && !initialShareMatch);
   const user = useAuthStore((s) => s.user);
   const loading = useAuthStore((s) => s.loading);
   const checked = useAuthStore((s) => s.checked);
@@ -40,29 +40,30 @@ function App() {
     return () => window.removeEventListener('show-landing', handler);
   }, []);
 
-  // Shared project viewer — no auth required
+  let content;
+
   if (shareToken) {
-    return <SharedViewer token={shareToken} onOpenEditor={() => setShareToken(null)} />;
+    content = <SharedViewer token={shareToken} onOpenEditor={() => setShareToken(null)} />;
+  } else if (showLanding) {
+    content = <LandingPage onLaunch={() => { localStorage.setItem('sinter_launched', '1'); setShowLanding(false); }} />;
+  } else if (features.auth && !localStorage.getItem('sinter_launched') && (loading || !checked)) {
+    content = (
+      <div className="h-full flex items-center justify-center bg-zinc-900">
+        <div className="text-zinc-400 text-sm">Loading...</div>
+      </div>
+    );
+  } else if (features.auth && !localStorage.getItem('sinter_launched') && !user) {
+    content = <LoginPage />;
+  } else {
+    content = <ModelerApp />;
   }
 
-  // Show landing page initially
-  if (showLanding) {
-    return <LandingPage onLaunch={() => { localStorage.setItem('sinter_launched', '1'); setShowLanding(false); }} />;
-  }
-
-  // Paid edition: require auth (unless user chose to continue without account)
-  if (features.auth && !localStorage.getItem('sinter_launched')) {
-    if (loading || !checked) {
-      return (
-        <div className="h-full flex items-center justify-center bg-zinc-900">
-          <div className="text-zinc-400 text-sm">Loading...</div>
-        </div>
-      );
-    }
-    if (!user) return <LoginPage />;
-  }
-
-  return <ModelerApp />;
+  return (
+    <>
+      {content}
+      <CookieConsent />
+    </>
+  );
 }
 
 function ModelerApp() {

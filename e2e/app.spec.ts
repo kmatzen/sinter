@@ -1,11 +1,20 @@
 import { test, expect } from '@playwright/test';
 
+// Helper: dismiss cookie consent banner if visible
+async function dismissCookieConsent(page: any) {
+  const accept = page.locator('button:has-text("Accept")');
+  if (await accept.isVisible({ timeout: 1000 }).catch(() => false)) {
+    await accept.click();
+  }
+}
+
 // Helper: ensure we're in the modeler (handles both fresh and returning user)
 async function enterModeler(page: any) {
   await page.goto('/', { waitUntil: 'domcontentloaded' });
   // Clear the returning-user flag so landing page shows
   await page.evaluate(() => localStorage.removeItem('sinter_launched'));
   await page.reload({ waitUntil: 'domcontentloaded' });
+  await dismissCookieConsent(page);
   const btn = page.locator('button', { hasText: 'Launch App' }).first();
   await btn.waitFor({ state: 'visible', timeout: 15000 });
   await btn.click();
@@ -29,6 +38,7 @@ test.describe('Landing Page', () => {
     await page.goto('/', { waitUntil: 'domcontentloaded' });
     await page.evaluate(() => localStorage.removeItem('sinter_launched'));
     await page.reload({ waitUntil: 'domcontentloaded' });
+    await dismissCookieConsent(page);
   });
 
   test('shows hero text', async ({ page }) => {
