@@ -7,6 +7,7 @@ export default defineConfig({
   use: {
     baseURL: 'http://localhost:5174',
     headless: true,
+    actionTimeout: 15000,
   },
   webServer: {
     command: 'VITE_EDITION=community npx vite --port 5174',
