@@ -13,6 +13,8 @@ export function CookieConsent() {
 
   function accept() {
     localStorage.setItem(CONSENT_KEY, 'accepted');
+    // Set a cookie so the server knows consent was given (365 days)
+    document.cookie = `${CONSENT_KEY}=accepted; path=/; max-age=${365 * 24 * 60 * 60}; SameSite=Lax`;
     setVisible(false);
   }
 

@@ -50,10 +50,11 @@ app.use(cors({
   credentials: true,
 }));
 
-// Sessions with SQLite store
+// Sessions with SQLite store — only initialized when cookie consent is given
+// or when accessing auth/gate routes (which imply consent).
 const SessionStore = SqliteStore(session);
 
-app.use(session({
+const sessionMiddleware = session({
   store: new SessionStore({ client: db, expired: { clear: true, intervalMs: 900000 } }),
   secret: process.env.SESSION_SECRET || 'dev-secret-change-me',
   resave: false,
@@ -64,12 +65,24 @@ app.use(session({
     maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
     sameSite: isDev ? 'lax' : 'strict',
   },
-}));
+});
 
-// Passport
 setupAuth();
-app.use(passport.initialize());
-app.use(passport.session());
+const passportInit = passport.initialize();
+const passportSession = passport.session();
+
+// Only attach session + passport when consent cookie exists, or on auth/gate routes
+const consentPaths = ['/api/auth', '/gate', '/api/llm', '/api/projects', '/api/billing'];
+app.use((req, res, next) => {
+  const hasConsent = req.headers.cookie?.includes('sinter_cookie_consent=accepted');
+  const needsSession = hasConsent || consentPaths.some((p) => req.path.startsWith(p));
+  if (!needsSession) return next();
+  sessionMiddleware(req, res, () => {
+    passportInit(req, res, () => {
+      passportSession(req, res, next);
+    });
+  });
+});
 
 // Site password gate routes (need session to be available)
 if (sitePassword) {
