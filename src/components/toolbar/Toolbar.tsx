@@ -81,9 +81,10 @@ export function Toolbar() {
     <div className="h-11 flex items-center px-3 gap-2 shrink-0"
          style={{ background: 'var(--bg-panel)', borderBottom: '1px solid var(--border-subtle)' }}>
       <div className="flex items-center gap-2">
-        <img src="/logo-64.png" alt="Sinter" className="w-5 h-5 rounded cursor-pointer"
-             onClick={() => window.dispatchEvent(new Event('show-landing'))}
-             title="Back to home" />
+        <img src="/logo-64.png" alt="Sinter" className="w-5 h-5 rounded"
+             style={{ cursor: features.auth ? 'pointer' : 'default' }}
+             onClick={() => { if (features.auth) window.dispatchEvent(new Event('show-landing')); }}
+             title={features.auth ? 'Back to home' : 'Sinter'} />
         <input
           value={projectName}
           onChange={(e) => setProjectName(e.target.value)}

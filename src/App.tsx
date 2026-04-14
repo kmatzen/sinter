@@ -22,7 +22,8 @@ function App() {
   const hasBillingReturn = new URLSearchParams(window.location.search).has('session_id');
   const initialShareMatch = window.location.pathname.match(/^\/share\/([0-9a-f]{64})$/i);
   const [shareToken, setShareToken] = useState<string | null>(initialShareMatch ? initialShareMatch[1] : null);
-  const [showLanding, setShowLanding] = useState(!hasAppPath && !hasBillingReturn && !initialShareMatch);
+  // Community edition skips landing page entirely
+  const [showLanding, setShowLanding] = useState(features.auth && !hasAppPath && !hasBillingReturn && !initialShareMatch);
   const user = useAuthStore((s) => s.user);
   const loading = useAuthStore((s) => s.loading);
   const checked = useAuthStore((s) => s.checked);
@@ -35,6 +36,7 @@ function App() {
   }, [checkAuth]);
 
   useEffect(() => {
+    if (!features.auth) return; // No landing page in community mode
     const handler = () => setShowLanding(true);
     window.addEventListener('show-landing', handler);
     return () => window.removeEventListener('show-landing', handler);
