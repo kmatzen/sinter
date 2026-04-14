@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { isDirty, markClean } from '../../store/localPersist';
+import { isDirty, markClean, saveToLocal } from '../../store/localPersist';
 import { useModelerStore } from '../../store/modelerStore';
 import { useAuthStore } from '../../store/authStore';
 import { useProjectStore } from '../../store/projectStore';
@@ -95,8 +95,12 @@ export function Toolbar() {
       </div>
       <div className="w-px h-4 mx-1" style={{ background: 'var(--border-default)' }} />
       <IconBtn icon={<FilePlus size={14} />} title="New project" onClick={() => { useModelerStore.getState().setTree(null); useModelerStore.getState().setProjectName('Untitled'); }} />
-      {features.cloudStorage && <IconBtn icon={<FolderOpen size={14} />} title="Projects" onClick={() => setShowProjects(true)} />}
-      {features.cloudStorage && <IconBtn icon={<Save size={14} />} title={saving ? 'Saving...' : 'Save to cloud'} onClick={handleSaveCloud} disabled={saving || !dirty} />}
+      <IconBtn icon={<FolderOpen size={14} />} title="Projects" onClick={() => setShowProjects(true)} />
+      {features.cloudStorage ? (
+        <IconBtn icon={<Save size={14} />} title={saving ? 'Saving...' : 'Save to cloud'} onClick={handleSaveCloud} disabled={saving || !dirty} />
+      ) : (
+        <IconBtn icon={<Save size={14} />} title="Save" onClick={() => { saveToLocal(); markClean(); setDirty(false); }} disabled={!dirty} />
+      )}
       {features.sharing && projectId && (
         shareToken ? (
           <IconBtn
