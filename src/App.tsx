@@ -50,8 +50,8 @@ function App() {
     return <LandingPage onLaunch={() => { localStorage.setItem('sinter_launched', '1'); setShowLanding(false); }} />;
   }
 
-  // Paid edition: require auth
-  if (features.auth) {
+  // Paid edition: require auth (unless user chose to continue without account)
+  if (features.auth && !localStorage.getItem('sinter_launched')) {
     if (loading || !checked) {
       return (
         <div className="h-full flex items-center justify-center bg-zinc-900">
