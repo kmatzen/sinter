@@ -13,7 +13,7 @@ export function NodeTreePanel() {
   const allExpanded = tree ? expandedNodes.size > 0 : false;
 
   return (
-    <div className="w-70 flex flex-col" style={{ background: 'var(--bg-panel)', borderRight: '1px solid var(--border-subtle)' }}>
+    <div data-testid="node-tree" className="w-70 flex flex-col" style={{ background: 'var(--bg-panel)', borderRight: '1px solid var(--border-subtle)' }}>
       <div className="px-3 py-2.5 flex items-center justify-between" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
         <span className="font-mono text-[10px] tracking-[0.15em] uppercase" style={{ color: 'var(--text-muted)' }}>
           Node Tree

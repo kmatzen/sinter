@@ -255,31 +255,32 @@ test.describe('Modeler: Export', () => {
 test.describe('Modeler: Full workflow', () => {
   test('build a rounded box with a hole', async ({ page }) => {
     await enterModeler(page);
+    const tree = page.locator('[data-testid="node-tree"]');
 
     // 1. Add a box
     await addShape(page, 'Box');
-    await expect(page.locator(`text=50\u00d730\u00d750`)).toBeVisible();
+    await expect(tree.locator(`text=50\u00d730\u00d750`)).toBeVisible();
 
     // 2. Wrap box in round
-    await page.locator(`text=50\u00d730\u00d750`).click();
+    await tree.locator(`text=50\u00d730\u00d750`).click();
     await addOp(page, 'Round');
-    await expect(page.locator('text=Round').first()).toBeVisible();
+    await expect(tree.locator('text=Round')).toBeVisible();
 
     // 3. Add a subtract wrapping the round
-    await page.locator('text=Round').first().click();
+    await tree.locator('text=Round').click();
     await addOp(page, 'Subtract');
-    await expect(page.locator('text=Subtract').first()).toBeVisible();
+    await expect(tree.locator('text=Subtract')).toBeVisible();
 
     // 4. Add cylinder as second child of subtract
-    await page.locator('text=Subtract').first().click();
+    await tree.locator('text=Subtract').click();
     await addShape(page, 'Cylinder');
-    await expect(page.locator('text=Cylinder').first()).toBeVisible();
+    await expect(tree.locator('text=Cylinder')).toBeVisible();
 
     // 5. Verify tree structure
-    await expect(page.locator('text=Subtract').first()).toBeVisible();
-    await expect(page.locator('text=Round').first()).toBeVisible();
-    await expect(page.locator('text=Box').first()).toBeVisible();
-    await expect(page.locator('text=Cylinder').first()).toBeVisible();
+    await expect(tree.locator('text=Subtract')).toBeVisible();
+    await expect(tree.locator('text=Round')).toBeVisible();
+    await expect(tree.locator('text=Box')).toBeVisible();
+    await expect(tree.locator('text=Cylinder')).toBeVisible();
 
     // 6. Undo everything
     for (let i = 0; i < 5; i++) await page.keyboard.press('Meta+z');
@@ -287,6 +288,6 @@ test.describe('Modeler: Full workflow', () => {
 
     // 7. Redo everything
     for (let i = 0; i < 5; i++) await page.keyboard.press('Meta+Shift+z');
-    await expect(page.locator('text=Subtract').first()).toBeVisible();
+    await expect(tree.locator('text=Subtract')).toBeVisible();
   });
 });
