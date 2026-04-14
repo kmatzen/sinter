@@ -44,6 +44,7 @@ export function NodeTreePanel() {
 
       {/* Tree view */}
       <div
+        data-testid="tree-nodes"
         className="flex-1 overflow-y-auto py-1"
         onDragOver={(e) => {
           // Accept palette drops on empty tree area

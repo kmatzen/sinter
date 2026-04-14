@@ -255,7 +255,7 @@ test.describe('Modeler: Export', () => {
 test.describe('Modeler: Full workflow', () => {
   test('build a rounded box with a hole', async ({ page }) => {
     await enterModeler(page);
-    const tree = page.locator('[data-testid="node-tree"]');
+    const tree = page.locator('[data-testid="tree-nodes"]');
 
     // 1. Add a box
     await addShape(page, 'Box');
