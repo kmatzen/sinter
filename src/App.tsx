@@ -46,13 +46,13 @@ function App() {
     content = <SharedViewer token={shareToken} onOpenEditor={() => setShareToken(null)} />;
   } else if (showLanding) {
     content = <LandingPage onLaunch={() => { localStorage.setItem('sinter_launched', '1'); setShowLanding(false); }} />;
-  } else if (features.auth && (loading || !checked)) {
+  } else if (features.auth && !localStorage.getItem('sinter_launched') && (loading || !checked)) {
     content = (
       <div className="h-full flex items-center justify-center bg-zinc-900">
         <div className="text-zinc-400 text-sm">Loading...</div>
       </div>
     );
-  } else if (features.auth && !user) {
+  } else if (features.auth && !localStorage.getItem('sinter_launched') && !user) {
     content = <LoginPage />;
   } else {
     content = <ModelerApp />;

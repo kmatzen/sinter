@@ -64,6 +64,21 @@ export function LoginPage() {
           </div>
         )}
 
+        {signInEnabled && (
+          <button
+            onClick={() => {
+              localStorage.setItem('sinter_launched', '1');
+              window.location.href = '/app';
+            }}
+            className="text-sm font-medium px-4 py-2 rounded-md transition-colors"
+            style={{ background: 'var(--bg-elevated)', color: 'var(--text-secondary)', border: '1px solid var(--border-subtle)' }}
+            onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--border-default)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--border-subtle)'; }}
+          >
+            Continue without account
+          </button>
+        )}
+
         <button
           onClick={() => window.dispatchEvent(new Event('show-landing'))}
           className="text-xs hover:underline"
