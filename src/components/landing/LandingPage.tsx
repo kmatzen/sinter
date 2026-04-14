@@ -1,9 +1,18 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { features } from '../../config';
 import { HeroDemo } from './HeroDemo';
 
 export function LandingPage({ onLaunch }: { onLaunch: () => void }) {
   const [showTOS, setShowTOS] = useState(false);
+  const [signInEnabled, setSignInEnabled] = useState(!features.auth);
+
+  useEffect(() => {
+    if (!features.auth) return;
+    fetch('/api/auth/config')
+      .then((r) => r.json())
+      .then((d) => setSignInEnabled(d.signInEnabled))
+      .catch(() => {});
+  }, []);
 
   return (
     <div className="min-h-screen relative noise-bg" style={{ background: 'var(--bg-deep)' }}>
@@ -168,16 +177,28 @@ export function LandingPage({ onLaunch }: { onLaunch: () => void }) {
               <p className="font-mono text-[11px] mb-3" style={{ color: 'var(--text-muted)' }}>credits</p>
               <div className="text-2xl font-bold mb-1" style={{ color: 'var(--text-primary)' }}>${pack.price}</div>
               <p className="text-[11px] mb-5" style={{ color: 'var(--text-muted)' }}>${pack.perCredit}/credit</p>
-              <a href={features.auth ? '/app' : '#'}
-                 onClick={features.auth ? undefined : onLaunch}
-                 className="block w-full py-2 rounded-md text-sm font-medium text-center"
-                 style={{
-                   background: pack.popular ? 'var(--accent)' : 'var(--bg-elevated)',
-                   color: pack.popular ? 'var(--bg-deep)' : 'var(--text-primary)',
-                   border: pack.popular ? '1px solid var(--accent)' : '1px solid var(--border-default)',
-                 }}>
-                {features.auth ? 'Sign In to Buy' : 'Get Started'}
-              </a>
+              {signInEnabled ? (
+                <a href={features.auth ? '/app' : '#'}
+                   onClick={features.auth ? undefined : onLaunch}
+                   className="block w-full py-2 rounded-md text-sm font-medium text-center"
+                   style={{
+                     background: pack.popular ? 'var(--accent)' : 'var(--bg-elevated)',
+                     color: pack.popular ? 'var(--bg-deep)' : 'var(--text-primary)',
+                     border: pack.popular ? '1px solid var(--accent)' : '1px solid var(--border-default)',
+                   }}>
+                  {features.auth ? 'Sign In to Buy' : 'Get Started'}
+                </a>
+              ) : (
+                <span
+                   className="block w-full py-2 rounded-md text-sm font-medium text-center"
+                   style={{
+                     background: 'var(--bg-surface)',
+                     color: 'var(--text-muted)',
+                     border: '1px solid var(--border-subtle)',
+                   }}>
+                  Coming Soon
+                </span>
+              )}
             </div>
           ))}
         </div>
