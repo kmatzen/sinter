@@ -260,31 +260,34 @@ test.describe('Modeler: Full workflow', () => {
     await addShape(page, 'Box');
     await expect(page.locator(`text=50\u00d730\u00d750`)).toBeVisible();
 
-    // 2. Select and wrap in round
+    // 2. Select box and wrap in subtract (will need a second child)
+    await page.locator(`text=50\u00d730\u00d750`).click();
+    await addOp(page, 'Subtract');
+    await expect(page.locator('text=Subtract').first()).toBeVisible();
+    await expect(page.locator('text=drop here')).toBeVisible();
+
+    // 3. Click the placeholder to select subtract, then add cylinder as second child
+    await page.locator('text=Subtract').first().click();
+    await addShape(page, 'Cylinder');
+    await expect(page.locator('text=Cylinder').first()).toBeVisible();
+
+    // 4. Select box and wrap in round
     await page.locator(`text=50\u00d730\u00d750`).click();
     await addOp(page, 'Round');
     await expect(page.locator('text=Round').first()).toBeVisible();
 
-    // 3. Add a cylinder (creates union at root)
-    await addShape(page, 'Cylinder');
-    await expect(page.locator('.font-mono:has-text("sharp")')).toBeVisible();
-
-    // 4. Switch union to subtract
-    await page.locator('.font-mono:has-text("sharp")').click();
-    await page.locator('button[role="radio"]:has-text("Subtract")').click();
-    await expect(page.locator('text=Subtract').first()).toBeVisible();
-
     // 5. Verify tree structure
+    await expect(page.locator('text=Subtract').first()).toBeVisible();
     await expect(page.locator('text=Round').first()).toBeVisible();
     await expect(page.locator('text=Box').first()).toBeVisible();
     await expect(page.locator('text=Cylinder').first()).toBeVisible();
 
     // 6. Undo everything
-    for (let i = 0; i < 6; i++) await page.keyboard.press('Meta+z');
+    for (let i = 0; i < 5; i++) await page.keyboard.press('Meta+z');
     await expect(page.locator('text=No model yet')).toBeVisible();
 
     // 7. Redo everything
-    for (let i = 0; i < 6; i++) await page.keyboard.press('Meta+Shift+z');
+    for (let i = 0; i < 5; i++) await page.keyboard.press('Meta+Shift+z');
     await expect(page.locator('text=Subtract').first()).toBeVisible();
   });
 });
