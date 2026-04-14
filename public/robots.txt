@@ -1,0 +1,7 @@
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /app
+Disallow: /gate
+
+Sitemap: https://sinter-3d.com/sitemap.xml
