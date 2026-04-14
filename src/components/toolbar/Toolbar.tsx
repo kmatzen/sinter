@@ -142,6 +142,15 @@ export function Toolbar() {
       </button>
       <div className="w-px h-4 mx-1" style={{ background: 'var(--border-default)' }} />
       <UsageBadge />
+      {features.auth && !user && (
+        <a href="/app"
+           onClick={() => localStorage.removeItem('sinter_launched')}
+           className="text-[11px] px-3 py-1 rounded font-medium"
+           style={{ background: 'var(--accent)', color: 'var(--bg-deep)' }}
+        >
+          Sign In
+        </a>
+      )}
       {features.auth && user && (
         <button onClick={() => setShowSettings(true)} title="Settings" aria-label="Account settings" className="flex items-center gap-2 rounded px-1.5 py-1"
                 style={{ background: 'transparent' }}
