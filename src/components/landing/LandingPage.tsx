@@ -285,7 +285,7 @@ export function LandingPage({ onLaunch }: { onLaunch: () => void }) {
           <span className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>Sinter</span>
         </div>
         <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-          &copy; {new Date().getFullYear()} Kevin Blackburn-Matzen. Open source under a non-commercial license.
+          &copy; {new Date().getFullYear()} Kevin Blackburn-Matzen
         </p>
         <p className="mt-2 text-xs" style={{ color: 'var(--text-muted)' }}>
           <a href="https://github.com/kmatzen/sinter" className="hover:underline" style={{ color: 'var(--text-secondary)' }}>GitHub</a>
