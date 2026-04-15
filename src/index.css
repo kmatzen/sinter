@@ -94,3 +94,6 @@ button, a, input {
 /* Tree node: show actions on row hover */
 .group-hover-actions { opacity: 0; transition: opacity 0.1s; }
 div:hover > .group-hover-actions { opacity: 1; }
+
+/* Prevent browser gestures on the 3D viewport canvas */
+canvas { touch-action: none; }

@@ -22,21 +22,21 @@ export function LandingPage({ onLaunch }: { onLaunch: () => void }) {
   return (
     <div className="min-h-screen relative noise-bg" style={{ background: 'var(--bg-deep)' }}>
       {/* Nav */}
-      <nav className="relative z-10 px-6 py-5 flex items-center justify-between max-w-6xl mx-auto">
+      <nav className="relative z-10 px-4 md:px-6 py-4 md:py-5 flex items-center justify-between max-w-6xl mx-auto">
         <div className="flex items-center gap-3">
-          <img src="/logo-64.png" alt="Sinter" className="w-8 h-8 rounded-md" />
-          <span className="text-lg font-semibold tracking-tight" style={{ color: 'var(--text-primary)' }}>
+          <img src="/logo-64.png" alt="Sinter" className="w-7 h-7 md:w-8 md:h-8 rounded-md" />
+          <span className="text-base md:text-lg font-semibold tracking-tight" style={{ color: 'var(--text-primary)' }}>
             Sinter
           </span>
         </div>
-        <div className="flex items-center gap-6">
-          <a href="#features" className="text-sm transition-colors" style={{ color: 'var(--text-secondary)' }}
+        <div className="flex items-center gap-3 md:gap-6">
+          <a href="#features" className="hidden md:inline text-sm transition-colors" style={{ color: 'var(--text-secondary)' }}
             onMouseEnter={(e) => e.currentTarget.style.color = 'var(--text-primary)'}
             onMouseLeave={(e) => e.currentTarget.style.color = 'var(--text-secondary)'}>Features</a>
-          <a href="#pricing" className="text-sm transition-colors" style={{ color: 'var(--text-secondary)' }}
+          <a href="#pricing" className="hidden md:inline text-sm transition-colors" style={{ color: 'var(--text-secondary)' }}
             onMouseEnter={(e) => e.currentTarget.style.color = 'var(--text-primary)'}
             onMouseLeave={(e) => e.currentTarget.style.color = 'var(--text-secondary)'}>Pricing</a>
-          <a href="https://github.com/kmatzen/sinter" className="text-sm transition-colors" style={{ color: 'var(--text-secondary)' }}
+          <a href="https://github.com/kmatzen/sinter" className="hidden md:inline text-sm transition-colors" style={{ color: 'var(--text-secondary)' }}
             onMouseEnter={(e) => e.currentTarget.style.color = 'var(--text-primary)'}
             onMouseLeave={(e) => e.currentTarget.style.color = 'var(--text-secondary)'}>GitHub</a>
           {signInEnabled ? (
@@ -67,25 +67,25 @@ export function LandingPage({ onLaunch }: { onLaunch: () => void }) {
       </div>
 
       {/* Hero */}
-      <section className="relative z-10 max-w-4xl mx-auto px-6 pt-16 pb-16 text-center">
-        <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full mb-6 text-xs font-medium tracking-wide"
+      <section className="relative z-10 max-w-4xl mx-auto px-4 md:px-6 pt-10 md:pt-16 pb-10 md:pb-16 text-center">
+        <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full mb-4 md:mb-6 text-xs font-medium tracking-wide"
              style={{ background: 'var(--accent-subtle)', color: 'var(--accent)' }}>
           <span className="w-1.5 h-1.5 rounded-full" style={{ background: 'var(--accent)' }} />
           Open Source &middot; AI-Powered
         </div>
 
-        <h1 className="text-6xl font-bold mb-6 leading-[1.1] tracking-tight">
+        <h1 className="text-4xl md:text-6xl font-bold mb-4 md:mb-6 leading-[1.1] tracking-tight">
           <span style={{ color: 'var(--text-primary)' }}>Describe it.</span>
           <br />
           <span style={{ color: 'var(--accent)' }}>Print it.</span>
         </h1>
 
-        <p className="text-lg mb-8 max-w-xl mx-auto leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+        <p className="text-base md:text-lg mb-6 md:mb-8 max-w-xl mx-auto leading-relaxed px-2" style={{ color: 'var(--text-secondary)' }}>
           AI-powered 3D modeling with signed distance fields.
           Smooth booleans, parametric shells, and export-ready STL — all from natural language.
         </p>
 
-        <div className="flex gap-3 justify-center">
+        <div className="flex flex-col sm:flex-row gap-3 justify-center items-center">
           {signInEnabled ? (
             <button
               onClick={onLaunch}
