@@ -10,9 +10,9 @@ Sinter is a web-based parametric 3D modeler that uses **signed distance fields (
 
 - **Smooth booleans** — union, subtract, intersect with adjustable fillet radius. No topology failures.
 - **Shell/hollow** — one click to make any solid hollow with uniform wall thickness.
-- **AI-powered** — describe what you want in natural language, the AI builds the model.
-- **Real-time preview** — edit parameters and see changes instantly with adaptive resolution.
-- **3D print ready** — STL/3MF export, wall thickness analysis, dimension overlays.
+- **AI-powered** — describe what you want in natural language, the AI builds the model. Viewport renders are sent for visual context.
+- **Real-time preview** — GPU ray marching renders every parameter change instantly.
+- **3D print ready** — export watertight STL/3MF, dimension overlays for verification.
 
 ## Quick Start
 
@@ -23,34 +23,38 @@ npm install
 npm run dev
 ```
 
-Open `http://localhost:5173`. Click "Start Modeling — Free" to launch the app.
+Open `http://localhost:5173` and click "Start Modeling" to launch the app.
 
-For AI chat, click the gear icon in the chat panel and enter your Anthropic or OpenAI API key.
+For AI chat (community edition), click the gear icon in the chat panel and enter your Anthropic or OpenAI API key.
 
 ## Features
 
 ### Modeling
-- **Primitives**: Box, Sphere, Cylinder, Torus, Text
+- **Primitives**: Box, Sphere, Cylinder, Torus, Cone, Capsule
 - **Booleans**: Union, Subtract, Intersect (with smooth/fillet parameter)
-- **Modifiers**: Shell, Offset, Round, Mirror
+- **Modifiers**: Shell, Offset, Round, Mirror, Half-Space Cut (with flip)
 - **Patterns**: Linear Pattern, Circular Pattern
 - **Transforms**: Translate, Rotate, Scale
-- **Component Library**: Pre-built presets (enclosure, screw standoff, PCB tray, etc.)
+- **Presets**: Pre-built parts (enclosures, standoffs, brackets, gears, etc.)
+- **Drag & drop**: Click or drag parts from the palette into the node tree
 
 ### Viewport
-- Cel-shaded rendering with ink outlines
-- Clipping plane with stencil-based cross-section fill
+- GPU ray marching with screen-space outline post-process
+- Clipping plane (+X/-X/+Y/-Y/+Z/-Z) with cross-section fill
 - X-ray mode
-- Dimension overlays
-- Canonical camera views (Front/Back/Left/Right/Top/Bottom)
+- Per-node dimension labels with wireframe bounding box
 - Transform gizmo with snap-to-grid (1/5/10mm)
-- Measurement tool
-- Screenshot export
+- Screenshot export (gizmo auto-hidden)
 
 ### AI Chat
 - Describe models in natural language
 - Iterative refinement ("make it bigger", "add ventilation holes")
+- Multi-view renders sent automatically (current view + front/right/top)
 - Supports Anthropic Claude and OpenAI GPT
+
+### Collaboration
+- Read-only share links for published projects
+- Cloud storage with auto-save (paid edition)
 
 ### Keyboard Shortcuts
 | Key | Action |
@@ -58,6 +62,7 @@ For AI chat, click the gear icon in the chat panel and enter your Anthropic or O
 | W | Move tool |
 | E | Rotate tool |
 | R | Scale tool |
+| Escape | Deselect gizmo |
 | Ctrl+C | Copy node |
 | Ctrl+V | Paste node |
 | Ctrl+D | Duplicate node |
@@ -70,16 +75,19 @@ For AI chat, click the gear icon in the chat panel and enter your Anthropic or O
 ## Editions
 
 ### Community (Free)
-- Full modeling engine, all features
+- Full modeling engine, all primitives and operations
 - Bring your own API key (Anthropic or OpenAI)
-- Local save/load (JSON files)
+- Local save/load (localStorage auto-save)
+- STL/3MF export
 - Non-commercial use only
 
 ### Pro (Hosted)
 - No API key needed (included)
 - Cloud project storage with auto-save
-- Project sharing links
-- Usage-based pricing: $0.01/AI request, 50 free/month
+- Read-only share links
+- Credit-based pricing (1 credit = ~$0.05, AI chat costs 1–15 credits per message)
+- Credits expire 30 days after purchase
+- Credit purchases help Kevin Blackburn-Matzen cover Anthropic API and hosting costs
 - Available at [sinter-3d.com](https://sinter-3d.com)
 
 ## Self-Hosting (Paid Edition)
@@ -90,18 +98,27 @@ cp .env.example .env
 docker-compose up -d
 ```
 
-Requires: Anthropic API key, Google/GitHub OAuth apps, Stripe account (for billing).
+Required environment variables:
+- `ANTHROPIC_API_KEY` — for AI chat
+- `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` — Google OAuth
+- `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` — GitHub OAuth
+- `SESSION_SECRET` — random string for session signing
+- `BASE_URL` — public URL of your deployment
+- `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` — for billing (optional)
+- `SITE_PASSWORD` — password-gate the site pre-launch (optional)
 
 ## Tech Stack
 
-- **Frontend**: React 18, TypeScript, Vite, Tailwind CSS
-- **3D Viewport**: Three.js via react-three-fiber
-- **Geometry**: Custom SDF engine with marching cubes mesh extraction
-- **Server** (paid): Express.js, SQLite, Passport.js, Stripe
+- **Frontend**: React, TypeScript, Vite, Tailwind CSS
+- **3D Viewport**: Three.js (pure, no R3F)
+- **Geometry**: Custom SDF engine with GPU ray marching and marching cubes export
+- **Server** (paid): Express.js, SQLite (better-sqlite3), Passport.js, Stripe
 - **State**: Zustand
+- **Font**: Outfit + JetBrains Mono
+- **Tests**: Vitest (unit) + Playwright (E2E)
 
 ## License
 
 Non-commercial license. See [LICENSE](./LICENSE) for details.
 
-For commercial licensing, visit [sinter-3d.com](https://sinter-3d.com) or open an issue on GitHub.
+Copyright (c) 2026 Kevin Blackburn-Matzen.

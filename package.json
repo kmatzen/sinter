@@ -20,6 +20,7 @@
     "test:all": "vitest run && playwright test"
   },
   "dependencies": {
+    "@lemonsqueezy/lemonsqueezy.js": "^4.0.0",
     "better-sqlite3": "^12.8.0",
     "better-sqlite3-session-store": "^0.1.0",
     "cors": "^2.8.6",
@@ -33,7 +34,6 @@
     "passport-google-oauth20": "^2.0.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "stripe": "^22.0.1",
     "three": "^0.170.0",
     "tsx": "^4.21.0",
     "uuid": "^11.1.0",

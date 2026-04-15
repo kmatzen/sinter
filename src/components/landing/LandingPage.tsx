@@ -1,8 +1,30 @@
 import { useState, useEffect } from 'react';
 import { features } from '../../config';
 import { HeroDemo } from './HeroDemo';
+import { hasConsent, requestConsent } from '../ui/CookieConsent';
 
 export function LandingPage({ onLaunch }: { onLaunch: () => void }) {
+  // Wrap onLaunch to check consent first
+  const handleLaunch = () => {
+    if (features.auth && !hasConsent()) {
+      requestConsent();
+      // Listen for acceptance, then proceed
+      const handler = () => { onLaunch(); window.removeEventListener('cookie-consent-accepted', handler); };
+      window.addEventListener('cookie-consent-accepted', handler);
+      return;
+    }
+    onLaunch();
+  };
+
+  const handleSignIn = () => {
+    if (!hasConsent()) {
+      requestConsent();
+      const handler = () => { window.location.href = '/app'; window.removeEventListener('cookie-consent-accepted', handler); };
+      window.addEventListener('cookie-consent-accepted', handler);
+      return;
+    }
+    window.location.href = '/app';
+  };
   const [showTOS, setShowTOS] = useState(false);
   const [showPrivacy, setShowPrivacy] = useState(false);
   const [signInEnabled, setSignInEnabled] = useState(!features.auth);
@@ -22,31 +44,33 @@ export function LandingPage({ onLaunch }: { onLaunch: () => void }) {
   return (
     <div className="min-h-screen relative noise-bg" style={{ background: 'var(--bg-deep)' }}>
       {/* Nav */}
-      <nav className="relative z-10 px-4 md:px-6 py-4 md:py-5 flex items-center justify-between max-w-6xl mx-auto">
+      <nav className="relative z-10 px-6 py-5 flex items-center justify-between max-w-6xl mx-auto">
         <div className="flex items-center gap-3">
-          <img src="/logo-64.png" alt="Sinter" className="w-7 h-7 md:w-8 md:h-8 rounded-md" />
-          <span className="text-base md:text-lg font-semibold tracking-tight" style={{ color: 'var(--text-primary)' }}>
+          <img src="/logo-64.png" alt="Sinter" className="w-8 h-8 rounded-md" />
+          <span className="text-lg font-semibold tracking-tight" style={{ color: 'var(--text-primary)' }}>
             Sinter
           </span>
         </div>
-        <div className="flex items-center gap-3 md:gap-6">
-          <a href="#features" className="hidden md:inline text-sm transition-colors" style={{ color: 'var(--text-secondary)' }}
+        <div className="flex items-center gap-6">
+          <a href="#features" className="text-sm transition-colors" style={{ color: 'var(--text-secondary)' }}
             onMouseEnter={(e) => e.currentTarget.style.color = 'var(--text-primary)'}
             onMouseLeave={(e) => e.currentTarget.style.color = 'var(--text-secondary)'}>Features</a>
-          <a href="#pricing" className="hidden md:inline text-sm transition-colors" style={{ color: 'var(--text-secondary)' }}
-            onMouseEnter={(e) => e.currentTarget.style.color = 'var(--text-primary)'}
-            onMouseLeave={(e) => e.currentTarget.style.color = 'var(--text-secondary)'}>Pricing</a>
-          <a href="https://github.com/kmatzen/sinter" className="hidden md:inline text-sm transition-colors" style={{ color: 'var(--text-secondary)' }}
+          {features.billing && (
+            <a href="#pricing" className="text-sm transition-colors" style={{ color: 'var(--text-secondary)' }}
+              onMouseEnter={(e) => e.currentTarget.style.color = 'var(--text-primary)'}
+              onMouseLeave={(e) => e.currentTarget.style.color = 'var(--text-secondary)'}>Pricing</a>
+          )}
+          <a href="https://github.com/kmatzen/sinter" className="text-sm transition-colors" style={{ color: 'var(--text-secondary)' }}
             onMouseEnter={(e) => e.currentTarget.style.color = 'var(--text-primary)'}
             onMouseLeave={(e) => e.currentTarget.style.color = 'var(--text-secondary)'}>GitHub</a>
           {signInEnabled ? (
             features.auth ? (
-              <a href="/app" className="text-sm px-4 py-2 rounded-md font-medium"
+              <button onClick={handleSignIn} className="text-sm px-4 py-2 rounded-md font-medium"
                  style={{ background: 'var(--accent)', color: 'var(--bg-deep)' }}>
                 Sign In
-              </a>
+              </button>
             ) : (
-              <button onClick={onLaunch} className="text-sm px-4 py-2 rounded-md font-medium"
+              <button onClick={handleLaunch} className="text-sm px-4 py-2 rounded-md font-medium"
                       style={{ background: 'var(--accent)', color: 'var(--bg-deep)' }}>
                 Launch App
               </button>
@@ -67,28 +91,28 @@ export function LandingPage({ onLaunch }: { onLaunch: () => void }) {
       </div>
 
       {/* Hero */}
-      <section className="relative z-10 max-w-4xl mx-auto px-4 md:px-6 pt-10 md:pt-16 pb-10 md:pb-16 text-center">
-        <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full mb-4 md:mb-6 text-xs font-medium tracking-wide"
+      <section className="relative z-10 max-w-4xl mx-auto px-6 pt-16 pb-16 text-center">
+        <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full mb-6 text-xs font-medium tracking-wide"
              style={{ background: 'var(--accent-subtle)', color: 'var(--accent)' }}>
           <span className="w-1.5 h-1.5 rounded-full" style={{ background: 'var(--accent)' }} />
           Open Source &middot; AI-Powered
         </div>
 
-        <h1 className="text-4xl md:text-6xl font-bold mb-4 md:mb-6 leading-[1.1] tracking-tight">
+        <h1 className="text-6xl font-bold mb-6 leading-[1.1] tracking-tight">
           <span style={{ color: 'var(--text-primary)' }}>Describe it.</span>
           <br />
           <span style={{ color: 'var(--accent)' }}>Print it.</span>
         </h1>
 
-        <p className="text-base md:text-lg mb-6 md:mb-8 max-w-xl mx-auto leading-relaxed px-2" style={{ color: 'var(--text-secondary)' }}>
+        <p className="text-lg mb-8 max-w-xl mx-auto leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
           AI-powered 3D modeling with signed distance fields.
           Smooth booleans, parametric shells, and export-ready STL — all from natural language.
         </p>
 
-        <div className="flex flex-col sm:flex-row gap-3 justify-center items-center">
+        <div className="flex gap-3 justify-center">
           {signInEnabled ? (
             <button
-              onClick={onLaunch}
+              onClick={handleLaunch}
               className="group px-7 py-3 rounded-md font-medium text-base flex items-center gap-2"
               style={{ background: 'var(--accent)', color: 'var(--bg-deep)' }}
             >
@@ -175,13 +199,17 @@ export function LandingPage({ onLaunch }: { onLaunch: () => void }) {
         </div>
       </section>
 
-      {/* Pricing */}
+      {/* Pricing — paid edition only */}
+      {features.billing && (
       <section id="pricing" className="relative z-10 max-w-4xl mx-auto px-6 py-16">
         <div className="text-center mb-10">
           <p className="font-mono text-[11px] tracking-[0.2em] uppercase mb-3" style={{ color: 'var(--accent)' }}>Pricing</p>
           <h2 className="text-3xl font-bold tracking-tight mb-3">Pay for what you use</h2>
           <p className="max-w-lg mx-auto leading-relaxed" style={{ color: 'var(--text-muted)' }}>
-            The full modeling engine is free — no login required. Buy credit packs for AI features, cloud storage, and project sharing. Credits are valid for 30 days.
+            The full modeling engine is free — no login required. Credit packs unlock AI features, cloud storage, and project sharing. Credits are valid for 30 days.
+          </p>
+          <p className="max-w-md mx-auto mt-2 text-xs leading-relaxed" style={{ color: 'var(--text-muted)' }}>
+            Credit purchases help Kevin Blackburn-Matzen cover Anthropic API and hosting costs for this project.
           </p>
         </div>
 
@@ -199,8 +227,8 @@ export function LandingPage({ onLaunch }: { onLaunch: () => void }) {
               <div className="text-2xl font-bold mb-1" style={{ color: 'var(--text-primary)' }}>${pack.price}</div>
               <p className="text-[11px] mb-5" style={{ color: 'var(--text-muted)' }}>${pack.perCredit}/credit</p>
               {signInEnabled ? (
-                <a href={features.auth ? '/app' : '#'}
-                   onClick={features.auth ? undefined : onLaunch}
+                <button
+                   onClick={features.auth ? handleSignIn : handleLaunch}
                    className="block w-full py-2 rounded-md text-sm font-medium text-center"
                    style={{
                      background: pack.popular ? 'var(--accent)' : 'var(--bg-elevated)',
@@ -208,7 +236,7 @@ export function LandingPage({ onLaunch }: { onLaunch: () => void }) {
                      border: pack.popular ? '1px solid var(--accent)' : '1px solid var(--border-default)',
                    }}>
                   {features.auth ? 'Sign In to Buy' : 'Get Started'}
-                </a>
+                </button>
               ) : (
                 <span
                    className="block w-full py-2 rounded-md text-sm font-medium text-center"
@@ -254,6 +282,7 @@ export function LandingPage({ onLaunch }: { onLaunch: () => void }) {
           </div>
         </div>
       </section>
+      )}
 
       {/* Bottom CTA */}
       <section className="relative z-10 max-w-3xl mx-auto px-6 py-16 text-center">
@@ -261,7 +290,7 @@ export function LandingPage({ onLaunch }: { onLaunch: () => void }) {
         <p className="text-sm mb-6" style={{ color: 'var(--text-muted)' }}>No account required. Open the app and start building.</p>
         {signInEnabled ? (
           <button
-            onClick={onLaunch}
+            onClick={handleLaunch}
             className="group px-7 py-3 rounded-md font-medium text-base inline-flex items-center gap-2"
             style={{ background: 'var(--accent)', color: 'var(--bg-deep)' }}
           >
@@ -285,7 +314,7 @@ export function LandingPage({ onLaunch }: { onLaunch: () => void }) {
           <span className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>Sinter</span>
         </div>
         <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-          &copy; {new Date().getFullYear()} Kevin Blackburn-Matzen
+          &copy; {new Date().getFullYear()} Kevin Blackburn-Matzen. Open source under a non-commercial license.
         </p>
         <p className="mt-2 text-xs" style={{ color: 'var(--text-muted)' }}>
           <a href="https://github.com/kmatzen/sinter" className="hover:underline" style={{ color: 'var(--text-secondary)' }}>GitHub</a>
@@ -366,7 +395,7 @@ export function LandingPage({ onLaunch }: { onLaunch: () => void }) {
               <h3 className="font-semibold mt-6" style={{ color: 'var(--text-primary)' }}>1. Information We Collect</h3>
               <p><strong>Account information:</strong> When you sign in with Google or GitHub, we receive your name, email address, and profile photo. We do not access any other data from these services.</p>
               <p><strong>Project data:</strong> If you use cloud storage, your 3D model data (node trees as JSON) is stored on our servers.</p>
-              <p><strong>Payment information:</strong> Payments are processed by Stripe. We do not store your credit card details. Stripe may collect information as described in their privacy policy.</p>
+              <p><strong>Payment information:</strong> Payments are processed by Lemon Squeezy (Merchant of Record). We do not store your credit card details. Lemon Squeezy may collect information as described in their privacy policy.</p>
               <p><strong>Usage data:</strong> We log AI chat token usage per user for billing purposes. We do not log the content of your prompts or AI responses.</p>
 
               <h3 className="font-semibold mt-6" style={{ color: 'var(--text-primary)' }}>2. Cookies and Local Storage</h3>
@@ -382,7 +411,7 @@ export function LandingPage({ onLaunch }: { onLaunch: () => void }) {
               <h3 className="font-semibold mt-6" style={{ color: 'var(--text-primary)' }}>5. Data Sharing</h3>
               <p>We do not sell, rent, or share your personal information with third parties, except:</p>
               <ul className="list-disc ml-5 space-y-1">
-                <li>Stripe, for payment processing</li>
+                <li>Lemon Squeezy, for payment processing</li>
                 <li>Anthropic, for AI chat functionality</li>
                 <li>When required by law</li>
               </ul>

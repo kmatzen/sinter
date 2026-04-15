@@ -22,7 +22,8 @@ function App() {
   const hasBillingReturn = new URLSearchParams(window.location.search).has('session_id');
   const initialShareMatch = window.location.pathname.match(/^\/share\/([0-9a-f]{64})$/i);
   const [shareToken, setShareToken] = useState<string | null>(initialShareMatch ? initialShareMatch[1] : null);
-  const [showLanding, setShowLanding] = useState(!hasAppPath && !hasBillingReturn && !initialShareMatch);
+  // Community edition skips landing page entirely
+  const [showLanding, setShowLanding] = useState(features.auth && !hasAppPath && !hasBillingReturn && !initialShareMatch);
   const user = useAuthStore((s) => s.user);
   const loading = useAuthStore((s) => s.loading);
   const checked = useAuthStore((s) => s.checked);
@@ -35,16 +36,20 @@ function App() {
   }, [checkAuth]);
 
   useEffect(() => {
+    if (!features.auth) return; // No landing page in community mode
     const handler = () => setShowLanding(true);
     window.addEventListener('show-landing', handler);
     return () => window.removeEventListener('show-landing', handler);
   }, []);
 
+  // In paid mode, require cookie consent before showing auth or app pages
+  const hasConsent = !features.auth || !!localStorage.getItem('sinter_cookie_consent');
+
   let content;
 
   if (shareToken) {
     content = <SharedViewer token={shareToken} onOpenEditor={() => setShareToken(null)} />;
-  } else if (showLanding) {
+  } else if (showLanding || (features.auth && !hasConsent)) {
     content = <LandingPage onLaunch={() => { localStorage.setItem('sinter_launched', '1'); setShowLanding(false); }} />;
   } else if (features.auth && !localStorage.getItem('sinter_launched') && (loading || !checked)) {
     content = (
@@ -72,20 +77,11 @@ function ModelerApp() {
     if (features.autoSave) startAutoSave();
     if (features.byok) startLocalAutoSave();
 
-    // Verify Stripe checkout on redirect
+    // After Lemon Squeezy checkout redirect, refresh credits
     const params = new URLSearchParams(window.location.search);
-    const sessionId = params.get('session_id');
-    if (sessionId && params.get('billing') === 'success') {
-      fetch('/api/billing/verify', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ sessionId }),
-      }).then(() => {
-        window.history.replaceState({}, '', window.location.pathname);
-        // Notify billing badge to refetch
-        window.dispatchEvent(new Event('credits-updated'));
-      });
+    if (params.get('billing') === 'success') {
+      window.history.replaceState({}, '', window.location.pathname);
+      window.dispatchEvent(new Event('credits-updated'));
     }
   }, []);
 
@@ -141,9 +137,9 @@ function ModelerApp() {
     <div data-testid="modeler-app" className="h-full flex flex-col overflow-hidden" style={{ background: 'var(--bg-deep)', color: 'var(--text-primary)' }}>
       <Toolbar />
       <div className="flex flex-1 min-h-0">
-        <div className="hidden md:flex"><NodeTreePanel /></div>
+        <NodeTreePanel />
         <Viewport />
-        <div className="hidden lg:flex"><PropertyPanel /></div>
+        <PropertyPanel />
       </div>
       <ChatDrawer />
       <AppModals />
