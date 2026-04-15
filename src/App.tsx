@@ -1,21 +1,13 @@
-import { useEffect, useState } from 'react';
-import { NodeTreePanel } from './components/tree/NodeTreePanel';
-import { Viewport } from './components/viewport/Viewport';
-import { PropertyPanel } from './components/properties/PropertyPanel';
-import { Toolbar } from './components/toolbar/Toolbar';
-import { ChatDrawer } from './components/chat/ChatDrawer';
+import { useEffect, useState, lazy, Suspense } from 'react';
 import { LoginPage } from './components/auth/LoginPage';
-import { LandingPage } from './components/landing/LandingPage';
-import { SharedViewer } from './components/share/SharedViewer';
 import { CookieConsent } from './components/ui/CookieConsent';
-import { useEvaluator } from './engine/useEvaluator';
-import { useModelerStore } from './store/modelerStore';
-import { useViewportStore } from './store/viewportStore';
 import { useAuthStore } from './store/authStore';
-import { startAutoSave } from './store/projectStore';
-import { startLocalAutoSave } from './store/localPersist';
 import { features } from './config';
-import { AppModals } from './components/ui/AppModals';
+
+// Lazy load heavy components — landing page visitors don't need Three.js
+const LandingPage = lazy(() => import('./components/landing/LandingPage').then(m => ({ default: m.LandingPage })));
+const SharedViewer = lazy(() => import('./components/share/SharedViewer').then(m => ({ default: m.SharedViewer })));
+const ModelerApp = lazy(() => import('./ModelerApp').then(m => ({ default: m.ModelerApp })));
 
 function App() {
   const hasAppPath = window.location.pathname.startsWith('/app');
@@ -40,6 +32,13 @@ function App() {
     return () => window.removeEventListener('show-landing', handler);
   }, []);
 
+  const fallback = (
+    <div className="h-full flex items-center justify-center" style={{ background: 'var(--bg-deep)' }}>
+      <div className="w-8 h-8 border-2 rounded-full animate-spin"
+           style={{ borderColor: 'var(--accent)', borderTopColor: 'transparent' }} />
+    </div>
+  );
+
   let content;
 
   if (shareToken) {
@@ -47,11 +46,7 @@ function App() {
   } else if (showLanding) {
     content = <LandingPage onLaunch={() => { localStorage.setItem('sinter_launched', '1'); setShowLanding(false); }} />;
   } else if (features.auth && !localStorage.getItem('sinter_launched') && (loading || !checked)) {
-    content = (
-      <div className="h-full flex items-center justify-center bg-zinc-900">
-        <div className="text-zinc-400 text-sm">Loading...</div>
-      </div>
-    );
+    content = fallback;
   } else if (features.auth && !localStorage.getItem('sinter_launched') && !user) {
     content = <LoginPage />;
   } else {
@@ -59,95 +54,10 @@ function App() {
   }
 
   return (
-    <>
+    <Suspense fallback={fallback}>
       {content}
       <CookieConsent />
-    </>
-  );
-}
-
-function ModelerApp() {
-  useEvaluator();
-  useEffect(() => {
-    if (features.autoSave) startAutoSave();
-    if (features.byok) startLocalAutoSave();
-
-    // Verify Stripe checkout on redirect
-    const params = new URLSearchParams(window.location.search);
-    const sessionId = params.get('session_id');
-    if (sessionId && params.get('billing') === 'success') {
-      fetch('/api/billing/verify', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ sessionId }),
-      }).then(() => {
-        window.history.replaceState({}, '', window.location.pathname);
-        // Notify billing badge to refetch
-        window.dispatchEvent(new Event('credits-updated'));
-      });
-    }
-  }, []);
-
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if ((e.target as HTMLElement)?.tagName === 'INPUT' || (e.target as HTMLElement)?.tagName === 'TEXTAREA') return;
-
-      if ((e.metaKey || e.ctrlKey) && e.key === 'z' && !e.shiftKey) {
-        e.preventDefault();
-        useModelerStore.getState().undo();
-      }
-      if ((e.metaKey || e.ctrlKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) {
-        e.preventDefault();
-        useModelerStore.getState().redo();
-      }
-      if ((e.metaKey || e.ctrlKey) && e.key === 'c') {
-        useModelerStore.getState().copySelected();
-      }
-      if ((e.metaKey || e.ctrlKey) && e.key === 'v') {
-        useModelerStore.getState().pasteToSelected();
-      }
-      if ((e.metaKey || e.ctrlKey) && e.key === 'd') {
-        e.preventDefault();
-        useModelerStore.getState().duplicateSelected();
-      }
-      const { gizmoMode, setGizmoMode } = useViewportStore.getState();
-      if (e.key === 'w' || e.key === 'W') setGizmoMode(gizmoMode === 'translate' ? 'none' : 'translate');
-      if (e.key === 'e' || e.key === 'E') setGizmoMode(gizmoMode === 'rotate' ? 'none' : 'rotate');
-      if (e.key === 'r' || e.key === 'R') setGizmoMode(gizmoMode === 'scale' ? 'none' : 'scale');
-      if (e.key === 'Escape') setGizmoMode('none');
-      if (e.key === 'Delete' || e.key === 'Backspace') {
-        const id = useModelerStore.getState().selectedNodeId;
-        if (id) useModelerStore.getState().removeNode(id);
-      }
-      if ((e.metaKey || e.ctrlKey) && e.key === 's') {
-        e.preventDefault();
-        // Save: trigger file download (community) or cloud save (paid)
-        const json = useModelerStore.getState().toJSON();
-        const blob = new Blob([json], { type: 'application/json' });
-        const name = useModelerStore.getState().projectName;
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(blob);
-        a.download = `${name}.json`;
-        a.click();
-        URL.revokeObjectURL(a.href);
-      }
-    };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, []);
-
-  return (
-    <div data-testid="modeler-app" className="h-full flex flex-col overflow-hidden" style={{ background: 'var(--bg-deep)', color: 'var(--text-primary)' }}>
-      <Toolbar />
-      <div className="flex flex-1 min-h-0">
-        <div className="hidden md:flex"><NodeTreePanel /></div>
-        <Viewport />
-        <div className="hidden lg:flex"><PropertyPanel /></div>
-      </div>
-      <ChatDrawer />
-      <AppModals />
-    </div>
+    </Suspense>
   );
 }
 

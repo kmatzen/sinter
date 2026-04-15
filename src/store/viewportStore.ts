@@ -34,10 +34,6 @@ interface ViewportState {
   showDimensions: boolean;
   toggleDimensions: () => void;
 
-  // Camera view request (consumed by ViewportControls)
-  viewRequest: string | null;
-  requestView: (view: string) => void;
-  clearViewRequest: () => void;
 }
 
 export const useViewportStore = create<ViewportState>((set) => ({
@@ -66,7 +62,4 @@ export const useViewportStore = create<ViewportState>((set) => ({
   setResolution: (res) => set({ resolution: res }),
   showDimensions: false,
   toggleDimensions: () => set((s) => ({ showDimensions: !s.showDimensions })),
-  viewRequest: null,
-  requestView: (view) => set({ viewRequest: view }),
-  clearViewRequest: () => set({ viewRequest: null }),
 }));
