@@ -67,27 +67,54 @@ export function computeBounds(node: SDFNode): BBox {
     }
     case 'linearPattern': {
       const cb = computeBounds(node.child);
+      // Normalize axis for correct offset computation
+      const ax = node.axis;
+      const axLen = Math.sqrt(ax[0] * ax[0] + ax[1] * ax[1] + ax[2] * ax[2]);
+      const nax = axLen > 1e-8 ? [ax[0] / axLen, ax[1] / axLen, ax[2] / axLen] : [0, 1, 0];
       const totalOffset = node.spacing * (node.count - 1);
+      // Expand in the direction of the axis (handles negative components)
+      const dx = nax[0] * totalOffset;
+      const dy = nax[1] * totalOffset;
+      const dz = nax[2] * totalOffset;
       return {
-        min: [cb.min[0], cb.min[1], cb.min[2]],
+        min: [
+          cb.min[0] + Math.min(0, dx),
+          cb.min[1] + Math.min(0, dy),
+          cb.min[2] + Math.min(0, dz),
+        ],
         max: [
-          cb.max[0] + node.axis[0] * totalOffset,
-          cb.max[1] + node.axis[1] * totalOffset,
-          cb.max[2] + node.axis[2] * totalOffset,
+          cb.max[0] + Math.max(0, dx),
+          cb.max[1] + Math.max(0, dy),
+          cb.max[2] + Math.max(0, dz),
         ],
       };
     }
     case 'circularPattern': {
       const cb = computeBounds(node.child);
-      const maxExtent = Math.max(
-        Math.abs(cb.min[0]), Math.abs(cb.max[0]),
-        Math.abs(cb.min[1]), Math.abs(cb.max[1]),
-        Math.abs(cb.min[2]), Math.abs(cb.max[2]),
-      );
-      return {
-        min: [-maxExtent, cb.min[1], -maxExtent],
-        max: [maxExtent, cb.max[1], maxExtent],
-      };
+      // Determine rotation axis (dominant component)
+      const ax = node.axis;
+      const isX = Math.abs(ax[0]) > Math.abs(ax[1]) && Math.abs(ax[0]) > Math.abs(ax[2]);
+      const isZ = !isX && Math.abs(ax[2]) > Math.abs(ax[1]);
+      // Compute max radius from origin to any child bbox corner in the rotation plane
+      const xs = [cb.min[0], cb.max[0]];
+      const ys = [cb.min[1], cb.max[1]];
+      const zs = [cb.min[2], cb.max[2]];
+      let maxR = 0;
+      for (const x of xs) for (const y of ys) for (const z of zs) {
+        const r = isX ? Math.sqrt(y * y + z * z)
+                : isZ ? Math.sqrt(x * x + y * y)
+                :        Math.sqrt(x * x + z * z);
+        maxR = Math.max(maxR, r);
+      }
+      if (isX) {
+        // Rotate in YZ plane, keep X from child
+        return { min: [cb.min[0], -maxR, -maxR], max: [cb.max[0], maxR, maxR] };
+      } else if (isZ) {
+        // Rotate in XY plane, keep Z from child
+        return { min: [-maxR, -maxR, cb.min[2]], max: [maxR, maxR, cb.max[2]] };
+      }
+      // Y-axis (default): rotate in XZ plane, keep Y from child
+      return { min: [-maxR, cb.min[1], -maxR], max: [maxR, cb.max[1], maxR] };
     }
     case 'text': {
       if (node.glyphWidth) {

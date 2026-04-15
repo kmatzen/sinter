@@ -45,12 +45,14 @@ export function evaluateSDF(node: SDFNode, p: Vec3): number {
       return Math.sqrt(p[0] ** 2 + (p[1] - py) ** 2 + p[2] ** 2) - node.radius;
     }
     case 'ellipsoid': {
-      // Approximate ellipsoid SDF
+      // Approximate ellipsoid SDF (Quilez's gradient-corrected version)
       const sx = node.size[0] / 2, sy = node.size[1] / 2, sz = node.size[2] / 2;
-      const np: Vec3 = [p[0] / sx, p[1] / sy, p[2] / sz];
-      const len = Math.sqrt(np[0] ** 2 + np[1] ** 2 + np[2] ** 2);
-      const minS = Math.min(sx, sy, sz);
-      return (len - 1) * minS;
+      const npx = p[0] / sx, npy = p[1] / sy, npz = p[2] / sz;
+      const k0 = Math.sqrt(npx * npx + npy * npy + npz * npz);
+      if (k0 < 1e-8) return -Math.min(sx, sy, sz);
+      const gpx = npx / (sx * k0), gpy = npy / (sy * k0), gpz = npz / (sz * k0);
+      const k1 = Math.sqrt(gpx * gpx + gpy * gpy + gpz * gpz);
+      return k0 * (k0 - 1.0) / k1;
     }
     case 'union': {
       const a = evaluateSDF(node.a, p);
@@ -119,53 +121,62 @@ export function evaluateSDF(node: SDFNode, p: Vec3): number {
       return evaluateSDF(node.child, mp);
     }
     case 'linearPattern': {
-      // Repeat along axis with domain repetition
+      // Domain repetition with 3-neighbor check for overlapping copies
       const ax = node.axis;
-      const dot = p[0] * ax[0] + p[1] * ax[1] + p[2] * ax[2];
+      const axLen = Math.sqrt(ax[0] * ax[0] + ax[1] * ax[1] + ax[2] * ax[2]);
+      if (axLen < 1e-8) return evaluateSDF(node.child, p);
+      const nax: Vec3 = [ax[0] / axLen, ax[1] / axLen, ax[2] / axLen];
+      const dot = p[0] * nax[0] + p[1] * nax[1] + p[2] * nax[2];
       const totalLen = node.spacing * (node.count - 1);
-      // Clamp to the pattern range then find nearest instance
       const clamped = Math.max(0, Math.min(totalLen, dot));
       const idx = Math.round(clamped / node.spacing);
-      const offset = idx * node.spacing;
-      const lp: Vec3 = [
-        p[0] - ax[0] * offset,
-        p[1] - ax[1] * offset,
-        p[2] - ax[2] * offset,
-      ];
-      return evaluateSDF(node.child, lp);
+      let best = Infinity;
+      for (let di = -1; di <= 1; di++) {
+        const i = idx + di;
+        if (i < 0 || i >= node.count) continue;
+        const offset = i * node.spacing;
+        const lp: Vec3 = [
+          p[0] - nax[0] * offset,
+          p[1] - nax[1] * offset,
+          p[2] - nax[2] * offset,
+        ];
+        best = Math.min(best, evaluateSDF(node.child, lp));
+      }
+      return best;
     }
     case 'circularPattern': {
-      // Repeat around axis (Y by default) using angular repetition
+      // Angular domain repetition with 3-sector check
       const ax = node.axis;
-      // Project point onto the plane perpendicular to axis
-      let angle: number;
-      let radius: number;
-      if (ax[1]) {
-        // Y axis rotation
-        angle = Math.atan2(p[2], p[0]);
-        radius = Math.sqrt(p[0] ** 2 + p[2] ** 2);
-      } else if (ax[2]) {
+      const isX = Math.abs(ax[0]) > Math.abs(ax[1]) && Math.abs(ax[0]) > Math.abs(ax[2]);
+      const isZ = !isX && Math.abs(ax[2]) > Math.abs(ax[1]);
+      let angle: number, radius: number;
+      if (isX) {
+        angle = Math.atan2(p[2], p[1]);
+        radius = Math.sqrt(p[1] ** 2 + p[2] ** 2);
+      } else if (isZ) {
         angle = Math.atan2(p[1], p[0]);
         radius = Math.sqrt(p[0] ** 2 + p[1] ** 2);
       } else {
-        angle = Math.atan2(p[2], p[1]);
-        radius = Math.sqrt(p[1] ** 2 + p[2] ** 2);
+        angle = Math.atan2(p[2], p[0]);
+        radius = Math.sqrt(p[0] ** 2 + p[2] ** 2);
       }
       const sector = (2 * Math.PI) / node.count;
-      // Snap to nearest sector
-      angle = angle - sector * Math.round(angle / sector);
-      const cp: Vec3 = [...p];
-      if (ax[1]) {
-        cp[0] = radius * Math.cos(angle);
-        cp[2] = radius * Math.sin(angle);
-      } else if (ax[2]) {
-        cp[0] = radius * Math.cos(angle);
-        cp[1] = radius * Math.sin(angle);
-      } else {
-        cp[1] = radius * Math.cos(angle);
-        cp[2] = radius * Math.sin(angle);
+      const sect = Math.round(angle / sector);
+      let best = Infinity;
+      for (let di = -1; di <= 1; di++) {
+        const a = angle - (sect + di) * sector;
+        const c = Math.cos(a), s = Math.sin(a);
+        let cp: Vec3;
+        if (isX) {
+          cp = [p[0], radius * c, radius * s];
+        } else if (isZ) {
+          cp = [radius * c, radius * s, p[2]];
+        } else {
+          cp = [radius * c, p[1], radius * s];
+        }
+        best = Math.min(best, evaluateSDF(node.child, cp));
       }
-      return evaluateSDF(node.child, cp);
+      return best;
     }
     case 'halfSpace': {
       const idx = node.axis === 'x' ? 0 : node.axis === 'y' ? 1 : 2;

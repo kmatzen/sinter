@@ -4,6 +4,8 @@ let varCounter = 0;
 let paramIndex = 0;
 let paramValues: number[] = [];
 let textures: TextureData[] = [];
+let helperFunctions: string[] = [];
+let helperCounter = 0;
 
 function nextVar(): string {
   return `d${varCounter++}`;
@@ -30,6 +32,17 @@ function g(n: number): string {
 // evaluating all nodes every step is acceptable for correctness.
 function emitBBoxEarlyOut(_node: SDFNode, _pVar: string, _result: string, _lines: string[]): boolean {
   return false;
+}
+
+/** Emit a child node as a standalone GLSL function, returns the function name */
+function emitAsFunction(node: SDFNode): string {
+  const fnName = `sdf_helper_${helperCounter++}`;
+  const fnLines: string[] = [];
+  const childResult = emitNode(node, 'hp', fnLines);
+  helperFunctions.push(
+    `float ${fnName}(vec3 hp) {\n  ${fnLines.join('\n  ')}\n  return ${childResult};\n}`
+  );
+  return fnName;
 }
 
 function emitNode(node: SDFNode, pVar: string, lines: string[]): string {
@@ -78,8 +91,12 @@ function emitNode(node: SDFNode, pVar: string, lines: string[]): string {
       return result;
     }
     case 'ellipsoid': {
-      lines.push(`vec3 ep_${result} = ${pVar} / vec3(${up(node.size[0]/2)}, ${up(node.size[1]/2)}, ${up(node.size[2]/2)});`);
-      lines.push(`float ${result} = (length(ep_${result}) - 1.0) * ${up(Math.min(node.size[0]/2, node.size[1]/2, node.size[2]/2))};`);
+      // Gradient-corrected ellipsoid SDF approximation
+      const sx = up(node.size[0]/2), sy = up(node.size[1]/2), sz = up(node.size[2]/2);
+      lines.push(`vec3 ep_${result} = ${pVar} / vec3(${sx}, ${sy}, ${sz});`);
+      lines.push(`float ek0_${result} = length(ep_${result});`);
+      lines.push(`float ek1_${result} = length(ep_${result} / vec3(${sx}, ${sy}, ${sz}));`);
+      lines.push(`float ${result} = ek0_${result} * (ek0_${result} - 1.0) / max(ek1_${result}, 1e-8);`);
       return result;
     }
     case 'union': {
@@ -170,26 +187,54 @@ function emitNode(node: SDFNode, pVar: string, lines: string[]): string {
       return result;
     }
     case 'linearPattern': {
-      const lp = `lp_${result}`;
+      // Domain repetition with 3-neighbor check via helper function
       const ax = node.axis;
-      lines.push(`float ldot_${result} = dot(${pVar}, vec3(${g(ax[0])}, ${g(ax[1])}, ${g(ax[2])}));`);
+      const axLen = Math.sqrt(ax[0] * ax[0] + ax[1] * ax[1] + ax[2] * ax[2]);
+      const nax = axLen > 1e-8 ? [ax[0] / axLen, ax[1] / axLen, ax[2] / axLen] : [0, 1, 0];
+      const axVec = `vec3(${g(nax[0])}, ${g(nax[1])}, ${g(nax[2])})`;
+      const fnName = emitAsFunction(node.child);
+      lines.push(`float ldot_${result} = dot(${pVar}, ${axVec});`);
       lines.push(`float lclamped_${result} = clamp(ldot_${result}, 0.0, ${up(node.spacing * (node.count - 1))});`);
       lines.push(`float lidx_${result} = floor(lclamped_${result} / ${up(node.spacing)} + 0.5);`);
-      lines.push(`float loff_${result} = lidx_${result} * ${up(node.spacing)};`);
-      lines.push(`vec3 ${lp} = ${pVar} - vec3(${g(ax[0])}, ${g(ax[1])}, ${g(ax[2])}) * loff_${result};`);
-      const child = emitNode(node.child, lp, lines);
-      lines.push(`float ${result} = ${child};`);
+      lines.push(`float ${result} = 1e10;`);
+      lines.push(`for (int li_${result} = -1; li_${result} <= 1; li_${result}++) {`);
+      lines.push(`  float lii_${result} = lidx_${result} + float(li_${result});`);
+      lines.push(`  if (lii_${result} >= 0.0 && lii_${result} < ${g(node.count)}) {`);
+      lines.push(`    ${result} = min(${result}, ${fnName}(${pVar} - ${axVec} * (lii_${result} * ${up(node.spacing)})));`);
+      lines.push(`  }`);
+      lines.push(`}`);
       return result;
     }
     case 'circularPattern': {
-      const cp = `cp_${result}`;
-      const sector = up(2 * Math.PI / node.count);
-      lines.push(`float cang_${result} = atan(${pVar}.z, ${pVar}.x);`);
-      lines.push(`float crad_${result} = length(${pVar}.xz);`);
-      lines.push(`cang_${result} -= ${sector} * floor(cang_${result} / ${sector} + 0.5);`);
-      lines.push(`vec3 ${cp} = vec3(crad_${result} * cos(cang_${result}), ${pVar}.y, crad_${result} * sin(cang_${result}));`);
-      const child = emitNode(node.child, cp, lines);
-      lines.push(`float ${result} = ${child};`);
+      // Angular domain repetition with 3-sector check via helper function
+      const ax = node.axis;
+      const isX = Math.abs(ax[0]) > Math.abs(ax[1]) && Math.abs(ax[0]) > Math.abs(ax[2]);
+      const isZ = !isX && Math.abs(ax[2]) > Math.abs(ax[1]);
+      const fnName = emitAsFunction(node.child);
+      const sector = `${g(2 * Math.PI / node.count)}`;
+      // Compute angle and radius in the rotation plane
+      if (isX) {
+        lines.push(`float cang_${result} = atan(${pVar}.z, ${pVar}.y);`);
+        lines.push(`float crad_${result} = length(${pVar}.yz);`);
+      } else if (isZ) {
+        lines.push(`float cang_${result} = atan(${pVar}.y, ${pVar}.x);`);
+        lines.push(`float crad_${result} = length(${pVar}.xy);`);
+      } else {
+        lines.push(`float cang_${result} = atan(${pVar}.z, ${pVar}.x);`);
+        lines.push(`float crad_${result} = length(${pVar}.xz);`);
+      }
+      lines.push(`float csect_${result} = floor(cang_${result} / ${sector} + 0.5);`);
+      lines.push(`float ${result} = 1e10;`);
+      lines.push(`for (int ci_${result} = -1; ci_${result} <= 1; ci_${result}++) {`);
+      lines.push(`  float ca_${result} = cang_${result} - (csect_${result} + float(ci_${result})) * ${sector};`);
+      if (isX) {
+        lines.push(`  ${result} = min(${result}, ${fnName}(vec3(${pVar}.x, crad_${result} * cos(ca_${result}), crad_${result} * sin(ca_${result}))));`);
+      } else if (isZ) {
+        lines.push(`  ${result} = min(${result}, ${fnName}(vec3(crad_${result} * cos(ca_${result}), crad_${result} * sin(ca_${result}), ${pVar}.z)));`);
+      } else {
+        lines.push(`  ${result} = min(${result}, ${fnName}(vec3(crad_${result} * cos(ca_${result}), ${pVar}.y, crad_${result} * sin(ca_${result}))));`);
+      }
+      lines.push(`}`);
       return result;
     }
     case 'halfSpace': {
@@ -232,13 +277,15 @@ export function generateSDFFunction(root: SDFNode): SDFCompileResult {
   paramIndex = 0;
   paramValues = [];
   textures = [];
+  helperFunctions = [];
+  helperCounter = 0;
   const lines: string[] = [];
   const finalVar = emitNode(root, 'p', lines);
 
   const count = Math.max(paramIndex, 1);
-  // Emit texture uniform declarations before the SDF function
   const texDecls = textures.map((t) => `uniform sampler2D ${t.name};`).join('\n');
-  const glsl = `${texDecls}${texDecls ? '\n' : ''}float sdf(vec3 p) {
+  const helpers = helperFunctions.join('\n\n');
+  const glsl = `${texDecls}${texDecls ? '\n' : ''}${helpers}${helpers ? '\n\n' : ''}float sdf(vec3 p) {
   ${lines.join('\n  ')}
   return ${finalVar};
 }`;
