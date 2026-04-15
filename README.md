@@ -90,29 +90,12 @@ For AI chat (community edition), click the gear icon in the chat panel and enter
 - Credit purchases help Kevin Blackburn-Matzen cover Anthropic API and hosting costs
 - Available at [sinter-3d.com](https://sinter-3d.com)
 
-## Self-Hosting (Paid Edition)
-
-```bash
-cp .env.example .env
-# Edit .env with your API keys
-docker-compose up -d
-```
-
-Required environment variables:
-- `ANTHROPIC_API_KEY` — for AI chat
-- `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` — Google OAuth
-- `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` — GitHub OAuth
-- `SESSION_SECRET` — random string for session signing
-- `BASE_URL` — public URL of your deployment
-- `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` — for billing (optional)
-- `SITE_PASSWORD` — password-gate the site pre-launch (optional)
-
 ## Tech Stack
 
 - **Frontend**: React, TypeScript, Vite, Tailwind CSS
 - **3D Viewport**: Three.js (pure, no R3F)
 - **Geometry**: Custom SDF engine with GPU ray marching and marching cubes export
-- **Server** (paid): Express.js, SQLite (better-sqlite3), Passport.js, Stripe
+- **Server** (paid): Express.js, SQLite (better-sqlite3), Passport.js, Lemon Squeezy
 - **State**: Zustand
 - **Font**: Outfit + JetBrains Mono
 - **Tests**: Vitest (unit) + Playwright (E2E)
