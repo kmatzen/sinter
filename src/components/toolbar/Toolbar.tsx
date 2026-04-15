@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { isDirty, markClean } from '../../store/localPersist';
+import { isDirty, markClean, saveToLocal } from '../../store/localPersist';
 import { useModelerStore } from '../../store/modelerStore';
 import { useAuthStore } from '../../store/authStore';
 import { useProjectStore } from '../../store/projectStore';
@@ -81,21 +81,26 @@ export function Toolbar() {
     <div className="h-11 flex items-center px-3 gap-2 shrink-0"
          style={{ background: 'var(--bg-panel)', borderBottom: '1px solid var(--border-subtle)' }}>
       <div className="flex items-center gap-2">
-        <img src="/logo-64.png" alt="Sinter" className="w-5 h-5 rounded cursor-pointer"
-             onClick={() => window.dispatchEvent(new Event('show-landing'))}
-             title="Back to home" />
+        <img src="/logo-64.png" alt="Sinter" className="w-5 h-5 rounded"
+             style={{ cursor: features.auth ? 'pointer' : 'default' }}
+             onClick={() => { if (features.auth) window.dispatchEvent(new Event('show-landing')); }}
+             title={features.auth ? 'Back to home' : 'Sinter'} />
         <input
           value={projectName}
           onChange={(e) => setProjectName(e.target.value)}
           aria-label="Project name"
-          className="bg-transparent border-none text-sm font-medium w-20 md:w-32 focus:outline-none rounded px-1"
+          className="bg-transparent border-none text-sm font-medium w-32 focus:outline-none rounded px-1"
           style={{ color: 'var(--text-primary)' }}
         />
       </div>
       <div className="w-px h-4 mx-1" style={{ background: 'var(--border-default)' }} />
       <IconBtn icon={<FilePlus size={14} />} title="New project" onClick={() => { useModelerStore.getState().setTree(null); useModelerStore.getState().setProjectName('Untitled'); }} />
-      {features.cloudStorage && <IconBtn icon={<FolderOpen size={14} />} title="Projects" onClick={() => setShowProjects(true)} />}
-      {features.cloudStorage && <IconBtn icon={<Save size={14} />} title={saving ? 'Saving...' : 'Save to cloud'} onClick={handleSaveCloud} disabled={saving || !dirty} />}
+      <IconBtn icon={<FolderOpen size={14} />} title="Projects" onClick={() => setShowProjects(true)} />
+      {features.cloudStorage ? (
+        <IconBtn icon={<Save size={14} />} title={saving ? 'Saving...' : 'Save to cloud'} onClick={handleSaveCloud} disabled={saving || !dirty} />
+      ) : (
+        <IconBtn icon={<Save size={14} />} title="Save" onClick={() => { saveToLocal(); markClean(); setDirty(false); }} disabled={!dirty} />
+      )}
       {features.sharing && projectId && (
         shareToken ? (
           <IconBtn
