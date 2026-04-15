@@ -6,6 +6,37 @@ export interface OutlinePassEngine {
   container: HTMLElement;
 }
 
+const GIZMO_OUTLINE_FRAG = `
+precision highp float;
+uniform sampler2D u_gizmo;
+uniform vec2 u_resolution;
+varying vec2 vUv;
+
+void main() {
+  float px = 1.0 / u_resolution.x;
+  float py = 1.0 / u_resolution.y;
+  float center = texture2D(u_gizmo, vUv).a;
+
+  // Dilate: check if any neighbor has gizmo alpha
+  float maxAlpha = 0.0;
+  for (int x = -2; x <= 2; x++) {
+    for (int y = -2; y <= 2; y++) {
+      if (x == 0 && y == 0) continue;
+      float r = sqrt(float(x*x + y*y));
+      if (r > 2.5) continue;
+      vec2 offset = vec2(float(x) * px, float(y) * py);
+      float a = texture2D(u_gizmo, vUv + offset).a;
+      maxAlpha = max(maxAlpha, a);
+    }
+  }
+
+  // Outline where neighbors have alpha but center doesn't (or is different)
+  float edge = maxAlpha * (1.0 - center);
+  if (edge < 0.01) discard;
+  gl_FragColor = vec4(0.0, 0.0, 0.0, edge * 0.5);
+}
+`;
+
 const QUAD_VERT = `
 varying vec2 vUv;
 void main() {
@@ -65,9 +96,13 @@ void main() {
 export class OutlinePass {
   private engine: OutlinePassEngine;
   private depthTarget: THREE.WebGLRenderTarget;
+  private gizmoTarget: THREE.WebGLRenderTarget;
   private quadScene: THREE.Scene;
+  private gizmoQuadScene: THREE.Scene;
   private quadCamera: THREE.OrthographicCamera;
   private material: THREE.ShaderMaterial;
+  private gizmoMaterial: THREE.ShaderMaterial;
+  private gizmoScene: THREE.Scene;
 
   constructor(engine: OutlinePassEngine) {
     this.engine = engine;
@@ -80,6 +115,9 @@ export class OutlinePass {
       depthBuffer: true,
     });
     this.depthTarget.depthTexture!.type = THREE.FloatType;
+
+    this.gizmoTarget = new THREE.WebGLRenderTarget(w, h);
+    this.gizmoScene = new THREE.Scene();
 
     this.material = new THREE.ShaderMaterial({
       vertexShader: QUAD_VERT,
@@ -102,9 +140,23 @@ export class OutlinePass {
       stencilZPass: THREE.KeepStencilOp,
     });
 
+    this.gizmoMaterial = new THREE.ShaderMaterial({
+      vertexShader: QUAD_VERT,
+      fragmentShader: GIZMO_OUTLINE_FRAG,
+      uniforms: {
+        u_gizmo: { value: this.gizmoTarget.texture },
+        u_resolution: { value: new THREE.Vector2(w, h) },
+      },
+      transparent: true,
+      depthTest: false,
+      depthWrite: false,
+    });
+
     this.quadScene = new THREE.Scene();
+    this.gizmoQuadScene = new THREE.Scene();
     this.quadCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
     this.quadScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.material));
+    this.gizmoQuadScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.gizmoMaterial));
   }
 
   resize(w: number, h: number) {
@@ -112,11 +164,13 @@ export class OutlinePass {
     const pw = Math.floor(w * dpr);
     const ph = Math.floor(h * dpr);
     this.depthTarget.setSize(pw, ph);
+    this.gizmoTarget.setSize(pw, ph);
     if (this.depthTarget.depthTexture) {
       this.depthTarget.depthTexture.image = { width: pw, height: ph };
       this.depthTarget.depthTexture.needsUpdate = true;
     }
     this.material.uniforms.u_resolution.value.set(pw, ph);
+    this.gizmoMaterial.uniforms.u_resolution.value.set(pw, ph);
   }
 
   render() {
@@ -138,11 +192,36 @@ export class OutlinePass {
     // 3. Render outline quad (stencil blocks shape pixels)
     renderer.autoClear = false;
     renderer.render(this.quadScene, this.quadCamera);
+
+    // 4. Capture gizmo-only to offscreen target for edge detection
+    // Find TransformControls in scene and render only those
+    const gizmoObjects: { obj: THREE.Object3D; parent: THREE.Object3D }[] = [];
+    for (const child of [...scene.children]) {
+      if ((child as any).isTransformControls) {
+        gizmoObjects.push({ obj: child, parent: scene });
+      }
+    }
+    if (gizmoObjects.length > 0 && gizmoObjects.some(g => g.obj.visible)) {
+      // Move gizmos to isolated scene
+      for (const g of gizmoObjects) this.gizmoScene.add(g.obj);
+      renderer.setRenderTarget(this.gizmoTarget);
+      renderer.clear();
+      renderer.render(this.gizmoScene, camera);
+      renderer.setRenderTarget(null);
+      // Move back
+      for (const g of gizmoObjects) g.parent.add(g.obj);
+
+      // 5. Render gizmo outline quad
+      renderer.render(this.gizmoQuadScene, this.quadCamera);
+    }
+
     renderer.autoClear = true;
   }
 
   dispose() {
     this.depthTarget.dispose();
+    this.gizmoTarget.dispose();
     this.material.dispose();
+    this.gizmoMaterial.dispose();
   }
 }

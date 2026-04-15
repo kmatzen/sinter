@@ -731,48 +731,61 @@ class TransformControlsGizmo extends Object3D {
       depthTest: false,
       depthWrite: false,
       transparent: true,
-      linewidth: 1,
+      linewidth: 2,
       fog: false,
       toneMapped: false
     });
     const matInvisible = gizmoMaterial.clone();
     matInvisible.opacity = 0.15;
     const matHelper = gizmoMaterial.clone();
-    matHelper.opacity = 0.33;
+    matHelper.opacity = 0.5;
+    // Themed axis colors matching the Sinter UI palette — boosted for contrast
+    const colX = 0xe8956a;   // bright warm orange
+    const colY = 0x5cd88e;   // bright green
+    const colZ = 0x6ea0f0;   // bright blue
+    const colXY = 0xa0c888;  // green-orange blend
+    const colXZ = 0xb098b8;  // muted purple
+    const colYZ = 0x58b8c8;  // teal
+    const colAll = 0xc0c0d8; // light gray
     const matRed = gizmoMaterial.clone();
-    matRed.color.set(16711680);
+    matRed.color.set(colX);
     const matGreen = gizmoMaterial.clone();
-    matGreen.color.set(65280);
+    matGreen.color.set(colY);
     const matBlue = gizmoMaterial.clone();
-    matBlue.color.set(255);
+    matBlue.color.set(colZ);
     const matWhiteTransparent = gizmoMaterial.clone();
-    matWhiteTransparent.opacity = 0.25;
+    matWhiteTransparent.opacity = 0.35;
     const matYellowTransparent = matWhiteTransparent.clone();
-    matYellowTransparent.color.set(16776960);
+    matYellowTransparent.color.set(colXY);
     const matCyanTransparent = matWhiteTransparent.clone();
-    matCyanTransparent.color.set(65535);
+    matCyanTransparent.color.set(colYZ);
     const matMagentaTransparent = matWhiteTransparent.clone();
-    matMagentaTransparent.color.set(16711935);
+    matMagentaTransparent.color.set(colXZ);
     const matYellow = gizmoMaterial.clone();
-    matYellow.color.set(16776960);
+    matYellow.color.set(colAll);
     const matLineRed = gizmoLineMaterial.clone();
-    matLineRed.color.set(16711680);
+    matLineRed.color.set(colX);
     const matLineGreen = gizmoLineMaterial.clone();
-    matLineGreen.color.set(65280);
+    matLineGreen.color.set(colY);
     const matLineBlue = gizmoLineMaterial.clone();
-    matLineBlue.color.set(255);
+    matLineBlue.color.set(colZ);
     const matLineCyan = gizmoLineMaterial.clone();
-    matLineCyan.color.set(65535);
+    matLineCyan.color.set(colYZ);
     const matLineMagenta = gizmoLineMaterial.clone();
-    matLineMagenta.color.set(16711935);
+    matLineMagenta.color.set(colXZ);
     const matLineYellow = gizmoLineMaterial.clone();
-    matLineYellow.color.set(16776960);
+    matLineYellow.color.set(colXY);
     const matLineGray = gizmoLineMaterial.clone();
-    matLineGray.color.set(7895160);
+    matLineGray.color.set(colAll);
     const matLineYellowTransparent = matLineYellow.clone();
-    matLineYellowTransparent.opacity = 0.25;
-    const arrowGeometry = new CylinderGeometry(0, 0.05, 0.2, 12, 1, false);
-    const scaleHandleGeometry = new BoxGeometry(0.125, 0.125, 0.125);
+    matLineYellowTransparent.opacity = 0.35;
+    const arrowGeometry = new CylinderGeometry(0, 0.07, 0.24, 12, 1, false);
+    const scaleHandleGeometry = new BoxGeometry(0.16, 0.16, 0.16);
+    // Tube geometry for translate axis stems (replaces thin Line objects)
+    const tubeRadius = 0.012;
+    const tubeGeometry = new CylinderGeometry(tubeRadius, tubeRadius, 1, 6, 1, false);
+    tubeGeometry.translate(0, 0.5, 0);
+    tubeGeometry.rotateZ(-Math.PI / 2); // align along +X like lineGeometry
     const lineGeometry = new BufferGeometry();
     lineGeometry.setAttribute("position", new Float32BufferAttribute([0, 0, 0, 1, 0, 0], 3));
     const CircleGeometry = (radius, arc) => {
@@ -793,17 +806,17 @@ class TransformControlsGizmo extends Object3D {
       X: [
         [new Mesh(arrowGeometry, matRed), [1, 0, 0], [0, 0, -Math.PI / 2], null, "fwd"],
         [new Mesh(arrowGeometry, matRed), [1, 0, 0], [0, 0, Math.PI / 2], null, "bwd"],
-        [new Line(lineGeometry, matLineRed)]
+        [new Mesh(tubeGeometry, matRed)]
       ],
       Y: [
         [new Mesh(arrowGeometry, matGreen), [0, 1, 0], null, null, "fwd"],
         [new Mesh(arrowGeometry, matGreen), [0, 1, 0], [Math.PI, 0, 0], null, "bwd"],
-        [new Line(lineGeometry, matLineGreen), null, [0, 0, Math.PI / 2]]
+        [new Mesh(tubeGeometry, matGreen), null, [0, 0, Math.PI / 2]]
       ],
       Z: [
         [new Mesh(arrowGeometry, matBlue), [0, 0, 1], [Math.PI / 2, 0, 0], null, "fwd"],
         [new Mesh(arrowGeometry, matBlue), [0, 0, 1], [-Math.PI / 2, 0, 0], null, "bwd"],
-        [new Line(lineGeometry, matLineBlue), null, [0, -Math.PI / 2, 0]]
+        [new Mesh(tubeGeometry, matBlue), null, [0, -Math.PI / 2, 0]]
       ],
       XYZ: [[new Mesh(new OctahedronGeometry(0.1, 0), matWhiteTransparent.clone()), [0, 0, 0], [0, 0, 0]]],
       XY: [
@@ -843,21 +856,27 @@ class TransformControlsGizmo extends Object3D {
       Y: [[new Line(lineGeometry, matHelper.clone()), [0, -1e3, 0], [0, 0, Math.PI / 2], [1e6, 1, 1], "helper"]],
       Z: [[new Line(lineGeometry, matHelper.clone()), [0, 0, -1e3], [0, -Math.PI / 2, 0], [1e6, 1, 1], "helper"]]
     };
+    // Torus geometries for rotation rings (thicker than Line)
+    const ringTube = 0.01;
+    const ringSegs = 6;
+    const ringRadialSegs = 48;
+    const fullRing = new TorusGeometry(1, ringTube, ringSegs, ringRadialSegs);
+    const outerRing = new TorusGeometry(1.25, ringTube, ringSegs, ringRadialSegs);
     const gizmoRotate = {
       X: [
-        [new Line(CircleGeometry(1, 0.5), matLineRed)],
+        [new Mesh(fullRing.clone(), matRed), null, [0, Math.PI / 2, Math.PI / 2]],
         [new Mesh(new OctahedronGeometry(0.04, 0), matRed), [0, 0, 0.99], null, [1, 3, 1]]
       ],
       Y: [
-        [new Line(CircleGeometry(1, 0.5), matLineGreen), null, [0, 0, -Math.PI / 2]],
+        [new Mesh(fullRing.clone(), matGreen), null, [Math.PI / 2, 0, 0]],
         [new Mesh(new OctahedronGeometry(0.04, 0), matGreen), [0, 0, 0.99], null, [3, 1, 1]]
       ],
       Z: [
-        [new Line(CircleGeometry(1, 0.5), matLineBlue), null, [0, Math.PI / 2, 0]],
+        [new Mesh(fullRing.clone(), matBlue)],
         [new Mesh(new OctahedronGeometry(0.04, 0), matBlue), [0.99, 0, 0], null, [1, 3, 1]]
       ],
       E: [
-        [new Line(CircleGeometry(1.25, 1), matLineYellowTransparent), null, [0, Math.PI / 2, 0]],
+        [new Mesh(outerRing, matYellowTransparent)],
         [
           new Mesh(new CylinderGeometry(0.03, 0, 0.15, 4, 1, false), matLineYellowTransparent),
           [1.17, 0, 0],
@@ -883,7 +902,7 @@ class TransformControlsGizmo extends Object3D {
           [1, 1, 1e-3]
         ]
       ],
-      XYZE: [[new Line(CircleGeometry(1, 1), matLineGray), null, [0, Math.PI / 2, 0]]]
+      XYZE: [[new Mesh(fullRing, matHelper)]]
     };
     const helperRotate = {
       AXIS: [[new Line(lineGeometry, matHelper.clone()), [-1e3, 0, 0], null, [1e6, 1, 1], "helper"]]
@@ -898,15 +917,15 @@ class TransformControlsGizmo extends Object3D {
     const gizmoScale = {
       X: [
         [new Mesh(scaleHandleGeometry, matRed), [0.8, 0, 0], [0, 0, -Math.PI / 2]],
-        [new Line(lineGeometry, matLineRed), null, null, [0.8, 1, 1]]
+        [new Mesh(tubeGeometry, matRed), null, null, [0.8, 1, 1]]
       ],
       Y: [
         [new Mesh(scaleHandleGeometry, matGreen), [0, 0.8, 0]],
-        [new Line(lineGeometry, matLineGreen), null, [0, 0, Math.PI / 2], [0.8, 1, 1]]
+        [new Mesh(tubeGeometry, matGreen), null, [0, 0, Math.PI / 2], [0.8, 1, 1]]
       ],
       Z: [
         [new Mesh(scaleHandleGeometry, matBlue), [0, 0, 0.8], [Math.PI / 2, 0, 0]],
-        [new Line(lineGeometry, matLineBlue), null, [0, -Math.PI / 2, 0], [0.8, 1, 1]]
+        [new Mesh(tubeGeometry, matBlue), null, [0, -Math.PI / 2, 0], [0.8, 1, 1]]
       ],
       XY: [
         [new Mesh(scaleHandleGeometry, matYellowTransparent), [0.85, 0.85, 0], null, [2, 2, 0.2]],
