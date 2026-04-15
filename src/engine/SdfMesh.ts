@@ -148,6 +148,7 @@ export class SdfMesh {
   private material: THREE.ShaderMaterial | null = null;
   private lastGlsl = '';
   private lastParamCount = 0;
+  private lastBBKey = '';
   private unsubs: (() => void)[] = [];
 
   constructor(engine: ThreeEngine) {
@@ -264,6 +265,19 @@ export class SdfMesh {
       const half = Math.sqrt(w*w + h*h + d*d) / 2;
       u.u_bbMin.value.set(cx - half, cy - half, cz - half);
       u.u_bbMax.value.set(cx + half, cy + half, cz + half);
+
+      // Update mesh geometry if bounding box changed
+      if (this.mesh) {
+        const bbKey = `${x0},${y0},${z0},${x1},${y1},${z1}`;
+        if (bbKey !== this.lastBBKey) {
+          this.lastBBKey = bbKey;
+          this.mesh.geometry.dispose();
+          const diag = half * 2;
+          const geo = new THREE.BoxGeometry(diag, diag, diag);
+          geo.translate(cx, cy, cz);
+          this.mesh.geometry = geo;
+        }
+      }
 
       const arr = u.u_p.value as Float32Array;
       for (let i = 0; i < sdf.paramValues.length && i < arr.length; i++) {

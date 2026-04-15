@@ -54,15 +54,15 @@ export function toSDFNode(ui: SDFNodeUI): SDFNode | null {
       return {
         kind: 'transform',
         child: children[0],
-        tx: ui.kind === 'translate' ? p.x : 0,
-        ty: ui.kind === 'translate' ? p.y : 0,
-        tz: ui.kind === 'translate' ? p.z : 0,
-        rx: ui.kind === 'rotate' ? p.x : 0,
-        ry: ui.kind === 'rotate' ? p.y : 0,
-        rz: ui.kind === 'rotate' ? p.z : 0,
-        sx: ui.kind === 'scale' ? p.x : 1,
-        sy: ui.kind === 'scale' ? p.y : 1,
-        sz: ui.kind === 'scale' ? p.z : 1,
+        tx: ui.kind === 'translate' ? (p.x ?? 0) : 0,
+        ty: ui.kind === 'translate' ? (p.y ?? 0) : 0,
+        tz: ui.kind === 'translate' ? (p.z ?? 0) : 0,
+        rx: ui.kind === 'rotate' ? (p.x ?? 0) : 0,
+        ry: ui.kind === 'rotate' ? (p.y ?? 0) : 0,
+        rz: ui.kind === 'rotate' ? (p.z ?? 0) : 0,
+        sx: ui.kind === 'scale' ? (p.x ?? 1) : 1,
+        sy: ui.kind === 'scale' ? (p.y ?? 1) : 1,
+        sz: ui.kind === 'scale' ? (p.z ?? 1) : 1,
       };
 
     case 'halfSpace':
@@ -78,24 +78,29 @@ export function toSDFNode(ui: SDFNodeUI): SDFNode | null {
       if (children.length < 1) return null;
       return { kind: 'mirror', child: children[0], axes: [p.mirrorX ? 1 : 0, p.mirrorY ? 1 : 0, p.mirrorZ ? 1 : 0] as [number, number, number] };
 
-    case 'linearPattern':
+    case 'linearPattern': {
       if (children.length < 1) return null;
+      const hasLinAxis = (p.axisX || 0) !== 0 || (p.axisY || 0) !== 0 || (p.axisZ || 0) !== 0;
       return {
         kind: 'linearPattern',
         child: children[0],
-        axis: [p.axisX || 0, p.axisY || 0, p.axisZ || 0] as [number, number, number],
+        axis: hasLinAxis ? [p.axisX || 0, p.axisY || 0, p.axisZ || 0] as [number, number, number] : [1, 0, 0],
         count: p.count || 2,
         spacing: p.spacing || 10,
       };
+    }
 
-    case 'circularPattern':
+    case 'circularPattern': {
       if (children.length < 1) return null;
+      // Default to Y axis if none specified (all zeros)
+      const hasAxis = (p.axisX || 0) !== 0 || (p.axisY || 0) !== 0 || (p.axisZ || 0) !== 0;
       return {
         kind: 'circularPattern',
         child: children[0],
-        axis: [p.axisX || 0, p.axisY || 1, p.axisZ || 0] as [number, number, number],
+        axis: hasAxis ? [p.axisX || 0, p.axisY || 0, p.axisZ || 0] as [number, number, number] : [0, 1, 0],
         count: p.count || 4,
       };
+    }
 
     default: return null;
   }

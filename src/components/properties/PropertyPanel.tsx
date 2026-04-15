@@ -82,19 +82,19 @@ function AxisCheckboxes({ params, onUpdate }: { params: Record<string, number>; 
   );
 }
 
-/** Inline radio pills for axis selection */
-function AxisRadio({ value, onUpdate }: { value: number; onUpdate: (p: Record<string, number>) => void }) {
+/** Reusable X/Y/Z radio pills */
+function XYZPicker({ label, value, onChange }: { label: string; value: 'x' | 'y' | 'z'; onChange: (axis: 'x' | 'y' | 'z') => void }) {
   return (
-    <div className="flex gap-1 px-2 mb-1" role="radiogroup" aria-label="Cut axis">
-      {(['X', 'Y', 'Z'] as const).map((axis, i) => {
-        const active = value === i;
+    <div className="flex gap-1 px-2 mb-1" role="radiogroup" aria-label={label}>
+      {(['x', 'y', 'z'] as const).map((axis) => {
+        const active = value === axis;
         return (
           <button
             key={axis}
             role="radio"
             aria-checked={active}
-            onClick={() => onUpdate({ axis: i })}
-            title={`Cut along ${axis} axis`}
+            onClick={() => onChange(axis)}
+            title={`${label}: ${axis.toUpperCase()}`}
             className="flex-1 h-7 rounded text-[11px] font-medium transition-colors"
             style={{
               background: active ? 'var(--accent-subtle)' : 'var(--bg-surface)',
@@ -102,12 +102,24 @@ function AxisRadio({ value, onUpdate }: { value: number; onUpdate: (p: Record<st
               border: `1px solid ${active ? 'var(--accent)' : 'var(--border-subtle)'}`,
             }}
           >
-            {axis}
+            {axis.toUpperCase()}
           </button>
         );
       })}
     </div>
   );
+}
+
+/** Helper to get dominant axis from axisX/axisY/axisZ params */
+function getActiveAxis(p: Record<string, number>): 'x' | 'y' | 'z' {
+  const ax = Math.abs(p.axisX || 0), ay = Math.abs(p.axisY || 0), az = Math.abs(p.axisZ || 0);
+  if (ax > ay && ax > az) return 'x';
+  if (az > ay) return 'z';
+  return 'y';
+}
+
+function setAxisParams(axis: 'x' | 'y' | 'z'): Record<string, number> {
+  return { axisX: axis === 'x' ? 1 : 0, axisY: axis === 'y' ? 1 : 0, axisZ: axis === 'z' ? 1 : 0 };
 }
 
 export function PropertyPanel() {
@@ -312,7 +324,11 @@ function NodeEditor({ node, onUpdate, onUpdateStr }: { node: SDFNodeUI; onUpdate
       return (
         <>
           <SectionLabel>Cut Axis</SectionLabel>
-          <AxisRadio value={p.axis} onUpdate={onUpdate} />
+          <XYZPicker
+            label="Cut axis"
+            value={p.axis === 0 ? 'x' : p.axis === 2 ? 'z' : 'y'}
+            onChange={(a) => onUpdate({ axis: a === 'x' ? 0 : a === 'z' ? 2 : 1 })}
+          />
           <SectionLabel>Keep Side</SectionLabel>
           <div className="flex gap-1 px-2" role="radiogroup" aria-label="Keep side">
             {[{ label: '+', val: 0, desc: 'Keep positive side' }, { label: '\u2212', val: 1, desc: 'Keep negative side' }].map(({ label, val, desc }) => {
@@ -348,9 +364,7 @@ function NodeEditor({ node, onUpdate, onUpdateStr }: { node: SDFNodeUI; onUpdate
           <NumberInput label="Count" value={p.count} min={2} max={50} step={1} unit="" onChange={(v) => onUpdate({ count: Math.round(v) })} />
           <NumberInput label="Spacing" value={p.spacing} min={0.1} onChange={(v) => onUpdate({ spacing: v })} />
           <SectionLabel>Direction</SectionLabel>
-          <NumberInput label="X" value={p.axisX} unit="" step={1} onChange={(v) => onUpdate({ axisX: v })} />
-          <NumberInput label="Y" value={p.axisY} unit="" step={1} onChange={(v) => onUpdate({ axisY: v })} />
-          <NumberInput label="Z" value={p.axisZ} unit="" step={1} onChange={(v) => onUpdate({ axisZ: v })} />
+          <XYZPicker label="Pattern direction" value={getActiveAxis(p)} onChange={(a) => onUpdate(setAxisParams(a))} />
         </>
       );
     case 'circularPattern':
@@ -359,9 +373,7 @@ function NodeEditor({ node, onUpdate, onUpdateStr }: { node: SDFNodeUI; onUpdate
           <SectionLabel>Pattern</SectionLabel>
           <NumberInput label="Count" value={p.count} min={2} max={50} step={1} unit="" onChange={(v) => onUpdate({ count: Math.round(v) })} />
           <SectionLabel>Rotation Axis</SectionLabel>
-          <NumberInput label="X" value={p.axisX} unit="" step={1} onChange={(v) => onUpdate({ axisX: v })} />
-          <NumberInput label="Y" value={p.axisY} unit="" step={1} onChange={(v) => onUpdate({ axisY: v })} />
-          <NumberInput label="Z" value={p.axisZ} unit="" step={1} onChange={(v) => onUpdate({ axisZ: v })} />
+          <XYZPicker label="Rotation axis" value={getActiveAxis(p)} onChange={(a) => onUpdate(setAxisParams(a))} />
         </>
       );
     default:
