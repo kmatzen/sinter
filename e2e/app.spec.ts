@@ -8,17 +8,23 @@ async function dismissCookieConsent(page: any) {
   }
 }
 
-// Helper: ensure we're in the modeler (handles both fresh and returning user)
+// Helper: ensure we're in the modeler
+// In community mode, the app loads directly into the modeler.
+// In paid mode, we need to click through the landing page.
 async function enterModeler(page: any) {
   await page.goto('/', { waitUntil: 'domcontentloaded' });
-  // Clear the returning-user flag so landing page shows
+  await dismissCookieConsent(page);
+  // If modeler is already visible (community mode), we're done
+  const modeler = page.locator('[data-testid="modeler-app"]');
+  if (await modeler.isVisible({ timeout: 2000 }).catch(() => false)) return;
+  // Otherwise, click through landing page (paid mode)
   await page.evaluate(() => localStorage.removeItem('sinter_launched'));
   await page.reload({ waitUntil: 'domcontentloaded' });
   await dismissCookieConsent(page);
   const btn = page.locator('button', { hasText: 'Launch App' }).first();
   await btn.waitFor({ state: 'visible', timeout: 15000 });
   await btn.click();
-  await expect(page.locator('[data-testid="modeler-app"]')).toBeVisible({ timeout: 15000 });
+  await expect(modeler).toBeVisible({ timeout: 15000 });
 }
 
 // Helper: click a shape in the parts palette Shapes tab
@@ -33,9 +39,16 @@ async function addOp(page: any, name: string) {
   await page.locator(`[title="Add ${name}"]`).click({ force: true });
 }
 
+// Landing page tests only run in paid mode — community mode skips the landing page
 test.describe('Landing Page', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/', { waitUntil: 'domcontentloaded' });
+    // If modeler is already visible (community mode), skip
+    const modeler = page.locator('[data-testid="modeler-app"]');
+    if (await modeler.isVisible({ timeout: 2000 }).catch(() => false)) {
+      test.skip();
+      return;
+    }
     await page.evaluate(() => localStorage.removeItem('sinter_launched'));
     await page.reload({ waitUntil: 'domcontentloaded' });
     await dismissCookieConsent(page);
