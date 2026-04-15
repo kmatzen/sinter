@@ -141,9 +141,9 @@ function ModelerApp() {
     <div data-testid="modeler-app" className="h-full flex flex-col overflow-hidden" style={{ background: 'var(--bg-deep)', color: 'var(--text-primary)' }}>
       <Toolbar />
       <div className="flex flex-1 min-h-0">
-        <NodeTreePanel />
+        <div className="hidden md:flex"><NodeTreePanel /></div>
         <Viewport />
-        <PropertyPanel />
+        <div className="hidden lg:flex"><PropertyPanel /></div>
       </div>
       <ChatDrawer />
       <AppModals />

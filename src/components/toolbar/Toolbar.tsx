@@ -88,7 +88,7 @@ export function Toolbar() {
           value={projectName}
           onChange={(e) => setProjectName(e.target.value)}
           aria-label="Project name"
-          className="bg-transparent border-none text-sm font-medium w-32 focus:outline-none rounded px-1"
+          className="bg-transparent border-none text-sm font-medium w-20 md:w-32 focus:outline-none rounded px-1"
           style={{ color: 'var(--text-primary)' }}
         />
       </div>

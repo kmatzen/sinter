@@ -11,8 +11,8 @@ export function LoginPage() {
   }, []);
 
   return (
-    <div className="h-screen flex items-center justify-center noise-bg" style={{ background: 'var(--bg-deep)' }}>
-      <div className="flex flex-col items-center space-y-8 relative z-10">
+    <div className="h-screen flex items-center justify-center noise-bg px-4" style={{ background: 'var(--bg-deep)' }}>
+      <div className="flex flex-col items-center space-y-6 md:space-y-8 relative z-10 w-full max-w-sm">
         <div className="text-center">
           <div className="flex items-center justify-center gap-3 mb-4">
             <img src="/logo-128.png" alt="Sinter" className="w-10 h-10 rounded-lg" />
