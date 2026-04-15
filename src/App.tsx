@@ -77,20 +77,11 @@ function ModelerApp() {
     if (features.autoSave) startAutoSave();
     if (features.byok) startLocalAutoSave();
 
-    // Verify Stripe checkout on redirect
+    // After Lemon Squeezy checkout redirect, refresh credits
     const params = new URLSearchParams(window.location.search);
-    const sessionId = params.get('session_id');
-    if (sessionId && params.get('billing') === 'success') {
-      fetch('/api/billing/verify', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ sessionId }),
-      }).then(() => {
-        window.history.replaceState({}, '', window.location.pathname);
-        // Notify billing badge to refetch
-        window.dispatchEvent(new Event('credits-updated'));
-      });
+    if (params.get('billing') === 'success') {
+      window.history.replaceState({}, '', window.location.pathname);
+      window.dispatchEvent(new Event('credits-updated'));
     }
   }, []);
 

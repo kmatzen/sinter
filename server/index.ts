@@ -25,7 +25,7 @@ if (!isDev && (!process.env.SESSION_SECRET || process.env.SESSION_SECRET === 'de
   process.exit(1);
 }
 
-// Middleware — raw body for Stripe webhook, JSON for everything else
+// Middleware — raw body for Lemon Squeezy webhook, JSON for everything else
 app.use('/api/billing/webhook', express.raw({ type: 'application/json' }));
 app.use(express.json({ limit: '10mb' }));
 

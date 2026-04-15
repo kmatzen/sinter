@@ -395,7 +395,7 @@ export function LandingPage({ onLaunch }: { onLaunch: () => void }) {
               <h3 className="font-semibold mt-6" style={{ color: 'var(--text-primary)' }}>1. Information We Collect</h3>
               <p><strong>Account information:</strong> When you sign in with Google or GitHub, we receive your name, email address, and profile photo. We do not access any other data from these services.</p>
               <p><strong>Project data:</strong> If you use cloud storage, your 3D model data (node trees as JSON) is stored on our servers.</p>
-              <p><strong>Payment information:</strong> Payments are processed by Stripe. We do not store your credit card details. Stripe may collect information as described in their privacy policy.</p>
+              <p><strong>Payment information:</strong> Payments are processed by Lemon Squeezy (Merchant of Record). We do not store your credit card details. Lemon Squeezy may collect information as described in their privacy policy.</p>
               <p><strong>Usage data:</strong> We log AI chat token usage per user for billing purposes. We do not log the content of your prompts or AI responses.</p>
 
               <h3 className="font-semibold mt-6" style={{ color: 'var(--text-primary)' }}>2. Cookies and Local Storage</h3>
@@ -411,7 +411,7 @@ export function LandingPage({ onLaunch }: { onLaunch: () => void }) {
               <h3 className="font-semibold mt-6" style={{ color: 'var(--text-primary)' }}>5. Data Sharing</h3>
               <p>We do not sell, rent, or share your personal information with third parties, except:</p>
               <ul className="list-disc ml-5 space-y-1">
-                <li>Stripe, for payment processing</li>
+                <li>Lemon Squeezy, for payment processing</li>
                 <li>Anthropic, for AI chat functionality</li>
                 <li>When required by law</li>
               </ul>
