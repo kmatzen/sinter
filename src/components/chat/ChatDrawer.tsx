@@ -1,19 +1,12 @@
 import { useState, useRef, useEffect } from 'react';
 import { useChatStore } from '../../store/chatStore';
-import { Send, Settings, X } from 'lucide-react';
+import { Send } from 'lucide-react';
 
 export function ChatDrawer() {
   const isOpen = useChatStore((s) => s.isOpen);
   const messages = useChatStore((s) => s.messages);
   const isLoading = useChatStore((s) => s.isLoading);
   const sendMessage = useChatStore((s) => s.sendMessage);
-  const showSettings = useChatStore((s) => s.showSettings);
-  const toggleSettings = useChatStore((s) => s.toggleSettings);
-  const setApiConfig = useChatStore((s) => s.setApiConfig);
-  const apiKey = useChatStore((s) => s.apiKey);
-  const model = useChatStore((s) => s.model);
-  const provider = useChatStore((s) => s.provider);
-  const apiEndpoint = useChatStore((s) => s.apiEndpoint);
 
   const [input, setInput] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -36,57 +29,7 @@ export function ChatDrawer() {
          style={{ background: 'var(--bg-panel)', borderLeft: '1px solid var(--border-subtle)', boxShadow: 'var(--shadow-lg)' }}>
       <div className="px-3 py-2 flex items-center justify-between" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
         <span className="font-mono text-[10px] tracking-[0.15em] uppercase" style={{ color: 'var(--text-muted)' }}>AI Assistant</span>
-        <button onClick={toggleSettings} style={{ color: 'var(--text-muted)' }} className="hover:opacity-80">
-          {showSettings ? <X size={16} /> : <Settings size={16} />}
-        </button>
       </div>
-
-      {showSettings && (
-        <div className="p-3 space-y-2" style={{ borderBottom: '1px solid var(--border-subtle)', background: 'var(--bg-surface)' }}>
-          <div>
-            <label className="text-[10px] uppercase font-mono tracking-wider" style={{ color: 'var(--text-muted)' }}>Provider</label>
-            <select
-              value={provider}
-              onChange={(e) => setApiConfig({ provider: e.target.value as 'openai' | 'anthropic' })}
-              className="w-full rounded px-2 py-1 text-sm focus:outline-none"
-              style={{ background: 'var(--bg-elevated)', color: 'var(--text-primary)', border: '1px solid var(--border-default)' }}
-            >
-              <option value="anthropic">Anthropic</option>
-              <option value="openai">OpenAI</option>
-            </select>
-          </div>
-          <div>
-            <label className="text-[10px] uppercase font-mono tracking-wider" style={{ color: 'var(--text-muted)' }}>API Key</label>
-            <input
-              type="password"
-              value={apiKey}
-              onChange={(e) => setApiConfig({ apiKey: e.target.value })}
-              placeholder="Enter API key..."
-              className="w-full rounded px-2 py-1 text-sm focus:outline-none"
-              style={{ background: 'var(--bg-elevated)', color: 'var(--text-primary)', border: '1px solid var(--border-default)' }}
-            />
-          </div>
-          <div>
-            <label className="text-[10px] uppercase font-mono tracking-wider" style={{ color: 'var(--text-muted)' }}>Model</label>
-            <input
-              value={model}
-              onChange={(e) => setApiConfig({ model: e.target.value })}
-              className="w-full rounded px-2 py-1 text-sm focus:outline-none"
-              style={{ background: 'var(--bg-elevated)', color: 'var(--text-primary)', border: '1px solid var(--border-default)' }}
-            />
-          </div>
-          <div>
-            <label className="text-[10px] uppercase font-mono tracking-wider" style={{ color: 'var(--text-muted)' }}>API Endpoint (optional)</label>
-            <input
-              value={apiEndpoint}
-              onChange={(e) => setApiConfig({ apiEndpoint: e.target.value })}
-              placeholder="https://api.anthropic.com"
-              className="w-full rounded px-2 py-1 text-sm focus:outline-none"
-              style={{ background: 'var(--bg-elevated)', color: 'var(--text-primary)', border: '1px solid var(--border-default)' }}
-            />
-          </div>
-        </div>
-      )}
 
       <div className="flex-1 overflow-y-auto p-3 space-y-3">
         {messages.length === 0 && (

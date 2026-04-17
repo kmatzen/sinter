@@ -16,15 +16,12 @@ interface ChatState {
   isOpen: boolean;
   isLoading: boolean;
 
-  // BYOK settings (community edition only)
   apiKey: string;
   apiEndpoint: string;
   model: string;
   provider: 'openai' | 'anthropic';
-  showSettings: boolean;
 
   toggleOpen: () => void;
-  toggleSettings: () => void;
   setApiConfig: (config: { apiKey?: string; apiEndpoint?: string; model?: string; provider?: 'openai' | 'anthropic' }) => void;
   sendMessage: (content: string) => Promise<void>;
   clearMessages: () => void;
@@ -65,10 +62,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
   apiEndpoint: initialSettings.apiEndpoint,
   model: initialSettings.model,
   provider: initialSettings.provider,
-  showSettings: false,
 
   toggleOpen: () => set((s) => ({ isOpen: !s.isOpen })),
-  toggleSettings: () => set((s) => ({ showSettings: !s.showSettings })),
   clearMessages: () => set({ messages: [] }),
 
   setApiConfig: (config) => {
