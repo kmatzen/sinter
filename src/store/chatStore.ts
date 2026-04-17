@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { sendLLMMessage } from '../llm/llmService';
+import { streamLLMMessage } from '../llm/llmService';
 import { buildSystemPrompt } from '../llm/systemPrompt';
 import { parseResponse } from '../llm/parseResponse';
 import { useModelerStore } from './modelerStore';
@@ -107,24 +107,40 @@ export const useChatStore = create<ChatState>((set, get) => ({
       : content;
 
     const userMessage: ChatMessage = { role: 'user', content: augmentedContent, images };
-    set((s) => ({ messages: [...s.messages, userMessage], isLoading: true }));
+    // Add user message + empty assistant placeholder for streaming
+    const assistantPlaceholder: ChatMessage = { role: 'assistant', content: '' };
+    set((s) => ({ messages: [...s.messages, userMessage, assistantPlaceholder], isLoading: true }));
 
     try {
       const currentTree = useModelerStore.getState().tree;
       const systemPrompt = buildSystemPrompt(currentTree);
-      const messages = [...get().messages];
-      const response = await sendLLMMessage({
-        systemPrompt,
-        messages,
-        // BYOK fields (only used in community edition)
-        apiKey: state.apiKey,
-        apiEndpoint: state.apiEndpoint,
-        model: state.model,
-        provider: state.provider,
-      });
+      const messages = get().messages.slice(0, -1); // exclude the empty placeholder
+      const response = await streamLLMMessage(
+        {
+          systemPrompt,
+          messages,
+          apiKey: state.apiKey,
+          apiEndpoint: state.apiEndpoint,
+          model: state.model,
+          provider: state.provider,
+        },
+        (token) => {
+          // Append each token to the last (assistant) message
+          set((s) => {
+            const msgs = s.messages.slice();
+            const last = msgs[msgs.length - 1];
+            msgs[msgs.length - 1] = { ...last, content: last.content + token };
+            return { messages: msgs };
+          });
+        },
+      );
 
-      const assistantMessage: ChatMessage = { role: 'assistant', content: response };
-      set((s) => ({ messages: [...s.messages, assistantMessage], isLoading: false }));
+      // Ensure the final message content matches the full response
+      set((s) => {
+        const msgs = s.messages.slice();
+        msgs[msgs.length - 1] = { ...msgs[msgs.length - 1], content: response };
+        return { messages: msgs, isLoading: false };
+      });
 
       const parsed = parseResponse(response);
       if (parsed) {
@@ -139,10 +155,17 @@ export const useChatStore = create<ChatState>((set, get) => ({
       }
     } catch (err: any) {
       const msg = `Error: ${err.message}`;
-      set((s) => ({
-        messages: [...s.messages, { role: 'assistant', content: msg }],
-        isLoading: false,
-      }));
+      set((s) => {
+        const msgs = s.messages.slice();
+        // If the placeholder is still empty, replace it; otherwise append
+        const last = msgs[msgs.length - 1];
+        if (last.role === 'assistant' && !last.content) {
+          msgs[msgs.length - 1] = { role: 'assistant', content: msg };
+        } else {
+          msgs.push({ role: 'assistant', content: msg });
+        }
+        return { messages: msgs, isLoading: false };
+      });
     }
   },
 }));

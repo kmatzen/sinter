@@ -55,17 +55,61 @@ function supportsExtendedThinking(model: string): boolean {
   return /claude-(opus|sonnet)-4/i.test(model);
 }
 
-export async function sendLLMMessage(req: LLMRequest): Promise<string> {
+/**
+ * Stream an LLM response, calling onToken with each text chunk as it arrives.
+ * Returns the full response text when complete.
+ */
+export async function streamLLMMessage(
+  req: LLMRequest,
+  onToken: (text: string) => void,
+): Promise<string> {
   req = { ...req, messages: stripOldImages(req.messages) };
   if (!req.apiKey) throw new Error('API key required. Configure it in the settings.');
 
   if (req.provider === 'openai') {
-    return sendOpenAI(req);
+    return streamOpenAI(req, onToken);
   }
-  return sendAnthropic(req);
+  return streamAnthropic(req, onToken);
 }
 
-async function sendAnthropic(req: LLMRequest): Promise<string> {
+/** Parse an SSE stream, yielding {event, data} for each complete event. */
+async function* parseSSE(reader: ReadableStreamDefaultReader<Uint8Array>): AsyncGenerator<{ event: string; data: string }> {
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let currentEvent = '';
+  let currentData = '';
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    const lines = buffer.split('\n');
+    // Keep the last potentially incomplete line in the buffer
+    buffer = lines.pop() || '';
+
+    for (const line of lines) {
+      if (line.startsWith('event: ')) {
+        currentEvent = line.slice(7).trim();
+      } else if (line.startsWith('data: ')) {
+        currentData += line.slice(6);
+      } else if (line === '') {
+        // Empty line = end of event
+        if (currentData) {
+          yield { event: currentEvent, data: currentData };
+        }
+        currentEvent = '';
+        currentData = '';
+      }
+    }
+  }
+  // Flush any remaining event
+  if (currentData) {
+    yield { event: currentEvent, data: currentData };
+  }
+}
+
+async function streamAnthropic(req: LLMRequest, onToken: (text: string) => void): Promise<string> {
   const endpoint = req.apiEndpoint || 'https://api.anthropic.com';
   const model = req.model || 'claude-opus-4-7';
   const useThinking = supportsExtendedThinking(model);
@@ -73,6 +117,7 @@ async function sendAnthropic(req: LLMRequest): Promise<string> {
   const body: any = {
     model,
     max_tokens: useThinking ? 16000 : 4096,
+    stream: true,
     messages: req.messages.map((m) => ({ role: m.role, content: toAnthropicContent(m) })),
   };
 
@@ -99,19 +144,32 @@ async function sendAnthropic(req: LLMRequest): Promise<string> {
     throw new Error(`Anthropic API error (${response.status}): ${err}`);
   }
 
-  const data = await response.json();
+  const reader = response.body!.getReader();
+  let fullText = '';
 
-  // With extended thinking, response contains thinking blocks and text blocks
-  // Extract only the text blocks
-  if (data.content && Array.isArray(data.content)) {
-    const textBlocks = data.content.filter((b: any) => b.type === 'text');
-    return textBlocks.map((b: any) => b.text).join('') || '';
+  for await (const { event, data } of parseSSE(reader)) {
+    if (event === 'error') {
+      let msg = data;
+      try { msg = JSON.parse(data).error?.message || data; } catch {}
+      throw new Error(`Anthropic stream error: ${msg}`);
+    }
+    if (data === '[DONE]') break;
+
+    let parsed: any;
+    try { parsed = JSON.parse(data); } catch { continue; }
+
+    // Stream only text deltas (skip thinking deltas)
+    if (parsed.type === 'content_block_delta' && parsed.delta?.type === 'text_delta') {
+      const text = parsed.delta.text;
+      fullText += text;
+      onToken(text);
+    }
   }
 
-  return data.content?.[0]?.text || '';
+  return fullText;
 }
 
-async function sendOpenAI(req: LLMRequest): Promise<string> {
+async function streamOpenAI(req: LLMRequest, onToken: (text: string) => void): Promise<string> {
   const endpoint = req.apiEndpoint || 'https://api.openai.com';
   const response = await fetch(`${endpoint}/v1/chat/completions`, {
     method: 'POST',
@@ -121,6 +179,7 @@ async function sendOpenAI(req: LLMRequest): Promise<string> {
     },
     body: JSON.stringify({
       model: req.model || 'gpt-4o',
+      stream: true,
       messages: [
         { role: 'system', content: req.systemPrompt },
         ...req.messages.map((m) => ({ role: m.role, content: toOpenAIContent(m) })),
@@ -133,6 +192,21 @@ async function sendOpenAI(req: LLMRequest): Promise<string> {
     throw new Error(`OpenAI API error (${response.status}): ${err}`);
   }
 
-  const data = await response.json();
-  return data.choices?.[0]?.message?.content || '';
+  const reader = response.body!.getReader();
+  let fullText = '';
+
+  for await (const { data } of parseSSE(reader)) {
+    if (data === '[DONE]') break;
+
+    let parsed: any;
+    try { parsed = JSON.parse(data); } catch { continue; }
+
+    const text = parsed.choices?.[0]?.delta?.content;
+    if (text) {
+      fullText += text;
+      onToken(text);
+    }
+  }
+
+  return fullText;
 }
