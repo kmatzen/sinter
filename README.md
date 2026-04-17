@@ -25,12 +25,12 @@ npm run dev
 
 Open `http://localhost:5173` and click "Start Modeling" to launch the app.
 
-For AI chat (community edition), click the gear icon in the chat panel and enter your Anthropic or OpenAI API key.
+To use AI chat, click the gear icon in the chat panel and enter your Anthropic or OpenAI API key (stored only in your browser).
 
 ## Features
 
 ### Modeling
-- **Primitives**: Box, Sphere, Cylinder, Torus, Cone, Capsule
+- **Primitives**: Box, Sphere, Cylinder, Torus, Cone, Capsule, Ellipsoid
 - **Booleans**: Union, Subtract, Intersect (with smooth/fillet parameter)
 - **Modifiers**: Shell, Offset, Round, Mirror, Half-Space Cut (with flip)
 - **Patterns**: Linear Pattern, Circular Pattern
@@ -40,6 +40,7 @@ For AI chat (community edition), click the gear icon in the chat panel and enter
 
 ### Viewport
 - GPU ray marching with screen-space outline post-process
+- **Tap-to-select** — click/tap on a surface to select the contributing node
 - Clipping plane (+X/-X/+Y/-Y/+Z/-Z) with cross-section fill
 - X-ray mode
 - Per-node dimension labels with wireframe bounding box
@@ -48,13 +49,15 @@ For AI chat (community edition), click the gear icon in the chat panel and enter
 
 ### AI Chat
 - Describe models in natural language
+- **Streaming responses** — text appears token-by-token as the model generates
 - Iterative refinement ("make it bigger", "add ventilation holes")
-- Multi-view renders sent automatically (current view + front/right/top)
-- Supports Anthropic Claude and OpenAI GPT
+- Multi-view renders sent automatically (current view + front/right/top with rulers)
+- Supports Anthropic Claude and OpenAI GPT (bring your own API key)
 
-### Collaboration
+### Storage
+- **Google Drive** — sign in with Google to save/load projects
+- **GitHub Gists** — sign in with GitHub to save/load projects
 - Read-only share links for published projects
-- Cloud storage with auto-save (paid edition)
 
 ### Keyboard Shortcuts
 | Key | Action |
@@ -72,30 +75,27 @@ For AI chat (community edition), click the gear icon in the chat panel and enter
 | Shift (hold) | Disable snap |
 | ? | Show all shortcuts |
 
-## Editions
+## Self-Hosting
 
-### Community (Free)
-- Full modeling engine, all primitives and operations
-- Bring your own API key (Anthropic or OpenAI)
-- Local save/load (localStorage auto-save)
-- STL/3MF export
-- Non-commercial use only
+Sinter can be self-hosted. Copy `.env.example` and configure:
 
-### Pro (Hosted)
-- No API key needed (included)
-- Cloud project storage with auto-save
-- Read-only share links
-- Credit-based pricing (1 credit = ~$0.05, AI chat costs 1–15 credits per message)
-- Credits expire 30 days after purchase
-- Credit purchases help Kevin Blackburn-Matzen cover Anthropic API and hosting costs
-- Available at [sinter-3d.com](https://sinter-3d.com)
+```bash
+cp .env.example .env
+```
+
+Required for cloud storage:
+- **Google OAuth**: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` — [console.cloud.google.com](https://console.cloud.google.com/apis/credentials)
+- **GitHub OAuth**: `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` — [github.com/settings/applications/new](https://github.com/settings/applications/new)
+- **Session secret**: `SESSION_SECRET` — generate with `openssl rand -hex 32`
+
+Without OAuth configured, the app still works fully for local modeling and AI chat — cloud save/load just won't be available.
 
 ## Tech Stack
 
 - **Frontend**: React, TypeScript, Vite, Tailwind CSS
 - **3D Viewport**: Three.js (pure, no R3F)
 - **Geometry**: Custom SDF engine with GPU ray marching and marching cubes export
-- **Server** (paid): Express.js, SQLite (better-sqlite3), Passport.js, Lemon Squeezy
+- **Server**: Express.js, SQLite (better-sqlite3), Passport.js
 - **State**: Zustand
 - **Font**: Outfit + JetBrains Mono
 - **Tests**: Vitest (unit) + Playwright (E2E)
