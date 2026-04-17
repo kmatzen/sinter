@@ -148,7 +148,32 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
     });
   },
 
-  selectNode: (id) => set({ selectedNodeId: id }),
+  selectNode: (id) => {
+    if (id) {
+      // Auto-expand ancestors so the selected node is visible in the tree
+      const { tree, expandedNodes } = get();
+      if (tree) {
+        const next = new Set(expandedNodes);
+        let changed = false;
+        const expand = (node: SDFNodeUI): boolean => {
+          if (node.id === id) return true;
+          for (const child of node.children) {
+            if (expand(child)) {
+              if (!next.has(node.id)) { next.add(node.id); changed = true; }
+              return true;
+            }
+          }
+          return false;
+        };
+        expand(tree);
+        if (changed) {
+          set({ selectedNodeId: id, expandedNodes: next });
+          return;
+        }
+      }
+    }
+    set({ selectedNodeId: id });
+  },
 
   updateNodeParams: (id, params) => {
     const { tree } = get();
