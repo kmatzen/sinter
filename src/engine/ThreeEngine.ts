@@ -4,6 +4,8 @@ import { useModelerStore } from '../store/modelerStore';
 import { SdfMesh } from './SdfMesh';
 import { OutlinePass } from './OutlinePass';
 import { GizmoController } from './GizmoController';
+import { attributePoint } from './sdfPicking';
+import type { Vec3 } from '../worker/sdf/types';
 
 export class ThreeEngine {
   renderer: THREE.WebGLRenderer;
@@ -55,7 +57,7 @@ export class ThreeEngine {
     this.outlinePass = new OutlinePass(this);
     this.gizmo = new GizmoController(this);
 
-    // Click on empty space deselects
+    // Click handling for selection
     this.renderer.domElement.addEventListener('pointerdown', this.onPointerDown);
     this.renderer.domElement.addEventListener('pointerup', this.onPointerUp);
 
@@ -67,21 +69,45 @@ export class ThreeEngine {
     this.animate();
   }
 
-  private pointerMoved = false;
-  private onPointerDown = () => { this.pointerMoved = false; };
+  private pointerStart: { x: number; y: number } = { x: 0, y: 0 };
+  private onPointerDown = (e: PointerEvent) => {
+    this.pointerStart = { x: e.clientX, y: e.clientY };
+  };
   private onPointerUp = (e: PointerEvent) => {
-    if (this.pointerMoved) return;
-    // Simple miss detection: if no gizmo was hit, deselect
-    // (TransformControls handles its own events)
+    // Ignore drags (> 4px movement)
+    const dx = e.clientX - this.pointerStart.x;
+    const dy = e.clientY - this.pointerStart.y;
+    if (dx * dx + dy * dy > 16) return;
+
     const rect = this.renderer.domElement.getBoundingClientRect();
-    const x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
-    const y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
-    const raycaster = new THREE.Raycaster();
-    raycaster.setFromCamera(new THREE.Vector2(x, y), this.camera);
-    const hits = raycaster.intersectObjects(this.scene.children, true);
-    if (hits.length === 0) {
-      useModelerStore.getState().selectNode(null);
+    const ndcX = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+    const ndcY = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+
+    // Read depth from GPU depth buffer at click location
+    const store = useModelerStore.getState();
+    const { tree } = store;
+    const u = (ndcX + 1) / 2;
+    const v = (ndcY + 1) / 2;
+    const depth = this.outlinePass.readDepthAt(u, v);
+
+    // depth ≈ 1 means far plane = no hit
+    if (depth >= 1.0 - 1e-6 || !tree) {
+      store.selectNode(null);
+      return;
     }
+
+    // Unproject depth to world position
+    const zNdc = depth * 2 - 1;
+    const invProjView = new THREE.Matrix4()
+      .multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse)
+      .invert();
+    const worldPos = new THREE.Vector4(ndcX, ndcY, zNdc, 1).applyMatrix4(invProjView);
+    worldPos.divideScalar(worldPos.w);
+
+    // Attribute the surface point to a node in the tree
+    const hitPoint: Vec3 = [worldPos.x, worldPos.y, worldPos.z];
+    const nodeId = attributePoint(tree, hitPoint);
+    store.selectNode(nodeId);
   };
 
   private resize() {

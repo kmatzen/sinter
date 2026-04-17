@@ -104,11 +104,16 @@ export class OutlinePass {
   private gizmoMaterial: THREE.ShaderMaterial;
   private gizmoScene: THREE.Scene;
 
+  // Picking: lazily-created resources for reading a single depth value
+  private pickTarget: THREE.WebGLRenderTarget | null = null;
+  private pickMaterial: THREE.ShaderMaterial | null = null;
+  private pickScene: THREE.Scene | null = null;
+
   constructor(engine: OutlinePassEngine) {
     this.engine = engine;
     const dpr = engine.renderer.getPixelRatio();
-    const w = Math.floor(engine.container.clientWidth * dpr);
-    const h = Math.floor(engine.container.clientHeight * dpr);
+    const w = Math.max(1, Math.floor(engine.container.clientWidth * dpr));
+    const h = Math.max(1, Math.floor(engine.container.clientHeight * dpr));
 
     this.depthTarget = new THREE.WebGLRenderTarget(w, h, {
       depthTexture: new THREE.DepthTexture(w, h),
@@ -161,8 +166,8 @@ export class OutlinePass {
 
   resize(w: number, h: number) {
     const dpr = this.engine.renderer.getPixelRatio();
-    const pw = Math.floor(w * dpr);
-    const ph = Math.floor(h * dpr);
+    const pw = Math.max(1, Math.floor(w * dpr));
+    const ph = Math.max(1, Math.floor(h * dpr));
     this.depthTarget.setSize(pw, ph);
     this.gizmoTarget.setSize(pw, ph);
     if (this.depthTarget.depthTexture) {
@@ -171,6 +176,47 @@ export class OutlinePass {
     }
     this.material.uniforms.u_resolution.value.set(pw, ph);
     this.gizmoMaterial.uniforms.u_resolution.value.set(pw, ph);
+  }
+
+  /**
+   * Read the depth buffer value at a given UV coordinate (0-1 range).
+   * Returns the raw depth (0 = near, 1 = far) from the last rendered frame.
+   */
+  readDepthAt(u: number, v: number): number {
+    if (!this.pickTarget) {
+      this.pickTarget = new THREE.WebGLRenderTarget(1, 1, {
+        type: THREE.FloatType,
+        format: THREE.RGBAFormat,
+      });
+      this.pickMaterial = new THREE.ShaderMaterial({
+        vertexShader: QUAD_VERT,
+        fragmentShader: `
+          precision highp float;
+          uniform sampler2D u_depthTex;
+          uniform vec2 u_sampleUV;
+          varying vec2 vUv;
+          void main() {
+            float d = texture2D(u_depthTex, u_sampleUV).r;
+            gl_FragColor = vec4(d, 0.0, 0.0, 1.0);
+          }
+        `,
+        uniforms: {
+          u_depthTex: { value: this.depthTarget.depthTexture },
+          u_sampleUV: { value: new THREE.Vector2() },
+        },
+      });
+      this.pickScene = new THREE.Scene();
+      this.pickScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.pickMaterial));
+    }
+
+    this.pickMaterial!.uniforms.u_sampleUV.value.set(u, v);
+    const renderer = this.engine.renderer;
+    renderer.setRenderTarget(this.pickTarget);
+    renderer.render(this.pickScene!, this.quadCamera);
+    const buf = new Float32Array(4);
+    renderer.readRenderTargetPixels(this.pickTarget, 0, 0, 1, 1, buf);
+    renderer.setRenderTarget(null);
+    return buf[0];
   }
 
   render() {
@@ -223,5 +269,7 @@ export class OutlinePass {
     this.gizmoTarget.dispose();
     this.material.dispose();
     this.gizmoMaterial.dispose();
+    this.pickTarget?.dispose();
+    this.pickMaterial?.dispose();
   }
 }

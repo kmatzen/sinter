@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useModelerStore } from '../../store/modelerStore';
 import { NODE_LABELS, nodeSummary, expectedChildren } from '../../types/operations';
 import type { SDFNodeUI } from '../../types/operations';
@@ -33,6 +33,7 @@ export function TreeNode({ node, depth, isLast = true }: Props) {
   const addNodeFromData = useModelerStore((s) => s.addNodeFromData);
   const [dragOver, setDragOver] = useState(false);
 
+  const rowRef = useRef<HTMLDivElement>(null);
   const isSelected = selectedId === node.id;
   const expected = expectedChildren(node.kind);
   const hasChildren = node.children.length > 0 || expected > 0;
@@ -42,6 +43,13 @@ export function TreeNode({ node, depth, isLast = true }: Props) {
   const color = KIND_COLORS[node.kind] || '#888';
   const visualDepth = Math.min(depth, MAX_VISUAL_DEPTH);
   const leftPad = visualDepth * INDENT + 6;
+
+  // Scroll selected node into view (e.g. after viewport pick)
+  useEffect(() => {
+    if (isSelected && rowRef.current) {
+      rowRef.current.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }
+  }, [isSelected]);
 
   return (
     <div className="relative">
@@ -74,6 +82,7 @@ export function TreeNode({ node, depth, isLast = true }: Props) {
 
       {/* Node row */}
       <div
+        ref={rowRef}
         className="flex items-center gap-1 pr-1.5 h-[26px] cursor-pointer relative"
         style={{
           paddingLeft: `${leftPad}px`,
