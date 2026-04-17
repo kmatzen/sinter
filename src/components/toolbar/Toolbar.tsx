@@ -37,6 +37,7 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
   const [showOverflow, setShowOverflow] = useState(false);
   const [avatarFailed, setAvatarFailed] = useState(false);
   const [exporting, setExporting] = useState<string | null>(null);
+  const [exportPreview, setExportPreview] = useState<{ blob: Blob; name: string; triangles: number; size: number } | null>(null);
   const [dirty, setDirty] = useState(false);
   const overflowRef = useRef<HTMLDivElement>(null);
 
@@ -63,7 +64,8 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
     setExporting('STL');
     try {
       const blob = await workerBridge.exportSTL(tree);
-      triggerDownload(blob, `${projectName}.stl`);
+      const triangles = new DataView(await blob.slice(80, 84).arrayBuffer()).getUint32(0, true);
+      setExportPreview({ blob, name: `${projectName}.stl`, triangles, size: blob.size });
     } catch (err: any) {
       console.error('Export STL failed:', err);
     } finally {
@@ -76,7 +78,10 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
     setExporting('3MF');
     try {
       const blob = await workerBridge.export3MF(tree);
-      triggerDownload(blob, `${projectName}.3mf`);
+      // 3MF is a zip — estimate triangles from the uncompressed mesh size
+      // STL: 50 bytes/tri. 3MF XML is ~120 bytes/tri on average.
+      const triangles = Math.round(blob.size / 120);
+      setExportPreview({ blob, name: `${projectName}.3mf`, triangles, size: blob.size });
     } catch (err: any) {
       console.error('Export 3MF failed:', err);
     } finally {
@@ -256,6 +261,15 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
     {showSettings && (
       <SettingsPage onClose={() => setShowSettings(false)} />
     )}
+    {exportPreview && (
+      <ExportPreview
+        triangles={exportPreview.triangles}
+        size={exportPreview.size}
+        name={exportPreview.name}
+        onDownload={() => { triggerDownload(exportPreview.blob, exportPreview.name); setExportPreview(null); }}
+        onCancel={() => setExportPreview(null)}
+      />
+    )}
     </>
   );
 }
@@ -295,4 +309,53 @@ function OverflowItem({ label, onClick, disabled }: { label: string; onClick: ()
 
 function OverflowDivider() {
   return <div className="my-1 mx-2 h-px" style={{ background: 'var(--border-subtle)' }} />;
+}
+
+function formatSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function formatTriangles(n: number): string {
+  if (n < 1000) return String(n);
+  if (n < 1_000_000) return `${(n / 1000).toFixed(1)}K`;
+  return `${(n / 1_000_000).toFixed(1)}M`;
+}
+
+function ExportPreview({ triangles, size, name, onDownload, onCancel }: {
+  triangles: number; size: number; name: string;
+  onDownload: () => void; onCancel: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.5)' }} onClick={onCancel}>
+      <div className="rounded-xl p-5 w-72 shadow-xl" style={{ background: 'var(--bg-panel)', border: '1px solid var(--border-default)' }} onClick={(e) => e.stopPropagation()}>
+        <h3 className="text-sm font-semibold mb-3" style={{ color: 'var(--text-primary)' }}>Export Ready</h3>
+        <div className="space-y-2 mb-4">
+          <div className="flex justify-between text-[12px]">
+            <span style={{ color: 'var(--text-muted)' }}>File</span>
+            <span className="font-mono" style={{ color: 'var(--text-primary)' }}>{name}</span>
+          </div>
+          <div className="flex justify-between text-[12px]">
+            <span style={{ color: 'var(--text-muted)' }}>Triangles</span>
+            <span className="font-mono" style={{ color: 'var(--text-primary)' }}>{formatTriangles(triangles)}</span>
+          </div>
+          <div className="flex justify-between text-[12px]">
+            <span style={{ color: 'var(--text-muted)' }}>File size</span>
+            <span className="font-mono" style={{ color: 'var(--text-primary)' }}>{formatSize(size)}</span>
+          </div>
+        </div>
+        <div className="flex gap-2">
+          <button onClick={onCancel} className="flex-1 px-3 py-1.5 rounded text-[12px] font-medium"
+                  style={{ background: 'var(--bg-elevated)', color: 'var(--text-secondary)', border: '1px solid var(--border-default)' }}>
+            Cancel
+          </button>
+          <button onClick={onDownload} className="flex-1 px-3 py-1.5 rounded text-[12px] font-medium"
+                  style={{ background: 'var(--accent)', color: 'var(--bg-deep)' }}>
+            Download
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
