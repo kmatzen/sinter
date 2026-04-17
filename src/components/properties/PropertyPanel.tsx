@@ -122,7 +122,8 @@ function setAxisParams(axis: 'x' | 'y' | 'z'): Record<string, number> {
   return { axisX: axis === 'x' ? 1 : 0, axisY: axis === 'y' ? 1 : 0, axisZ: axis === 'z' ? 1 : 0 };
 }
 
-export function PropertyPanel() {
+/** Inner content — reused by desktop sidebar and mobile overlay */
+export function PropertyContent() {
   const selectedId = useModelerStore((s) => s.selectedNodeId);
   const tree = useModelerStore((s) => s.tree);
   const updateParams = useModelerStore((s) => s.updateNodeParams);
@@ -133,7 +134,7 @@ export function PropertyPanel() {
 
   if (!node) {
     return (
-      <div className="w-72 flex items-center justify-center" style={{ background: 'var(--bg-panel)', borderLeft: '1px solid var(--border-subtle)' }}>
+      <div className="flex-1 flex items-center justify-center">
         <p className="text-[11px] text-center px-8 leading-relaxed" style={{ color: 'var(--text-muted)' }}>
           Select a node to<br />edit its properties
         </p>
@@ -145,26 +146,42 @@ export function PropertyPanel() {
   const updateStr = (data: Record<string, string>) => updateData(node.id, data);
 
   return (
-    <div className="w-72 overflow-y-auto" style={{ background: 'var(--bg-panel)', borderLeft: '1px solid var(--border-subtle)' }}>
-      {/* Header */}
+    <div className="py-2">
+      {NODE_KINDS.booleans.includes(node.kind as any) && (
+        <KindSwitcher kinds={[...NODE_KINDS.booleans]} current={node.kind} onChange={(k) => changeKind(node.id, k)} />
+      )}
+      {NODE_KINDS.primitives.includes(node.kind as any) && (
+        <KindSwitcher kinds={[...NODE_KINDS.primitives]} current={node.kind} onChange={(k) => changeKind(node.id, k)} />
+      )}
+      <NodeEditor node={node} onUpdate={update} onUpdateStr={updateStr} />
+    </div>
+  );
+}
+
+/** Desktop sidebar wrapper */
+export function PropertyPanel() {
+  const selectedId = useModelerStore((s) => s.selectedNodeId);
+  const tree = useModelerStore((s) => s.tree);
+  const node = tree && selectedId ? findNode(tree, selectedId) : null;
+
+  if (!node) {
+    return (
+      <div className="hidden md:flex w-72 items-center justify-center" style={{ background: 'var(--bg-panel)', borderLeft: '1px solid var(--border-subtle)' }}>
+        <p className="text-[11px] text-center px-8 leading-relaxed" style={{ color: 'var(--text-muted)' }}>
+          Select a node to<br />edit its properties
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="hidden md:block w-72 overflow-y-auto" style={{ background: 'var(--bg-panel)', borderLeft: '1px solid var(--border-subtle)' }}>
       <div className="px-3 py-2.5" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
         <span className="font-mono text-[10px] tracking-[0.15em] uppercase" style={{ color: 'var(--text-muted)' }}>
           Properties
         </span>
       </div>
-
-      <div className="py-2">
-        {/* Kind switcher for compatible groups */}
-        {NODE_KINDS.booleans.includes(node.kind as any) && (
-          <KindSwitcher kinds={[...NODE_KINDS.booleans]} current={node.kind} onChange={(k) => changeKind(node.id, k)} />
-        )}
-        {NODE_KINDS.primitives.includes(node.kind as any) && (
-          <KindSwitcher kinds={[...NODE_KINDS.primitives]} current={node.kind} onChange={(k) => changeKind(node.id, k)} />
-        )}
-
-        {/* Parameters */}
-        <NodeEditor node={node} onUpdate={update} onUpdateStr={updateStr} />
-      </div>
+      <PropertyContent />
     </div>
   );
 }

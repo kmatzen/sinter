@@ -3,7 +3,8 @@ import { TreeNode } from './TreeNode';
 import { PartsPalette } from './PartsPalette';
 import { Sparkles, ChevronsDownUp, ChevronsUpDown } from 'lucide-react';
 
-export function NodeTreePanel() {
+/** Inner content — reused by desktop sidebar and mobile overlay */
+export function NodeTreeContent() {
   const tree = useModelerStore((s) => s.tree);
   const expandedNodes = useModelerStore((s) => s.expandedNodes);
   const addNodeFromData = useModelerStore((s) => s.addNodeFromData);
@@ -13,7 +14,7 @@ export function NodeTreePanel() {
   const allExpanded = tree ? expandedNodes.size > 0 : false;
 
   return (
-    <div data-testid="node-tree" className="w-70 flex flex-col" style={{ background: 'var(--bg-panel)', borderRight: '1px solid var(--border-subtle)' }}>
+    <>
       <div className="px-3 py-2.5 flex items-center justify-between" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
         <span className="font-mono text-[10px] tracking-[0.15em] uppercase" style={{ color: 'var(--text-muted)' }}>
           Node Tree
@@ -47,7 +48,6 @@ export function NodeTreePanel() {
         data-testid="tree-nodes"
         className="flex-1 overflow-y-auto py-1"
         onDragOver={(e) => {
-          // Accept palette drops on empty tree area
           if (e.dataTransfer.types.includes('application/sinter-node')) {
             e.preventDefault();
             e.dataTransfer.dropEffect = 'copy';
@@ -65,15 +65,23 @@ export function NodeTreePanel() {
           <div className="p-6 text-center">
             <p className="text-sm mb-1" style={{ color: 'var(--text-muted)' }}>No model yet</p>
             <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-              Drag a shape from the palette below, or use AI Chat.
+              Add a shape from the palette below, or use AI Chat.
             </p>
           </div>
         )}
         {tree && <TreeNode node={tree} depth={0} />}
       </div>
 
-      {/* Parts palette */}
       <PartsPalette />
+    </>
+  );
+}
+
+/** Desktop sidebar wrapper */
+export function NodeTreePanel() {
+  return (
+    <div data-testid="node-tree" className="hidden md:flex w-70 flex-col" style={{ background: 'var(--bg-panel)', borderRight: '1px solid var(--border-subtle)' }}>
+      <NodeTreeContent />
     </div>
   );
 }
