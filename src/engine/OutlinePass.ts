@@ -107,8 +107,8 @@ export class OutlinePass {
   constructor(engine: OutlinePassEngine) {
     this.engine = engine;
     const dpr = engine.renderer.getPixelRatio();
-    const w = Math.floor(engine.container.clientWidth * dpr);
-    const h = Math.floor(engine.container.clientHeight * dpr);
+    const w = Math.max(1, Math.floor(engine.container.clientWidth * dpr));
+    const h = Math.max(1, Math.floor(engine.container.clientHeight * dpr));
 
     this.depthTarget = new THREE.WebGLRenderTarget(w, h, {
       depthTexture: new THREE.DepthTexture(w, h),
@@ -161,8 +161,8 @@ export class OutlinePass {
 
   resize(w: number, h: number) {
     const dpr = this.engine.renderer.getPixelRatio();
-    const pw = Math.floor(w * dpr);
-    const ph = Math.floor(h * dpr);
+    const pw = Math.max(1, Math.floor(w * dpr));
+    const ph = Math.max(1, Math.floor(h * dpr));
     this.depthTarget.setSize(pw, ph);
     this.gizmoTarget.setSize(pw, ph);
     if (this.depthTarget.depthTexture) {
