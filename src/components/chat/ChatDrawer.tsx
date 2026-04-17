@@ -32,7 +32,7 @@ export function ChatDrawer() {
   if (!isOpen) return null;
 
   return (
-    <div className="absolute right-0 top-10 bottom-0 w-96 flex flex-col z-50 overflow-hidden"
+    <div className="absolute right-0 top-10 bottom-0 w-full md:w-96 flex flex-col z-50 overflow-hidden"
          style={{ background: 'var(--bg-panel)', borderLeft: '1px solid var(--border-subtle)', boxShadow: 'var(--shadow-lg)' }}>
       <div className="px-3 py-2 flex items-center justify-between" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
         <span className="font-mono text-[10px] tracking-[0.15em] uppercase" style={{ color: 'var(--text-muted)' }}>AI Assistant</span>

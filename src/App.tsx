@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
-import { NodeTreePanel } from './components/tree/NodeTreePanel';
+import { NodeTreePanel, NodeTreeContent } from './components/tree/NodeTreePanel';
 import { Viewport } from './components/viewport/Viewport';
-import { PropertyPanel } from './components/properties/PropertyPanel';
+import { PropertyPanel, PropertyContent } from './components/properties/PropertyPanel';
 import { Toolbar } from './components/toolbar/Toolbar';
 import { ChatDrawer } from './components/chat/ChatDrawer';
+import { MobilePanel } from './components/mobile/MobilePanel';
 import { LoginPage } from './components/auth/LoginPage';
 import { LandingPage } from './components/landing/LandingPage';
 import { SharedViewer } from './components/share/SharedViewer';
@@ -66,6 +67,8 @@ function App() {
 
 function ModelerApp() {
   useEvaluator();
+  const [mobilePanel, setMobilePanel] = useState<'tree' | 'props' | null>(null);
+
   useEffect(() => {
     startAutoSave();
     startLocalAutoSave();
@@ -120,7 +123,7 @@ function ModelerApp() {
 
   return (
     <div data-testid="modeler-app" className="h-full flex flex-col overflow-hidden" style={{ background: 'var(--bg-deep)', color: 'var(--text-primary)' }}>
-      <Toolbar />
+      <Toolbar onMobileTree={() => setMobilePanel((p) => p === 'tree' ? null : 'tree')} onMobileProps={() => setMobilePanel((p) => p === 'props' ? null : 'props')} />
       <div className="flex flex-1 min-h-0">
         <NodeTreePanel />
         <Viewport />
@@ -128,6 +131,20 @@ function ModelerApp() {
       </div>
       <ChatDrawer />
       <AppModals />
+
+      {/* Mobile overlays */}
+      {mobilePanel === 'tree' && (
+        <MobilePanel title="Node Tree" side="left" onClose={() => setMobilePanel(null)}>
+          <div className="flex flex-col h-full">
+            <NodeTreeContent />
+          </div>
+        </MobilePanel>
+      )}
+      {mobilePanel === 'props' && (
+        <MobilePanel title="Properties" side="right" onClose={() => setMobilePanel(null)}>
+          <PropertyContent />
+        </MobilePanel>
+      )}
     </div>
   );
 }

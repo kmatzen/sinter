@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { isDirty, markClean } from '../../store/localPersist';
 import { useModelerStore } from '../../store/modelerStore';
 import { useAuthStore } from '../../store/authStore';
@@ -9,9 +9,9 @@ import { useChatStore } from '../../store/chatStore';
 import { ProjectList } from '../projects/ProjectList';
 import { ImportProject } from '../projects/ImportProject';
 import { SettingsPage } from '../settings/SettingsPage';
-import { FolderOpen, Save, Undo2, Redo2, MessageSquare, FileDown, FilePlus, Share2, Link } from 'lucide-react';
+import { FolderOpen, Save, Undo2, Redo2, MessageSquare, FileDown, FilePlus, Share2, Link, List, SlidersHorizontal, MoreHorizontal } from 'lucide-react';
 
-export function Toolbar() {
+export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => void; onMobileProps?: () => void } = {}) {
   const projectName = useModelerStore((s) => s.projectName);
   const setProjectName = useModelerStore((s) => s.setProjectName);
   const tree = useModelerStore((s) => s.tree);
@@ -34,9 +34,11 @@ export function Toolbar() {
   const [copied, setCopied] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showOverflow, setShowOverflow] = useState(false);
   const [avatarFailed, setAvatarFailed] = useState(false);
   const [exporting, setExporting] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
+  const overflowRef = useRef<HTMLDivElement>(null);
 
   // Track dirty state
   useEffect(() => {
@@ -45,6 +47,16 @@ export function Toolbar() {
     check();
     return unsub;
   }, []);
+
+  // Close overflow menu on outside click
+  useEffect(() => {
+    if (!showOverflow) return;
+    const handler = (e: MouseEvent) => {
+      if (overflowRef.current && !overflowRef.current.contains(e.target as Node)) setShowOverflow(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [showOverflow]);
 
   const handleExportSTL = async () => {
     if (!tree || exporting) return;
@@ -76,10 +88,11 @@ export function Toolbar() {
 
   return (
     <>
-    <div className="h-11 flex items-center px-3 gap-2 shrink-0"
+    <div className="h-11 flex items-center px-2 md:px-3 gap-1 md:gap-2 shrink-0"
          style={{ background: 'var(--bg-panel)', borderBottom: '1px solid var(--border-subtle)' }}>
-      <div className="flex items-center gap-2">
-        <img src="/logo-64.png" alt="Sinter" className="w-5 h-5 rounded"
+      {/* Logo + name */}
+      <div className="flex items-center gap-1.5 md:gap-2 min-w-0">
+        <img src="/logo-64.png" alt="Sinter" className="w-5 h-5 rounded shrink-0"
              style={{ cursor: 'pointer' }}
              onClick={() => window.dispatchEvent(new Event('show-landing'))}
              title="Back to home" />
@@ -87,44 +100,54 @@ export function Toolbar() {
           value={projectName}
           onChange={(e) => setProjectName(e.target.value)}
           aria-label="Project name"
-          className="bg-transparent border-none text-sm font-medium w-32 focus:outline-none rounded px-1"
+          className="bg-transparent border-none text-sm font-medium w-20 md:w-32 focus:outline-none rounded px-1 min-w-0"
           style={{ color: 'var(--text-primary)' }}
         />
       </div>
-      <div className="w-px h-4 mx-1" style={{ background: 'var(--border-default)' }} />
-      <IconBtn icon={<FilePlus size={14} />} title="New project" onClick={() => { useModelerStore.getState().setTree(null); useModelerStore.getState().setProjectName('Untitled'); }} />
-      <IconBtn icon={<FolderOpen size={14} />} title="Projects" onClick={() => setShowProjects(true)} />
-      <IconBtn icon={<Save size={14} />} title={saving ? 'Saving...' : 'Save to cloud'} onClick={handleSaveCloud} disabled={saving || !dirty} />
-      {projectId && (
-        shareToken ? (
-          <IconBtn
-            icon={<Link size={14} />}
-            label={copied ? 'Copied!' : 'Shared'}
-            title="Click to copy share link, Shift+click to revoke"
-            onClick={() => {
-              // Shift+click revokes the share
-              if ((window.event as MouseEvent)?.shiftKey) {
-                toggleShare();
-                return;
-              }
-              const url = `${window.location.origin}/share/${shareToken}`;
-              navigator.clipboard.writeText(url).then(() => {
-                setCopied(true);
-                setTimeout(() => setCopied(false), 2000);
-              });
-            }}
-          />
-        ) : (
-          <IconBtn icon={<Share2 size={14} />} title="Create share link" onClick={toggleShare} />
-        )
-      )}
-      <div className="w-px h-4 mx-1" style={{ background: 'var(--border-default)' }} />
-      <IconBtn icon={<Undo2 size={14} />} title="Undo" onClick={undo} />
-      <IconBtn icon={<Redo2 size={14} />} title="Redo" onClick={redo} />
+
+      {/* Mobile-only: tree + props toggles */}
+      <div className="md:hidden flex items-center gap-1">
+        <IconBtn icon={<List size={14} />} title="Node tree" onClick={() => onMobileTree?.()} />
+        <IconBtn icon={<SlidersHorizontal size={14} />} title="Properties" onClick={() => onMobileProps?.()} />
+      </div>
+
+      {/* Desktop-only: full toolbar */}
+      <div className="hidden md:contents">
+        <div className="w-px h-4 mx-1" style={{ background: 'var(--border-default)' }} />
+        <IconBtn icon={<FilePlus size={14} />} title="New project" onClick={() => { useModelerStore.getState().setTree(null); useModelerStore.getState().setProjectName('Untitled'); }} />
+        <IconBtn icon={<FolderOpen size={14} />} title="Projects" onClick={() => setShowProjects(true)} />
+        <IconBtn icon={<Save size={14} />} title={saving ? 'Saving...' : 'Save to cloud'} onClick={handleSaveCloud} disabled={saving || !dirty} />
+        {projectId && (
+          shareToken ? (
+            <IconBtn
+              icon={<Link size={14} />}
+              label={copied ? 'Copied!' : 'Shared'}
+              title="Click to copy share link, Shift+click to revoke"
+              onClick={() => {
+                if ((window.event as MouseEvent)?.shiftKey) { toggleShare(); return; }
+                const url = `${window.location.origin}/share/${shareToken}`;
+                navigator.clipboard.writeText(url).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); });
+              }}
+            />
+          ) : (
+            <IconBtn icon={<Share2 size={14} />} title="Create share link" onClick={toggleShare} />
+          )
+        )}
+        <div className="w-px h-4 mx-1" style={{ background: 'var(--border-default)' }} />
+        <IconBtn icon={<Undo2 size={14} />} title="Undo" onClick={undo} />
+        <IconBtn icon={<Redo2 size={14} />} title="Redo" onClick={redo} />
+      </div>
+
       <div className="flex-1" />
-      <IconBtn icon={<FileDown size={14} />} label={exporting === 'STL' ? 'Exporting...' : 'STL'} title="Export STL" onClick={handleExportSTL} disabled={evaluating || !tree || !!exporting} />
-      <IconBtn icon={<FileDown size={14} />} label={exporting === '3MF' ? 'Exporting...' : '3MF'} title="Export 3MF" onClick={handleExport3MF} disabled={evaluating || !tree || !!exporting} />
-      <div className="w-px h-4 mx-1" style={{ background: 'var(--border-default)' }} />
+
+      {/* Desktop-only: export buttons */}
+      <div className="hidden md:contents">
+        <IconBtn icon={<FileDown size={14} />} label={exporting === 'STL' ? 'Exporting...' : 'STL'} title="Export STL" onClick={handleExportSTL} disabled={evaluating || !tree || !!exporting} />
+        <IconBtn icon={<FileDown size={14} />} label={exporting === '3MF' ? 'Exporting...' : '3MF'} title="Export 3MF" onClick={handleExport3MF} disabled={evaluating || !tree || !!exporting} />
+        <div className="w-px h-4 mx-1" style={{ background: 'var(--border-default)' }} />
+      </div>
+
+      {/* Always visible: chat toggle */}
       <button
         onClick={toggleChat}
         title="AI Chat"
@@ -139,33 +162,76 @@ export function Toolbar() {
       >
         <MessageSquare size={14} />
       </button>
-      <div className="w-px h-4 mx-1" style={{ background: 'var(--border-default)' }} />
-      {!user && (
-        <a href="/app"
-           onClick={() => localStorage.removeItem('sinter_launched')}
-           className="text-[11px] px-3 py-1 rounded font-medium"
-           style={{ background: 'var(--accent)', color: 'var(--bg-deep)' }}
-        >
-          Sign In
-        </a>
-      )}
-      {user && (
-        <button onClick={() => setShowSettings(true)} title="Settings" aria-label="Account settings" className="flex items-center gap-2 rounded px-1.5 py-1"
-                style={{ background: 'transparent' }}
-                onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
-                onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
-          {user.avatar_url && !avatarFailed ? (
-            <img src={user.avatar_url} alt={`${user.name}'s avatar`} className="w-6 h-6 rounded-full"
-                 onError={() => setAvatarFailed(true)} />
-          ) : (
-            <div className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold"
-                 style={{ background: 'var(--accent)', color: 'var(--bg-deep)' }}>
-              {user.name?.[0]?.toUpperCase() || '?'}
-            </div>
-          )}
-          <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>{user.name}</span>
-        </button>
-      )}
+
+      {/* Mobile-only: overflow menu */}
+      <div className="md:hidden relative" ref={overflowRef}>
+        <IconBtn icon={<MoreHorizontal size={14} />} title="More actions" onClick={() => setShowOverflow(!showOverflow)} />
+        {showOverflow && (
+          <div className="absolute top-10 right-0 rounded-lg py-1 z-50 w-48 shadow-lg"
+               style={{ background: 'var(--bg-panel)', border: '1px solid var(--border-default)' }}>
+            <OverflowItem label="New Project" onClick={() => { useModelerStore.getState().setTree(null); useModelerStore.getState().setProjectName('Untitled'); setShowOverflow(false); }} />
+            <OverflowItem label="Open Projects" onClick={() => { setShowProjects(true); setShowOverflow(false); }} />
+            <OverflowItem label={saving ? 'Saving...' : 'Save'} onClick={() => { handleSaveCloud(); setShowOverflow(false); }} disabled={saving || !dirty} />
+            <OverflowDivider />
+            <OverflowItem label="Undo" onClick={() => { undo(); setShowOverflow(false); }} />
+            <OverflowItem label="Redo" onClick={() => { redo(); setShowOverflow(false); }} />
+            <OverflowDivider />
+            <OverflowItem label={exporting === 'STL' ? 'Exporting...' : 'Export STL'} onClick={() => { handleExportSTL(); setShowOverflow(false); }} disabled={evaluating || !tree || !!exporting} />
+            <OverflowItem label={exporting === '3MF' ? 'Exporting...' : 'Export 3MF'} onClick={() => { handleExport3MF(); setShowOverflow(false); }} disabled={evaluating || !tree || !!exporting} />
+            {projectId && (
+              <>
+                <OverflowDivider />
+                {shareToken ? (
+                  <OverflowItem label="Copy Share Link" onClick={() => {
+                    const url = `${window.location.origin}/share/${shareToken}`;
+                    navigator.clipboard.writeText(url);
+                    setShowOverflow(false);
+                  }} />
+                ) : (
+                  <OverflowItem label="Create Share Link" onClick={() => { toggleShare(); setShowOverflow(false); }} />
+                )}
+              </>
+            )}
+            <OverflowDivider />
+            {!user ? (
+              <OverflowItem label="Sign In" onClick={() => { localStorage.removeItem('sinter_launched'); window.location.href = '/app'; }} />
+            ) : (
+              <OverflowItem label="Settings" onClick={() => { setShowSettings(true); setShowOverflow(false); }} />
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Desktop-only: sign in / avatar */}
+      <div className="hidden md:contents">
+        <div className="w-px h-4 mx-1" style={{ background: 'var(--border-default)' }} />
+        {!user && (
+          <a href="/app"
+             onClick={() => localStorage.removeItem('sinter_launched')}
+             className="text-[11px] px-3 py-1 rounded font-medium"
+             style={{ background: 'var(--accent)', color: 'var(--bg-deep)' }}
+          >
+            Sign In
+          </a>
+        )}
+        {user && (
+          <button onClick={() => setShowSettings(true)} title="Settings" aria-label="Account settings" className="flex items-center gap-2 rounded px-1.5 py-1"
+                  style={{ background: 'transparent' }}
+                  onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
+                  onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
+            {user.avatar_url && !avatarFailed ? (
+              <img src={user.avatar_url} alt={`${user.name}'s avatar`} className="w-6 h-6 rounded-full"
+                   onError={() => setAvatarFailed(true)} />
+            ) : (
+              <div className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold"
+                   style={{ background: 'var(--accent)', color: 'var(--bg-deep)' }}>
+                {user.name?.[0]?.toUpperCase() || '?'}
+              </div>
+            )}
+            <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>{user.name}</span>
+          </button>
+        )}
+      </div>
     </div>
 
     {saveError && (
@@ -210,4 +276,23 @@ function IconBtn({ icon, label, title, onClick, disabled }: { icon: React.ReactN
       {label && <span className="text-[11px]">{label}</span>}
     </button>
   );
+}
+
+function OverflowItem({ label, onClick, disabled }: { label: string; onClick: () => void; disabled?: boolean }) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      className="w-full text-left px-3 py-2 text-[12px] disabled:opacity-30"
+      style={{ color: 'var(--text-secondary)' }}
+      onMouseEnter={(e) => { if (!disabled) e.currentTarget.style.background = 'var(--bg-hover)'; }}
+      onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+    >
+      {label}
+    </button>
+  );
+}
+
+function OverflowDivider() {
+  return <div className="my-1 mx-2 h-px" style={{ background: 'var(--border-subtle)' }} />;
 }
