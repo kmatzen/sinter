@@ -14,50 +14,43 @@ import { useViewportStore } from './store/viewportStore';
 import { useAuthStore } from './store/authStore';
 import { startAutoSave } from './store/projectStore';
 import { startLocalAutoSave } from './store/localPersist';
-import { features } from './config';
 import { AppModals } from './components/ui/AppModals';
 
 function App() {
   const hasAppPath = window.location.pathname.startsWith('/app');
-  const hasBillingReturn = new URLSearchParams(window.location.search).has('session_id');
   const initialShareMatch = window.location.pathname.match(/^\/share\/([0-9a-f]{64})$/i);
   const [shareToken, setShareToken] = useState<string | null>(initialShareMatch ? initialShareMatch[1] : null);
-  // Community edition skips landing page entirely
-  const [showLanding, setShowLanding] = useState(features.auth && !hasAppPath && !hasBillingReturn && !initialShareMatch);
+  const [showLanding, setShowLanding] = useState(!hasAppPath && !initialShareMatch);
   const user = useAuthStore((s) => s.user);
   const loading = useAuthStore((s) => s.loading);
   const checked = useAuthStore((s) => s.checked);
   const checkAuth = useAuthStore((s) => s.checkAuth);
 
   useEffect(() => {
-    if (features.auth) {
-      checkAuth();
-    }
+    checkAuth();
   }, [checkAuth]);
 
   useEffect(() => {
-    if (!features.auth) return; // No landing page in community mode
     const handler = () => setShowLanding(true);
     window.addEventListener('show-landing', handler);
     return () => window.removeEventListener('show-landing', handler);
   }, []);
 
-  // In paid mode, require cookie consent before showing auth or app pages
-  const hasConsent = !features.auth || !!localStorage.getItem('sinter_cookie_consent');
+  const hasConsent = !!localStorage.getItem('sinter_cookie_consent');
 
   let content;
 
   if (shareToken) {
     content = <SharedViewer token={shareToken} onOpenEditor={() => setShareToken(null)} />;
-  } else if (showLanding || (features.auth && !hasConsent)) {
+  } else if (showLanding || !hasConsent) {
     content = <LandingPage onLaunch={() => { localStorage.setItem('sinter_launched', '1'); setShowLanding(false); }} />;
-  } else if (features.auth && !localStorage.getItem('sinter_launched') && (loading || !checked)) {
+  } else if (!localStorage.getItem('sinter_launched') && (loading || !checked)) {
     content = (
       <div className="h-full flex items-center justify-center bg-zinc-900">
         <div className="text-zinc-400 text-sm">Loading...</div>
       </div>
     );
-  } else if (features.auth && !localStorage.getItem('sinter_launched') && !user) {
+  } else if (!localStorage.getItem('sinter_launched') && !user) {
     content = <LoginPage />;
   } else {
     content = <ModelerApp />;
@@ -74,15 +67,8 @@ function App() {
 function ModelerApp() {
   useEvaluator();
   useEffect(() => {
-    if (features.autoSave) startAutoSave();
-    if (features.byok) startLocalAutoSave();
-
-    // After Lemon Squeezy checkout redirect, refresh credits
-    const params = new URLSearchParams(window.location.search);
-    if (params.get('billing') === 'success') {
-      window.history.replaceState({}, '', window.location.pathname);
-      window.dispatchEvent(new Event('credits-updated'));
-    }
+    startAutoSave();
+    startLocalAutoSave();
   }, []);
 
   useEffect(() => {
@@ -118,7 +104,6 @@ function ModelerApp() {
       }
       if ((e.metaKey || e.ctrlKey) && e.key === 's') {
         e.preventDefault();
-        // Save: trigger file download (community) or cloud save (paid)
         const json = useModelerStore.getState().toJSON();
         const blob = new Blob([json], { type: 'application/json' });
         const name = useModelerStore.getState().projectName;

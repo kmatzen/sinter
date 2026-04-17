@@ -104,13 +104,32 @@ export class ThreeEngine {
     this.outlinePass.render();
   };
 
+  /** Frame the camera to fit the current model's bounding box */
+  zoomToFit() {
+    const sdfDisplay = useModelerStore.getState().sdfDisplay;
+    if (!sdfDisplay) return;
+
+    const bbMin = new THREE.Vector3(...sdfDisplay.bbMin);
+    const bbMax = new THREE.Vector3(...sdfDisplay.bbMax);
+    const center = new THREE.Vector3().addVectors(bbMin, bbMax).multiplyScalar(0.5);
+    const radius = bbMin.distanceTo(bbMax) * 0.5;
+    const fovRad = (this.camera.fov * Math.PI) / 180;
+    const dist = radius / Math.sin(fovRad / 2);
+
+    // Position camera at a 3/4 view angle
+    const dir = new THREE.Vector3(1, 0.8, 1).normalize();
+    this.camera.position.copy(center).addScaledVector(dir, dist);
+    this.controls.target.copy(center);
+    this.controls.update();
+  }
+
   /**
    * Capture 4 views: current viewport + front/right/top.
    * Returns base64 PNG data URLs at the given resolution.
    */
-  captureMultiView(size = 256): string[] {
+  captureMultiView(size = 256): { images: string[]; description: string } | null {
     const sdfDisplay = useModelerStore.getState().sdfDisplay;
-    if (!sdfDisplay) return [];
+    if (!sdfDisplay) return null;
 
     // Compute scene center and radius from bounding box
     const bbMin = new THREE.Vector3(...sdfDisplay.bbMin);
@@ -118,6 +137,10 @@ export class ThreeEngine {
     const center = new THREE.Vector3().addVectors(bbMin, bbMax).multiplyScalar(0.5);
     const radius = bbMin.distanceTo(bbMax) * 0.5;
     const dist = radius * 2.5;
+
+    const dimX = (bbMax.x - bbMin.x).toFixed(1);
+    const dimY = (bbMax.y - bbMin.y).toFixed(1);
+    const dimZ = (bbMax.z - bbMin.z).toFixed(1);
 
     this.gizmo.setVisible(false);
 
@@ -132,21 +155,37 @@ export class ThreeEngine {
     this.camera.aspect = 1;
     this.camera.updateProjectionMatrix();
 
-    const views: Array<{ name: string; pos: THREE.Vector3 }> = [
-      { name: 'current', pos: savedPos },
-      { name: 'front', pos: new THREE.Vector3(center.x, center.y, center.z + dist) },
-      { name: 'right', pos: new THREE.Vector3(center.x + dist, center.y, center.z) },
-      { name: 'top', pos: new THREE.Vector3(center.x, center.y + dist, center.z) },
+    const views: Array<{ name: string; pos: THREE.Vector3; axes: string }> = [
+      { name: 'current', pos: savedPos, axes: '' },
+      { name: 'front', pos: new THREE.Vector3(center.x, center.y, center.z + dist), axes: `X=${dimX}mm wide, Y=${dimY}mm tall` },
+      { name: 'right', pos: new THREE.Vector3(center.x + dist, center.y, center.z), axes: `Z=${dimZ}mm deep, Y=${dimY}mm tall` },
+      { name: 'top', pos: new THREE.Vector3(center.x, center.y + dist, center.z), axes: `X=${dimX}mm wide, Z=${dimZ}mm deep` },
     ];
 
-    const results: string[] = [];
+    // Offscreen canvas for ruler overlay
+    const overlay = document.createElement('canvas');
+    overlay.width = size;
+    overlay.height = size;
+    const ctx = overlay.getContext('2d')!;
+
+    const images: string[] = [];
     for (const view of views) {
       this.camera.position.copy(view.pos);
       this.camera.lookAt(center);
       this.camera.updateMatrixWorld();
-      this.sdfMesh.update();  // push new camera uniforms to shader
+      this.sdfMesh.update();
       this.outlinePass.render();
-      results.push(this.renderer.domElement.toDataURL('image/webp', 0.6));
+
+      // Composite: render + ruler overlay
+      ctx.clearRect(0, 0, size, size);
+      ctx.drawImage(this.renderer.domElement, 0, 0);
+
+      // Draw ruler along the left edge for orthographic views
+      if (view.name !== 'current') {
+        this.drawRuler(ctx, size, view.name, bbMin, bbMax, dist);
+      }
+
+      images.push(overlay.toDataURL('image/webp', 0.6));
     }
 
     // Restore
@@ -157,7 +196,125 @@ export class ThreeEngine {
     this.outlinePass.resize(savedSize.x, savedSize.y);
     this.gizmo.setVisible(true);
 
-    return results;
+    const description = [
+      `Model bounding box: ${dimX} x ${dimY} x ${dimZ} mm (W x H x D).`,
+      `4 views attached: current viewport, front (${views[1].axes}), right (${views[2].axes}), top (${views[3].axes}).`,
+      `Each orthographic view has a graduated ruler (mm) along the left and bottom edges for scale reference.`,
+    ].join(' ');
+
+    return { images, description };
+  }
+
+  /** Draw graduated rulers on the left and bottom edges of a captured view */
+  private drawRuler(
+    ctx: CanvasRenderingContext2D, size: number,
+    viewName: string,
+    bbMin: THREE.Vector3, bbMax: THREE.Vector3,
+    cameraDist: number,
+  ) {
+    // Determine which world axes map to screen horizontal/vertical
+    // For perspective camera at distance, compute visible extent
+    const fovRad = (this.camera.fov * Math.PI) / 180;
+    const visibleHeight = 2 * Math.tan(fovRad / 2) * cameraDist; // world units visible vertically
+    const visibleWidth = visibleHeight; // aspect = 1
+
+    const center = new THREE.Vector3().addVectors(bbMin, bbMax).multiplyScalar(0.5);
+    let worldMinV: number, worldMaxV: number;
+    let hLabel: string, vLabel: string;
+
+    if (viewName === 'front') {
+      // Looking from +Z: horizontal = X, vertical = Y
+      worldMinV = center.y - visibleHeight / 2;
+      worldMaxV = center.y + visibleHeight / 2;
+      hLabel = 'X'; vLabel = 'Y';
+    } else if (viewName === 'right') {
+      // Looking from +X: horizontal = Z (inverted), vertical = Y
+      worldMinV = center.y - visibleHeight / 2;
+      worldMaxV = center.y + visibleHeight / 2;
+      hLabel = 'Z'; vLabel = 'Y';
+    } else {
+      // top: looking from +Y: horizontal = X, vertical = Z (inverted)
+      worldMinV = center.z - visibleHeight / 2;
+      worldMaxV = center.z + visibleHeight / 2;
+      hLabel = 'X'; vLabel = 'Z';
+    }
+
+    const margin = 18; // px from edge for ruler
+    const tickLen = 4;
+
+    // Choose a nice tick interval in mm
+    const worldRange = visibleHeight;
+    const targetTicks = 8;
+    const rawInterval = worldRange / targetTicks;
+    const magnitude = Math.pow(10, Math.floor(Math.log10(rawInterval)));
+    const candidates = [1, 2, 5, 10];
+    let interval = candidates[candidates.length - 1] * magnitude;
+    for (const c of candidates) {
+      if (c * magnitude >= rawInterval) { interval = c * magnitude; break; }
+    }
+
+    ctx.save();
+    ctx.strokeStyle = 'rgba(200, 200, 220, 0.7)';
+    ctx.fillStyle = 'rgba(200, 200, 220, 0.85)';
+    ctx.lineWidth = 1;
+    ctx.font = '9px monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    // Vertical ruler (left edge)
+    const vStart = Math.ceil(worldMinV / interval) * interval;
+    ctx.beginPath();
+    ctx.moveTo(margin, 0);
+    ctx.lineTo(margin, size);
+    ctx.stroke();
+
+    for (let w = vStart; w <= worldMaxV; w += interval) {
+      const screenY = size - ((w - worldMinV) / (worldMaxV - worldMinV)) * size;
+      if (screenY < 5 || screenY > size - 5) continue;
+      ctx.beginPath();
+      ctx.moveTo(margin - tickLen, screenY);
+      ctx.lineTo(margin + tickLen, screenY);
+      ctx.stroke();
+      ctx.save();
+      ctx.translate(margin - tickLen - 2, screenY);
+      ctx.rotate(-Math.PI / 2);
+      ctx.textAlign = 'center';
+      ctx.fillText(`${Math.round(w)}`, 0, 0);
+      ctx.restore();
+    }
+
+    // Horizontal ruler (bottom edge)
+    const hWorldMin = viewName === 'right' ? center.z - visibleWidth / 2 : center.x - visibleWidth / 2;
+    const hWorldMax = viewName === 'right' ? center.z + visibleWidth / 2 : center.x + visibleWidth / 2;
+    const hStart = Math.ceil(hWorldMin / interval) * interval;
+
+    ctx.beginPath();
+    ctx.moveTo(0, size - margin);
+    ctx.lineTo(size, size - margin);
+    ctx.stroke();
+
+    for (let w = hStart; w <= hWorldMax; w += interval) {
+      let screenX = ((w - hWorldMin) / (hWorldMax - hWorldMin)) * size;
+      // Right view and top view Z-axis are inverted
+      if (viewName === 'right') screenX = size - screenX;
+      if (screenX < 5 || screenX > size - 5) continue;
+      ctx.beginPath();
+      ctx.moveTo(screenX, size - margin - tickLen);
+      ctx.lineTo(screenX, size - margin + tickLen);
+      ctx.stroke();
+      ctx.fillText(`${Math.round(w)}`, screenX, size - margin + tickLen + 6);
+    }
+
+    // Axis labels
+    ctx.font = 'bold 10px monospace';
+    ctx.fillText(`${hLabel} (mm)`, size / 2, size - 3);
+    ctx.save();
+    ctx.translate(5, size / 2);
+    ctx.rotate(-Math.PI / 2);
+    ctx.fillText(`${vLabel} (mm)`, 0, 0);
+    ctx.restore();
+
+    ctx.restore();
   }
 
   takeScreenshot(callback: (blob: Blob | null) => void) {

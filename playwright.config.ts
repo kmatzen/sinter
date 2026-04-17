@@ -10,7 +10,7 @@ export default defineConfig({
     actionTimeout: 15000,
   },
   webServer: {
-    command: 'VITE_EDITION=community npx vite --port 5174',
+    command: 'npx vite --port 5174',
     port: 5174,
     reuseExistingServer: false,
     timeout: 30000,

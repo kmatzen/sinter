@@ -4,8 +4,6 @@ import { buildSystemPrompt } from '../llm/systemPrompt';
 import { parseResponse } from '../llm/parseResponse';
 import { useModelerStore } from './modelerStore';
 import { getEngineRef } from '../engine/engineRef';
-import { features } from '../config';
-
 export interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
@@ -32,34 +30,64 @@ interface ChatState {
   clearMessages: () => void;
 }
 
+const SETTINGS_KEY = 'sinter_llm_settings';
+
+function loadSettings(): { apiKey: string; apiEndpoint: string; model: string; provider: 'openai' | 'anthropic' } {
+  try {
+    const raw = localStorage.getItem(SETTINGS_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      return {
+        apiKey: parsed.apiKey || '',
+        apiEndpoint: parsed.apiEndpoint || '',
+        model: parsed.model || 'claude-opus-4-7',
+        provider: parsed.provider || 'anthropic',
+      };
+    }
+  } catch { /* */ }
+  return { apiKey: '', apiEndpoint: '', model: 'claude-opus-4-7', provider: 'anthropic' };
+}
+
+function saveSettings(s: { apiKey: string; apiEndpoint: string; model: string; provider: string }) {
+  try {
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
+  } catch { /* */ }
+}
+
+const initialSettings = loadSettings();
+
 export const useChatStore = create<ChatState>((set, get) => ({
   messages: [],
   isOpen: false,
   isLoading: false,
 
-  apiKey: '',
-  apiEndpoint: '',
-  model: 'claude-sonnet-4-20250514',
-  provider: 'anthropic',
+  apiKey: initialSettings.apiKey,
+  apiEndpoint: initialSettings.apiEndpoint,
+  model: initialSettings.model,
+  provider: initialSettings.provider,
   showSettings: false,
 
   toggleOpen: () => set((s) => ({ isOpen: !s.isOpen })),
   toggleSettings: () => set((s) => ({ showSettings: !s.showSettings })),
   clearMessages: () => set({ messages: [] }),
 
-  setApiConfig: (config) =>
-    set((s) => ({
-      apiKey: config.apiKey ?? s.apiKey,
-      apiEndpoint: config.apiEndpoint ?? s.apiEndpoint,
-      model: config.model ?? s.model,
-      provider: config.provider ?? s.provider,
-    })),
+  setApiConfig: (config) => {
+    set((s) => {
+      const updated = {
+        apiKey: config.apiKey ?? s.apiKey,
+        apiEndpoint: config.apiEndpoint ?? s.apiEndpoint,
+        model: config.model ?? s.model,
+        provider: config.provider ?? s.provider,
+      };
+      saveSettings(updated);
+      return updated;
+    });
+  },
 
   sendMessage: async (content: string) => {
     const state = get();
 
-    // Community edition: check for API key
-    if (features.byok && !state.apiKey) {
+    if (!state.apiKey) {
       set((s) => ({
         messages: [...s.messages, { role: 'user', content }, { role: 'assistant', content: 'Please configure your API key in the settings (gear icon) to use AI chat.' }],
       }));
@@ -68,11 +96,17 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     // Capture viewport renders to give Claude visual context
     const engine = getEngineRef();
-    const images = engine && useModelerStore.getState().tree
+    const capture = engine && useModelerStore.getState().tree
       ? engine.captureMultiView(256)
-      : undefined;
+      : null;
 
-    const userMessage: ChatMessage = { role: 'user', content, images };
+    const images = capture?.images;
+    // Prepend image description to user message so the model understands the visual context
+    const augmentedContent = capture?.description
+      ? `[Attached: ${capture.description}]\n\n${content}`
+      : content;
+
+    const userMessage: ChatMessage = { role: 'user', content: augmentedContent, images };
     set((s) => ({ messages: [...s.messages, userMessage], isLoading: true }));
 
     try {
@@ -97,14 +131,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
         const store = useModelerStore.getState();
         if (parsed.action === 'replace' && parsed.tree) {
           store.setTree(parsed.tree);
+          zoomToFitAfterEval();
         } else if (parsed.action === 'modify' && parsed.changes) {
           applyModifications(parsed.changes);
+          zoomToFitAfterEval();
         }
       }
     } catch (err: any) {
-      const msg = err.message?.includes('limit')
-        ? 'You\'re out of credits. Purchase more from the credits button in the toolbar to continue using AI chat.'
-        : `Error: ${err.message}`;
+      const msg = `Error: ${err.message}`;
       set((s) => ({
         messages: [...s.messages, { role: 'assistant', content: msg }],
         isLoading: false,
@@ -143,4 +177,15 @@ function addChildToNode(tree: any, parentId: string, newChild: any): any {
 function wrapNodeIn(tree: any, targetId: string, wrapper: any): any {
   if (tree.id === targetId) return { ...wrapper, children: [tree] };
   return { ...tree, children: tree.children.map((c: any) => wrapNodeIn(c, targetId, wrapper)) };
+}
+
+/** Wait for the SDF evaluator to produce a new bounding box, then zoom to fit */
+function zoomToFitAfterEval() {
+  const unsub = useModelerStore.subscribe((state) => {
+    if (state.sdfDisplay && !state.evaluating) {
+      unsub();
+      const engine = getEngineRef();
+      if (engine) engine.zoomToFit();
+    }
+  });
 }

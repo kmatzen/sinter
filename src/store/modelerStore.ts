@@ -669,3 +669,11 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
     });
   },
 }));
+
+// Expose store for e2e tests
+if (typeof window !== 'undefined') {
+  (window as any).__MODELER_STORE__ = useModelerStore.getState();
+  useModelerStore.subscribe((state) => {
+    (window as any).__MODELER_STORE__ = state;
+  });
+}

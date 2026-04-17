@@ -9,21 +9,28 @@ async function dismissCookieConsent(page: any) {
 }
 
 // Helper: ensure we're in the modeler
-// In community mode, the app loads directly into the modeler.
-// In paid mode, we need to click through the landing page.
+// The app shows a landing page first; click "Start Modeling" to enter,
+// then "Continue without account" on the login page.
 async function enterModeler(page: any) {
   await page.goto('/', { waitUntil: 'domcontentloaded' });
   await dismissCookieConsent(page);
-  // If modeler is already visible (community mode), we're done
+
   const modeler = page.locator('[data-testid="modeler-app"]');
   if (await modeler.isVisible({ timeout: 2000 }).catch(() => false)) return;
-  // Otherwise, click through landing page (paid mode)
-  await page.evaluate(() => localStorage.removeItem('sinter_launched'));
-  await page.reload({ waitUntil: 'domcontentloaded' });
-  await dismissCookieConsent(page);
-  const btn = page.locator('button', { hasText: 'Launch App' }).first();
-  await btn.waitFor({ state: 'visible', timeout: 15000 });
-  await btn.click();
+
+  // Click through landing page
+  const startBtn = page.locator('button:has-text("Start Modeling")').first();
+  if (await startBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+    await startBtn.click();
+    await dismissCookieConsent(page);
+  }
+
+  // Click "Continue without account" on the login page
+  const continueBtn = page.locator('button:has-text("Continue without account")');
+  if (await continueBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+    await continueBtn.click();
+  }
+
   await expect(modeler).toBeVisible({ timeout: 15000 });
 }
 
@@ -39,24 +46,22 @@ async function addOp(page: any, name: string) {
   await page.locator(`[title="Add ${name}"]`).click({ force: true });
 }
 
-// Landing page tests only run in paid mode — community mode skips the landing page
+// Helper: load a tree into the modeler via JS
+async function loadTree(page: any, tree: any) {
+  await page.evaluate((t: any) => {
+    const store = (window as any).__MODELER_STORE__;
+    if (store) { store.setTree(t); }
+  }, tree);
+}
+
 test.describe('Landing Page', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/', { waitUntil: 'domcontentloaded' });
-    // If modeler is already visible (community mode), skip
-    const modeler = page.locator('[data-testid="modeler-app"]');
-    if (await modeler.isVisible({ timeout: 2000 }).catch(() => false)) {
-      test.skip();
-      return;
-    }
-    await page.evaluate(() => localStorage.removeItem('sinter_launched'));
-    await page.reload({ waitUntil: 'domcontentloaded' });
     await dismissCookieConsent(page);
   });
 
   test('shows hero text', async ({ page }) => {
     await expect(page.locator('h1')).toContainText('Describe it', { timeout: 15000 });
-    await expect(page.locator('button:has-text("Launch App")').first()).toBeVisible();
   });
 
   test('shows features section', async ({ page }) => {
@@ -66,8 +71,8 @@ test.describe('Landing Page', () => {
     await expect(page.locator('h3:has-text("Smooth Booleans")')).toBeVisible();
   });
 
-  test('shows pricing section', async ({ page }) => {
-    await expect(page.locator('text=Pay for what you use')).toBeVisible({ timeout: 15000 });
+  test('shows how it works section', async ({ page }) => {
+    await expect(page.locator('text=Bring your own keys')).toBeVisible({ timeout: 15000 });
   });
 
   test('shows footer with copyright and TOS', async ({ page }) => {
@@ -82,12 +87,16 @@ test.describe('Landing Page', () => {
     await expect(page.locator('text=Acceptance of Terms')).not.toBeVisible();
   });
 
-  test('Launch App enters the modeler', async ({ page }) => {
-    const btn = page.locator('button', { hasText: 'Launch App' }).first();
+  test('Start Modeling enters the modeler', async ({ page }) => {
+    const btn = page.locator('button:has-text("Start Modeling")').first();
     await btn.waitFor({ state: 'visible', timeout: 15000 });
     await btn.click();
+    await dismissCookieConsent(page);
+    const continueBtn = page.locator('button:has-text("Continue without account")');
+    if (await continueBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await continueBtn.click();
+    }
     await expect(page.locator('[data-testid="modeler-app"]')).toBeVisible({ timeout: 15000 });
-    await expect(page.locator('text=No model yet')).toBeVisible();
   });
 });
 
@@ -128,6 +137,11 @@ test.describe('Modeler: Adding primitives', () => {
   test('can add a capsule', async ({ page }) => {
     await addShape(page, 'Capsule');
     await expect(page.locator('text=r=10')).toBeVisible();
+  });
+
+  test('can add an ellipsoid', async ({ page }) => {
+    await addShape(page, 'Ellipsoid');
+    await expect(page.locator(`text=30\u00d720\u00d740`)).toBeVisible();
   });
 
   test('adding two primitives creates a union', async ({ page }) => {
@@ -273,4 +287,3 @@ test.describe('Modeler: Export', () => {
     await expect(stl).toBeEnabled();
   });
 });
-

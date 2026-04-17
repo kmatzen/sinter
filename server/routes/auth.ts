@@ -3,8 +3,12 @@ import passport from 'passport';
 
 const router = Router();
 
-// Google OAuth
-router.get('/google', passport.authenticate('google', { scope: ['profile', 'email'] }));
+// Google OAuth — request Drive file access + offline (refresh token)
+router.get('/google', passport.authenticate('google', {
+  scope: ['profile', 'email', 'https://www.googleapis.com/auth/drive.file'],
+  accessType: 'offline',
+  prompt: 'consent',
+} as any));
 router.get('/google/callback',
   passport.authenticate('google', { failureRedirect: '/' }),
   (_req, res) => {
@@ -13,8 +17,8 @@ router.get('/google/callback',
   },
 );
 
-// GitHub OAuth
-router.get('/github', passport.authenticate('github', { scope: ['user:email'] }));
+// GitHub OAuth — request gist access
+router.get('/github', passport.authenticate('github', { scope: ['user:email', 'gist'] }));
 router.get('/github/callback',
   passport.authenticate('github', { failureRedirect: '/' }),
   (_req, res) => {

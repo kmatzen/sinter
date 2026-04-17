@@ -1,14 +1,11 @@
 import { useState, useEffect } from 'react';
-import { features } from '../../config';
 import { HeroDemo } from './HeroDemo';
 import { hasConsent, requestConsent } from '../ui/CookieConsent';
 
 export function LandingPage({ onLaunch }: { onLaunch: () => void }) {
-  // Wrap onLaunch to check consent first
   const handleLaunch = () => {
-    if (features.auth && !hasConsent()) {
+    if (!hasConsent()) {
       requestConsent();
-      // Listen for acceptance, then proceed
       const handler = () => { onLaunch(); window.removeEventListener('cookie-consent-accepted', handler); };
       window.addEventListener('cookie-consent-accepted', handler);
       return;
@@ -27,15 +24,8 @@ export function LandingPage({ onLaunch }: { onLaunch: () => void }) {
   };
   const [showTOS, setShowTOS] = useState(false);
   const [showPrivacy, setShowPrivacy] = useState(false);
-  const [signInEnabled, setSignInEnabled] = useState(!features.auth);
 
   useEffect(() => {
-    if (features.auth) {
-      fetch('/api/auth/config')
-        .then((r) => r.json())
-        .then((d) => setSignInEnabled(d.signInEnabled))
-        .catch(() => {});
-    }
     const handler = () => setShowPrivacy(true);
     window.addEventListener('show-privacy', handler);
     return () => window.removeEventListener('show-privacy', handler);
@@ -55,32 +45,13 @@ export function LandingPage({ onLaunch }: { onLaunch: () => void }) {
           <a href="#features" className="hidden md:inline text-sm transition-colors" style={{ color: 'var(--text-secondary)' }}
             onMouseEnter={(e) => e.currentTarget.style.color = 'var(--text-primary)'}
             onMouseLeave={(e) => e.currentTarget.style.color = 'var(--text-secondary)'}>Features</a>
-          {features.billing && (
-            <a href="#pricing" className="hidden md:inline text-sm transition-colors" style={{ color: 'var(--text-secondary)' }}
-              onMouseEnter={(e) => e.currentTarget.style.color = 'var(--text-primary)'}
-              onMouseLeave={(e) => e.currentTarget.style.color = 'var(--text-secondary)'}>Pricing</a>
-          )}
           <a href="https://github.com/kmatzen/sinter" className="hidden md:inline text-sm transition-colors" style={{ color: 'var(--text-secondary)' }}
             onMouseEnter={(e) => e.currentTarget.style.color = 'var(--text-primary)'}
             onMouseLeave={(e) => e.currentTarget.style.color = 'var(--text-secondary)'}>GitHub</a>
-          {signInEnabled ? (
-            features.auth ? (
-              <button onClick={handleSignIn} className="text-sm px-4 py-2 rounded-md font-medium"
-                 style={{ background: 'var(--accent)', color: 'var(--bg-deep)' }}>
-                Sign In
-              </button>
-            ) : (
-              <button onClick={handleLaunch} className="text-sm px-4 py-2 rounded-md font-medium"
-                      style={{ background: 'var(--accent)', color: 'var(--bg-deep)' }}>
-                Launch App
-              </button>
-            )
-          ) : (
-            <span className="text-sm px-4 py-2 rounded-md font-medium"
-                  style={{ background: 'var(--bg-surface)', color: 'var(--text-muted)', border: '1px solid var(--border-subtle)' }}>
-              Coming Soon
-            </span>
-          )}
+          <button onClick={handleSignIn} className="text-sm px-4 py-2 rounded-md font-medium"
+             style={{ background: 'var(--accent)', color: 'var(--bg-deep)' }}>
+            Sign In
+          </button>
         </div>
       </nav>
 
@@ -95,7 +66,7 @@ export function LandingPage({ onLaunch }: { onLaunch: () => void }) {
         <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full mb-6 text-xs font-medium tracking-wide"
              style={{ background: 'var(--accent-subtle)', color: 'var(--accent)' }}>
           <span className="w-1.5 h-1.5 rounded-full" style={{ background: 'var(--accent)' }} />
-          Open Source &middot; AI-Powered
+          Open Source &middot; AI-Powered &middot; Free
         </div>
 
         <h1 className="text-4xl md:text-6xl font-bold mb-4 md:mb-6 leading-[1.1] tracking-tight">
@@ -106,27 +77,18 @@ export function LandingPage({ onLaunch }: { onLaunch: () => void }) {
 
         <p className="text-base md:text-lg mb-6 md:mb-8 max-w-xl mx-auto leading-relaxed px-2" style={{ color: 'var(--text-secondary)' }}>
           AI-powered 3D modeling with signed distance fields.
-          Smooth booleans, parametric shells, and export-ready STL — all from natural language.
+          Bring your own API key. Store projects in your own GitHub or Google Drive.
         </p>
 
         <div className="flex flex-col sm:flex-row gap-3 justify-center items-center">
-          {signInEnabled ? (
-            <button
-              onClick={handleLaunch}
-              className="group px-7 py-3 rounded-md font-medium text-base flex items-center gap-2"
-              style={{ background: 'var(--accent)', color: 'var(--bg-deep)' }}
-            >
-              Start Modeling
-              <span className="group-hover:translate-x-0.5 transition-transform">&rarr;</span>
-            </button>
-          ) : (
-            <span
-              className="px-7 py-3 rounded-md font-medium text-base"
-              style={{ background: 'var(--bg-surface)', color: 'var(--text-muted)', border: '1px solid var(--border-subtle)' }}
-            >
-              Coming Soon
-            </span>
-          )}
+          <button
+            onClick={handleLaunch}
+            className="group px-7 py-3 rounded-md font-medium text-base flex items-center gap-2"
+            style={{ background: 'var(--accent)', color: 'var(--bg-deep)' }}
+          >
+            Start Modeling
+            <span className="group-hover:translate-x-0.5 transition-transform">&rarr;</span>
+          </button>
           <a
             href="https://github.com/kmatzen/sinter"
             className="px-7 py-3 rounded-md font-medium text-base"
@@ -199,67 +161,40 @@ export function LandingPage({ onLaunch }: { onLaunch: () => void }) {
         </div>
       </section>
 
-      {/* Pricing — paid edition only */}
-      {features.billing && (
-      <section id="pricing" className="relative z-10 max-w-4xl mx-auto px-6 py-16">
+      {/* How it works — BYOK */}
+      <section className="relative z-10 max-w-4xl mx-auto px-6 py-16">
         <div className="text-center mb-10">
-          <p className="font-mono text-[11px] tracking-[0.2em] uppercase mb-3" style={{ color: 'var(--accent)' }}>Pricing</p>
-          <h2 className="text-3xl font-bold tracking-tight mb-3">Pay for what you use</h2>
+          <p className="font-mono text-[11px] tracking-[0.2em] uppercase mb-3" style={{ color: 'var(--accent)' }}>How It Works</p>
+          <h2 className="text-3xl font-bold tracking-tight mb-3">Bring your own keys</h2>
           <p className="max-w-lg mx-auto leading-relaxed" style={{ color: 'var(--text-muted)' }}>
-            The full modeling engine is free — no login required. Credit packs unlock AI features, cloud storage, and project sharing. Credits are valid for 30 days.
-          </p>
-          <p className="max-w-md mx-auto mt-2 text-xs leading-relaxed" style={{ color: 'var(--text-muted)' }}>
-            Credit purchases help Kevin Blackburn-Matzen cover Anthropic API and hosting costs for this project.
+            Sinter is completely free. You provide your own AI API key and projects are stored in your own cloud account.
           </p>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 max-w-3xl mx-auto mb-12">
-          {CREDIT_PACKS.map((pack) => (
-            <div key={pack.credits} className="p-6 rounded-lg text-center"
-                 style={{ background: 'var(--bg-panel)', border: pack.popular ? '1px solid var(--accent)' : '1px solid var(--border-subtle)' }}>
-              {pack.popular && (
-                <div className="font-mono text-[9px] tracking-[0.15em] uppercase mb-3" style={{ color: 'var(--accent)' }}>
-                  Best value
-                </div>
-              )}
-              <div className="text-3xl font-bold mb-1" style={{ color: 'var(--text-primary)' }}>{pack.credits}</div>
-              <p className="font-mono text-[11px] mb-3" style={{ color: 'var(--text-muted)' }}>credits</p>
-              <div className="text-2xl font-bold mb-1" style={{ color: 'var(--text-primary)' }}>${pack.price}</div>
-              <p className="text-[11px] mb-5" style={{ color: 'var(--text-muted)' }}>${pack.perCredit}/credit</p>
-              {signInEnabled ? (
-                <button
-                   onClick={features.auth ? handleSignIn : handleLaunch}
-                   className="block w-full py-2 rounded-md text-sm font-medium text-center"
-                   style={{
-                     background: pack.popular ? 'var(--accent)' : 'var(--bg-elevated)',
-                     color: pack.popular ? 'var(--bg-deep)' : 'var(--text-primary)',
-                     border: pack.popular ? '1px solid var(--accent)' : '1px solid var(--border-default)',
-                   }}>
-                  {features.auth ? 'Sign In to Buy' : 'Get Started'}
-                </button>
-              ) : (
-                <span
-                   className="block w-full py-2 rounded-md text-sm font-medium text-center"
-                   style={{
-                     background: 'var(--bg-surface)',
-                     color: 'var(--text-muted)',
-                     border: '1px solid var(--border-subtle)',
-                   }}>
-                  Coming Soon
-                </span>
-              )}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 max-w-3xl mx-auto">
+          {[
+            { step: '1', title: 'Sign in', desc: 'Use your GitHub or Google account. Your OAuth provider determines where projects are stored.' },
+            { step: '2', title: 'Add your API key', desc: 'Bring your own Anthropic or OpenAI key for AI-powered modeling. Keys stay in your browser.' },
+            { step: '3', title: 'Start modeling', desc: 'Projects save to your GitHub Gists or Google Drive. Share with a link. Export STL/3MF anytime.' },
+          ].map((item) => (
+            <div key={item.step} className="p-5 rounded-lg" style={{ background: 'var(--bg-panel)', border: '1px solid var(--border-subtle)' }}>
+              <div className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold mb-3"
+                   style={{ background: 'var(--accent)', color: 'var(--bg-deep)' }}>
+                {item.step}
+              </div>
+              <h3 className="font-semibold mb-2 text-sm" style={{ color: 'var(--text-primary)' }}>{item.title}</h3>
+              <p className="text-sm leading-relaxed" style={{ color: 'var(--text-muted)' }}>{item.desc}</p>
             </div>
           ))}
         </div>
 
-        {/* What's included */}
-        <div className="max-w-3xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="max-w-3xl mx-auto mt-8 grid grid-cols-1 md:grid-cols-2 gap-6">
           <div className="rounded-lg p-5" style={{ background: 'var(--bg-panel)', border: '1px solid var(--border-subtle)' }}>
             <p className="font-mono text-[10px] tracking-[0.15em] uppercase mb-3" style={{ color: 'var(--accent-green)' }}>
-              Free for everyone
+              Everything is free
             </p>
             <div className="space-y-2">
-              {['SDF modeling engine', 'Smooth booleans', 'STL & 3MF export', 'Component library'].map((item) => (
+              {['SDF modeling engine', 'Smooth booleans', 'STL & 3MF export', 'Cloud storage & sharing', 'Component library'].map((item) => (
                 <div key={item} className="flex items-center gap-2 text-sm" style={{ color: 'var(--text-secondary)' }}>
                   <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: 'var(--accent-green)' }} />
                   {item}
@@ -269,10 +204,10 @@ export function LandingPage({ onLaunch }: { onLaunch: () => void }) {
           </div>
           <div className="rounded-lg p-5" style={{ background: 'var(--bg-panel)', border: '1px solid var(--border-subtle)' }}>
             <p className="font-mono text-[10px] tracking-[0.15em] uppercase mb-3" style={{ color: 'var(--accent)' }}>
-              With credits
+              You provide
             </p>
             <div className="space-y-2">
-              {['AI-powered modeling', 'Cloud storage & sync', 'Project sharing'].map((item) => (
+              {['Anthropic or OpenAI API key', 'GitHub or Google account'].map((item) => (
                 <div key={item} className="flex items-center gap-2 text-sm" style={{ color: 'var(--text-secondary)' }}>
                   <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: 'var(--accent)' }} />
                   {item}
@@ -282,29 +217,19 @@ export function LandingPage({ onLaunch }: { onLaunch: () => void }) {
           </div>
         </div>
       </section>
-      )}
 
       {/* Bottom CTA */}
       <section className="relative z-10 max-w-3xl mx-auto px-6 py-16 text-center">
         <h2 className="text-2xl font-bold tracking-tight mb-3" style={{ color: 'var(--text-primary)' }}>Ready to start modeling?</h2>
-        <p className="text-sm mb-6" style={{ color: 'var(--text-muted)' }}>No account required. Open the app and start building.</p>
-        {signInEnabled ? (
-          <button
-            onClick={handleLaunch}
-            className="group px-7 py-3 rounded-md font-medium text-base inline-flex items-center gap-2"
-            style={{ background: 'var(--accent)', color: 'var(--bg-deep)' }}
-          >
-            Start Modeling
-            <span className="group-hover:translate-x-0.5 transition-transform">&rarr;</span>
-          </button>
-        ) : (
-          <span
-            className="px-7 py-3 rounded-md font-medium text-base inline-block"
-            style={{ background: 'var(--bg-surface)', color: 'var(--text-muted)', border: '1px solid var(--border-subtle)' }}
-          >
-            Coming Soon
-          </span>
-        )}
+        <p className="text-sm mb-6" style={{ color: 'var(--text-muted)' }}>Sign in with GitHub or Google to get started. Your projects stay in your own storage.</p>
+        <button
+          onClick={handleLaunch}
+          className="group px-7 py-3 rounded-md font-medium text-base inline-flex items-center gap-2"
+          style={{ background: 'var(--accent)', color: 'var(--bg-deep)' }}
+        >
+          Start Modeling
+          <span className="group-hover:translate-x-0.5 transition-transform">&rarr;</span>
+        </button>
       </section>
 
       {/* Footer */}
@@ -339,22 +264,22 @@ export function LandingPage({ onLaunch }: { onLaunch: () => void }) {
               <button onClick={() => setShowTOS(false)} className="text-lg" style={{ color: 'var(--text-muted)' }}>&times;</button>
             </div>
             <div className="space-y-4 text-sm leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
-              <p style={{ color: 'var(--text-muted)' }}>Last updated: April 12, 2026</p>
+              <p style={{ color: 'var(--text-muted)' }}>Last updated: April 16, 2026</p>
 
               <h3 className="font-semibold mt-6" style={{ color: 'var(--text-primary)' }}>1. Acceptance of Terms</h3>
               <p>By accessing or using Sinter ("the Service"), you agree to be bound by these Terms of Service. If you do not agree, do not use the Service.</p>
 
               <h3 className="font-semibold mt-6" style={{ color: 'var(--text-primary)' }}>2. Description of Service</h3>
-              <p>Sinter is an AI-powered 3D modeling tool for 3D printing. The core modeling engine is free to use. Optional paid features include AI-assisted modeling, cloud storage, and project sharing, available through prepaid credit packs.</p>
+              <p>Sinter is a free, open-source, AI-powered 3D modeling tool for 3D printing. You bring your own AI API key (Anthropic or OpenAI) and sign in with GitHub or Google to store projects in your own cloud storage (GitHub Gists or Google Drive).</p>
 
               <h3 className="font-semibold mt-6" style={{ color: 'var(--text-primary)' }}>3. Accounts</h3>
-              <p>You may sign in using Google or GitHub OAuth. You are responsible for maintaining the security of your account. You must provide accurate information when creating an account.</p>
+              <p>You may sign in using Google or GitHub OAuth. Authentication is used to connect your cloud storage and enable project saving and sharing. You are responsible for maintaining the security of your account and API keys.</p>
 
-              <h3 className="font-semibold mt-6" style={{ color: 'var(--text-primary)' }}>4. Credits and Payments</h3>
-              <p>Credits are prepaid and non-refundable. Credits expire 30 days after purchase; each new purchase resets the expiry for all credits. AI features consume credits based on actual token usage. Cloud storage costs 1 credit per 100MB per 30-day period. If storage credits are exhausted, you have a 30-day grace period to add credits before projects may be archived.</p>
+              <h3 className="font-semibold mt-6" style={{ color: 'var(--text-primary)' }}>4. Your Content</h3>
+              <p>You retain all rights to models and designs you create using Sinter. Your project data is stored in your own GitHub Gists or Google Drive — we do not store project files on our servers. We store only project metadata (names, timestamps, thumbnails) in our database.</p>
 
-              <h3 className="font-semibold mt-6" style={{ color: 'var(--text-primary)' }}>5. Your Content</h3>
-              <p>You retain all rights to models and designs you create using Sinter. We do not claim ownership of your content. You grant us a limited license to store and transmit your content solely for the purpose of providing the Service.</p>
+              <h3 className="font-semibold mt-6" style={{ color: 'var(--text-primary)' }}>5. API Keys</h3>
+              <p>Your AI API keys are stored only in your browser's memory and are sent directly from your browser to the AI provider. We never see, store, or transmit your API keys through our servers.</p>
 
               <h3 className="font-semibold mt-6" style={{ color: 'var(--text-primary)' }}>6. Acceptable Use</h3>
               <p>You agree not to: abuse or overload the Service; attempt to access other users' data; use the Service for illegal purposes; reverse-engineer the Service beyond what is permitted by the open-source license.</p>
@@ -366,7 +291,7 @@ export function LandingPage({ onLaunch }: { onLaunch: () => void }) {
               <p>The Service is provided "as is" without warranties of any kind. We are not liable for any damages arising from the use of the Service, including but not limited to failed prints, material waste, or equipment damage resulting from models created with Sinter.</p>
 
               <h3 className="font-semibold mt-6" style={{ color: 'var(--text-primary)' }}>9. Termination</h3>
-              <p>We may suspend or terminate your access to the Service at any time for violation of these terms. You may delete your account at any time. Upon termination, your cloud-stored projects will be deleted after 30 days.</p>
+              <p>We may suspend or terminate your access to the Service at any time for violation of these terms. Your project data in GitHub Gists or Google Drive remains yours and is unaffected by account termination.</p>
 
               <h3 className="font-semibold mt-6" style={{ color: 'var(--text-primary)' }}>10. Changes to Terms</h3>
               <p>We may update these terms from time to time. Continued use of the Service after changes constitutes acceptance of the new terms.</p>
@@ -393,42 +318,39 @@ export function LandingPage({ onLaunch }: { onLaunch: () => void }) {
               <p className="text-xs" style={{ color: 'var(--text-muted)' }}>Last updated: April 2026</p>
 
               <h3 className="font-semibold mt-6" style={{ color: 'var(--text-primary)' }}>1. Information We Collect</h3>
-              <p><strong>Account information:</strong> When you sign in with Google or GitHub, we receive your name, email address, and profile photo. We do not access any other data from these services.</p>
-              <p><strong>Project data:</strong> If you use cloud storage, your 3D model data (node trees as JSON) is stored on our servers.</p>
-              <p><strong>Payment information:</strong> Payments are processed by Lemon Squeezy (Merchant of Record). We do not store your credit card details. Lemon Squeezy may collect information as described in their privacy policy.</p>
-              <p><strong>Usage data:</strong> We log AI chat token usage per user for billing purposes. We do not log the content of your prompts or AI responses.</p>
+              <p><strong>Account information:</strong> When you sign in with Google or GitHub, we receive your name, email address, and profile photo. We also receive an OAuth access token to read/write files in your GitHub Gists or Google Drive on your behalf.</p>
+              <p><strong>Project metadata:</strong> We store project names, timestamps, and thumbnails in our database. Project file data (your 3D models) is stored in your own GitHub Gists or Google Drive — not on our servers.</p>
+              <p><strong>API keys:</strong> Your AI API keys (Anthropic/OpenAI) are stored only in your browser's session memory. They are sent directly from your browser to the AI provider and never pass through our servers.</p>
 
               <h3 className="font-semibold mt-6" style={{ color: 'var(--text-primary)' }}>2. Cookies and Local Storage</h3>
               <p><strong>Session cookie:</strong> A single HTTP-only session cookie is used for authentication. It expires after 30 days of inactivity.</p>
-              <p><strong>Local storage:</strong> We use browser local storage to save your project locally, remember your preferences, and track cookie consent. No tracking cookies or third-party analytics are used.</p>
+              <p><strong>Local storage:</strong> We use browser local storage to save your project locally as a backup, remember your preferences, and track cookie consent. No tracking cookies or third-party analytics are used.</p>
 
               <h3 className="font-semibold mt-6" style={{ color: 'var(--text-primary)' }}>3. How We Use Your Information</h3>
-              <p>We use your information solely to: provide and maintain the service, process payments, send your prompts to AI providers (Anthropic) for model generation, and communicate with you about your account.</p>
+              <p>We use your information solely to: provide and maintain the service, authenticate you, and read/write project files to your cloud storage on your behalf.</p>
 
               <h3 className="font-semibold mt-6" style={{ color: 'var(--text-primary)' }}>4. AI Processing</h3>
-              <p>When you use AI chat, your messages and viewport screenshots are sent to Anthropic's API for processing. This data is subject to Anthropic's usage policies. We do not use your prompts or models to train AI systems.</p>
+              <p>When you use AI chat, your messages and viewport screenshots are sent directly from your browser to the AI provider (Anthropic or OpenAI) using your own API key. This data does not pass through our servers.</p>
 
-              <h3 className="font-semibold mt-6" style={{ color: 'var(--text-primary)' }}>5. Data Sharing</h3>
-              <p>We do not sell, rent, or share your personal information with third parties, except:</p>
-              <ul className="list-disc ml-5 space-y-1">
-                <li>Lemon Squeezy, for payment processing</li>
-                <li>Anthropic, for AI chat functionality</li>
-                <li>When required by law</li>
-              </ul>
+              <h3 className="font-semibold mt-6" style={{ color: 'var(--text-primary)' }}>5. OAuth Tokens</h3>
+              <p>We store your OAuth access token (and refresh token for Google) to read and write project files to your cloud storage. These tokens are scoped to only access files created by Sinter (GitHub gist scope, Google Drive file scope). You can revoke access at any time through your GitHub or Google account settings.</p>
 
-              <h3 className="font-semibold mt-6" style={{ color: 'var(--text-primary)' }}>6. Data Storage and Security</h3>
-              <p>Your data is stored on servers we operate. Project data is stored as files on disk, account data in SQLite. We use HTTPS, HTTP-only cookies, and standard security practices. No system is 100% secure.</p>
+              <h3 className="font-semibold mt-6" style={{ color: 'var(--text-primary)' }}>6. Data Sharing</h3>
+              <p>We do not sell, rent, or share your personal information with third parties. The only external services we interact with on your behalf are GitHub/Google (for storage) based on your explicit authentication.</p>
 
-              <h3 className="font-semibold mt-6" style={{ color: 'var(--text-primary)' }}>7. Your Rights</h3>
-              <p>You can: access and download your project data at any time, delete your account and all associated data by contacting us, and request a copy of all personal data we hold about you. For EU residents, you have additional rights under GDPR including the right to erasure, portability, and objection to processing.</p>
+              <h3 className="font-semibold mt-6" style={{ color: 'var(--text-primary)' }}>7. Data Storage and Security</h3>
+              <p>Project metadata is stored in a SQLite database on our server. Project file data is stored in your own cloud storage. We use HTTPS, HTTP-only cookies, and standard security practices. No system is 100% secure.</p>
 
-              <h3 className="font-semibold mt-6" style={{ color: 'var(--text-primary)' }}>8. Data Retention</h3>
-              <p>Account and project data is retained as long as your account is active. If you delete your account, all data is removed within 30 days. If cloud storage credits expire, projects are retained for a 30-day grace period before deletion.</p>
+              <h3 className="font-semibold mt-6" style={{ color: 'var(--text-primary)' }}>8. Your Rights</h3>
+              <p>You can: access and download your project data at any time from your own GitHub/Google account, revoke Sinter's access through your OAuth provider's settings, and request deletion of your account metadata from our database. For EU residents, you have additional rights under GDPR including the right to erasure, portability, and objection to processing.</p>
 
-              <h3 className="font-semibold mt-6" style={{ color: 'var(--text-primary)' }}>9. Changes to This Policy</h3>
+              <h3 className="font-semibold mt-6" style={{ color: 'var(--text-primary)' }}>9. Data Retention</h3>
+              <p>Account metadata is retained as long as your account is active. If you delete your account, metadata is removed from our database. Your project files in GitHub Gists or Google Drive are unaffected — they remain in your own storage.</p>
+
+              <h3 className="font-semibold mt-6" style={{ color: 'var(--text-primary)' }}>10. Changes to This Policy</h3>
               <p>We may update this policy from time to time. Continued use of the service constitutes acceptance of any changes.</p>
 
-              <h3 className="font-semibold mt-6" style={{ color: 'var(--text-primary)' }}>10. Contact</h3>
+              <h3 className="font-semibold mt-6" style={{ color: 'var(--text-primary)' }}>11. Contact</h3>
               <p>For privacy questions, open an issue on <a href="https://github.com/kmatzen/sinter" className="underline" style={{ color: 'var(--accent)' }}>GitHub</a>.</p>
             </div>
           </div>
@@ -437,12 +359,6 @@ export function LandingPage({ onLaunch }: { onLaunch: () => void }) {
     </div>
   );
 }
-
-const CREDIT_PACKS = [
-  { credits: 100, price: 5, perCredit: '0.05', popular: false },
-  { credits: 500, price: 20, perCredit: '0.04', popular: false },
-  { credits: 1000, price: 35, perCredit: '0.035', popular: true },
-];
 
 const FEATURES = [
   { image: '/feature-ai.png', title: 'AI-Powered Modeling', desc: 'Describe what you need in plain language. The AI builds a parametric SDF model that you can edit, tweak, and iterate on.' },
