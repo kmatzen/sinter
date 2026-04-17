@@ -172,17 +172,26 @@ export class ThreeEngine {
 
     // Save current state
     const savedPos = this.camera.position.clone();
+    const savedQuat = this.camera.quaternion.clone();
+    const savedTarget = this.controls.target.clone();
     const savedAspect = this.camera.aspect;
     const savedSize = new THREE.Vector2();
     this.renderer.getSize(savedSize);
 
-    // Set up small render target
+    // Compute a zoom-to-fit position for the "current" view so edits are always framed
+    const fitDir = new THREE.Vector3().subVectors(savedPos, savedTarget);
+    if (fitDir.lengthSq() < 1e-6) fitDir.set(1, 0.8, 1);
+    fitDir.normalize();
+    const fitPos = new THREE.Vector3().copy(center).addScaledVector(fitDir, dist);
+
+    // Set up small render target — resize OutlinePass to match
     this.renderer.setSize(size, size);
+    this.outlinePass.resize(size, size);
     this.camera.aspect = 1;
     this.camera.updateProjectionMatrix();
 
     const views: Array<{ name: string; pos: THREE.Vector3; axes: string }> = [
-      { name: 'current', pos: savedPos, axes: '' },
+      { name: 'current', pos: fitPos, axes: '' },
       { name: 'front', pos: new THREE.Vector3(center.x, center.y, center.z + dist), axes: `X=${dimX}mm wide, Y=${dimY}mm tall` },
       { name: 'right', pos: new THREE.Vector3(center.x + dist, center.y, center.z), axes: `Z=${dimZ}mm deep, Y=${dimY}mm tall` },
       { name: 'top', pos: new THREE.Vector3(center.x, center.y + dist, center.z), axes: `X=${dimX}mm wide, Z=${dimZ}mm deep` },
@@ -204,7 +213,7 @@ export class ThreeEngine {
 
       // Composite: render + ruler overlay
       ctx.clearRect(0, 0, size, size);
-      ctx.drawImage(this.renderer.domElement, 0, 0);
+      ctx.drawImage(this.renderer.domElement, 0, 0, size, size);
 
       // Draw ruler along the left edge for orthographic views
       if (view.name !== 'current') {
@@ -216,10 +225,13 @@ export class ThreeEngine {
 
     // Restore
     this.camera.position.copy(savedPos);
+    this.camera.quaternion.copy(savedQuat);
+    this.controls.target.copy(savedTarget);
     this.camera.aspect = savedAspect;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(savedSize.x, savedSize.y);
     this.outlinePass.resize(savedSize.x, savedSize.y);
+    this.controls.update();
     this.gizmo.setVisible(true);
 
     const description = [
