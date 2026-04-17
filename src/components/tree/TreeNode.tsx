@@ -29,6 +29,7 @@ export function TreeNode({ node, depth, isLast = true }: Props) {
   const toggleExpanded = useModelerStore((s) => s.toggleExpanded);
   const toggleNode = useModelerStore((s) => s.toggleNode);
   const removeNode = useModelerStore((s) => s.removeNode);
+  const duplicateSelected = useModelerStore((s) => s.duplicateSelected);
   const moveNode = useModelerStore((s) => s.moveNode);
   const addNodeFromData = useModelerStore((s) => s.addNodeFromData);
   const [dragOver, setDragOver] = useState(false);
@@ -157,8 +158,17 @@ export function TreeNode({ node, depth, isLast = true }: Props) {
           {summary}
         </span>
 
-        {/* Actions — only show on hover via CSS */}
-        <span className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover-actions">
+        {/* Actions — visible on hover (desktop) or when selected (mobile) */}
+        <span className={`flex items-center gap-0.5 shrink-0 ${isSelected ? 'opacity-100' : 'opacity-0 group-hover-actions'}`}>
+          <button
+            onClick={(e) => { e.stopPropagation(); selectNode(node.id); duplicateSelected(); }}
+            className="w-5 h-5 flex items-center justify-center rounded text-[10px]"
+            style={{ color: 'var(--text-muted)' }}
+            title="Duplicate"
+            aria-label="Duplicate node"
+          >
+            {'\u2750'}
+          </button>
           <button
             onClick={(e) => { e.stopPropagation(); toggleNode(node.id); }}
             className="w-5 h-5 flex items-center justify-center rounded text-[10px]"
