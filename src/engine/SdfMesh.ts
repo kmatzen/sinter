@@ -167,6 +167,9 @@ export class SdfMesh {
         this.mesh = null;
         this.material = null;
       }
+      this.lastGlsl = '';
+      this.lastParamCount = 0;
+      this.lastBBKey = '';
       return;
     }
 
