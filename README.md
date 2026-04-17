@@ -30,7 +30,7 @@ To use AI chat, click the gear icon in the chat panel and enter your Anthropic o
 ## Features
 
 ### Modeling
-- **Primitives**: Box, Sphere, Cylinder, Torus, Cone, Capsule, Ellipsoid, Text
+- **Primitives**: Box, Sphere, Cylinder, Torus, Cone, Capsule, Ellipsoid
 - **Booleans**: Union, Subtract, Intersect (with smooth/fillet parameter)
 - **Modifiers**: Shell, Offset, Round, Mirror, Half-Space Cut (with flip)
 - **Patterns**: Linear Pattern, Circular Pattern
