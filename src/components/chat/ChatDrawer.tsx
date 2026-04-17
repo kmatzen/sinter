@@ -114,7 +114,7 @@ export function ChatDrawer() {
             <pre className="whitespace-pre-wrap break-words overflow-hidden font-sans">{msg.content}</pre>
           </div>
         ))}
-        {isLoading && (
+        {isLoading && messages.length > 0 && messages[messages.length - 1].role === 'assistant' && !messages[messages.length - 1].content && (
           <div className="text-sm rounded-lg px-3 py-2 mr-8 animate-pulse" style={{ background: 'var(--bg-surface)', color: 'var(--text-muted)' }}>
             Thinking...
           </div>
