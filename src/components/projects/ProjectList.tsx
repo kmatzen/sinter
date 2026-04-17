@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react';
-import { features } from '../../config';
 import { triggerDownload } from '../../utils/download';
 import { useModalStore } from '../../store/modalStore';
 
@@ -53,11 +52,10 @@ function getLocalProjects(): LocalProject[] {
 export function ProjectList({ onSelect, onNew, onClose, onImport }: Props) {
   const [cloudProjects, setCloudProjects] = useState<CloudProject[]>([]);
   const [localProjectList, setLocalProjectList] = useState<LocalProject[]>(getLocalProjects());
-  const [loading, setLoading] = useState(features.cloudStorage);
+  const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!features.cloudStorage) { setLoading(false); return; }
     fetch('/api/projects', { credentials: 'include' })
       .then((r) => r.json())
       .then((data) => {
@@ -150,7 +148,7 @@ export function ProjectList({ onSelect, onNew, onClose, onImport }: Props) {
       }, ...prev]);
       showToast(`Moved "${data.projectName || 'Untitled'}" to cloud`);
     } catch {
-      showToast('Move failed — storage allocation may be required');
+      showToast('Move failed — sign in to enable cloud storage');
     }
   };
 
@@ -207,14 +205,12 @@ export function ProjectList({ onSelect, onNew, onClose, onImport }: Props) {
                     <div className="text-[10px]" style={{ color: 'var(--text-muted)' }}>Stored in browser &middot; {formatDate(p.updated_at)}</div>
                   </div>
                   <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                    {features.cloudStorage && (
-                      <button onClick={handleMoveToCloud}
-                              className="text-[11px] px-2 py-1 rounded flex items-center gap-1"
-                              style={{ background: 'var(--accent-subtle)', color: 'var(--accent)' }}
-                              title="Move to cloud storage">
-                        <span>&#x2191;</span> Cloud
-                      </button>
-                    )}
+                    <button onClick={handleMoveToCloud}
+                            className="text-[11px] px-2 py-1 rounded flex items-center gap-1"
+                            style={{ background: 'var(--accent-subtle)', color: 'var(--accent)' }}
+                            title="Move to cloud storage">
+                      <span>&#x2191;</span> Cloud
+                    </button>
                     <button onClick={(e) => handleDeleteLocal(p.id, e)}
                             className="text-[11px] px-2 py-1 rounded"
                             style={{ color: 'var(--accent-red)' }}
@@ -228,58 +224,56 @@ export function ProjectList({ onSelect, onNew, onClose, onImport }: Props) {
           )}
 
           {/* Cloud projects */}
-          {features.cloudStorage && (
-            <div>
-              <div className="flex items-center gap-2 px-2 mb-2">
-                <span className="font-mono text-[9px] tracking-[0.15em] uppercase" style={{ color: 'var(--text-muted)' }}>Cloud</span>
-                <div className="flex-1 h-px" style={{ background: 'var(--border-subtle)' }} />
-              </div>
-              {!loading && cloudProjects.length === 0 && (
-                <div className="text-xs text-center py-4" style={{ color: 'var(--text-muted)' }}>
-                  No cloud projects. Save requires credits.
-                </div>
-              )}
-              {cloudProjects.map((p) => (
-                <div key={p.id}
-                     onClick={() => onSelect(p.id)}
-                     className="flex items-center gap-3 px-3 py-2.5 rounded cursor-pointer group"
-                     style={{ background: 'transparent' }}
-                     onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
-                     onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
-                  {p.thumbnail ? (
-                    <img src={p.thumbnail} alt="" className="w-10 h-10 rounded object-cover shrink-0" style={{ background: 'var(--bg-elevated)' }} />
-                  ) : (
-                    <div className="w-10 h-10 rounded flex items-center justify-center text-xs shrink-0"
-                         style={{ background: 'var(--bg-elevated)', color: 'var(--text-muted)' }}>3D</div>
-                  )}
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm truncate" style={{ color: 'var(--text-primary)' }}>{p.name}</div>
-                    <div className="text-[10px]" style={{ color: 'var(--text-muted)' }}>Cloud &middot; {formatDate(p.updated_at)}</div>
-                  </div>
-                  <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button onClick={(e) => handleMoveToLocal(p.id, e)}
-                            className="text-[11px] px-2 py-1 rounded flex items-center gap-1"
-                            style={{ background: 'var(--accent-subtle)', color: 'var(--accent)' }}
-                            title="Move to browser storage">
-                      <span>&#x2193;</span> Local
-                    </button>
-                    <button onClick={(e) => handleDownloadCloud(p.id, p.name, e)}
-                            className="text-[11px] px-2 py-1 rounded flex items-center gap-1"
-                            style={{ background: 'var(--bg-elevated)', color: 'var(--text-secondary)' }}
-                            title="Download as .json file">
-                      <span>&#x21E9;</span> File
-                    </button>
-                    <button onClick={(e) => handleDeleteCloud(p.id, e)}
-                            className="text-[11px] px-2 py-1 rounded"
-                            style={{ color: 'var(--accent-red)' }}
-                            title="Delete from cloud">
-                      &#x2715;
-                    </button>
-                  </div>
-                </div>
-              ))}
+          <div>
+            <div className="flex items-center gap-2 px-2 mb-2">
+              <span className="font-mono text-[9px] tracking-[0.15em] uppercase" style={{ color: 'var(--text-muted)' }}>Cloud</span>
+              <div className="flex-1 h-px" style={{ background: 'var(--border-subtle)' }} />
             </div>
-          )}
+            {!loading && cloudProjects.length === 0 && (
+              <div className="text-xs text-center py-4" style={{ color: 'var(--text-muted)' }}>
+                No cloud projects yet. Sign in and save to get started.
+              </div>
+            )}
+            {cloudProjects.map((p) => (
+              <div key={p.id}
+                   onClick={() => onSelect(p.id)}
+                   className="flex items-center gap-3 px-3 py-2.5 rounded cursor-pointer group"
+                   style={{ background: 'transparent' }}
+                   onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
+                   onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
+                {p.thumbnail ? (
+                  <img src={p.thumbnail} alt="" className="w-10 h-10 rounded object-cover shrink-0" style={{ background: 'var(--bg-elevated)' }} />
+                ) : (
+                  <div className="w-10 h-10 rounded flex items-center justify-center text-xs shrink-0"
+                       style={{ background: 'var(--bg-elevated)', color: 'var(--text-muted)' }}>3D</div>
+                )}
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm truncate" style={{ color: 'var(--text-primary)' }}>{p.name}</div>
+                  <div className="text-[10px]" style={{ color: 'var(--text-muted)' }}>Cloud &middot; {formatDate(p.updated_at)}</div>
+                </div>
+                <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <button onClick={(e) => handleMoveToLocal(p.id, e)}
+                          className="text-[11px] px-2 py-1 rounded flex items-center gap-1"
+                          style={{ background: 'var(--accent-subtle)', color: 'var(--accent)' }}
+                          title="Move to browser storage">
+                    <span>&#x2193;</span> Local
+                  </button>
+                  <button onClick={(e) => handleDownloadCloud(p.id, p.name, e)}
+                          className="text-[11px] px-2 py-1 rounded flex items-center gap-1"
+                          style={{ background: 'var(--bg-elevated)', color: 'var(--text-secondary)' }}
+                          title="Download as .json file">
+                    <span>&#x21E9;</span> File
+                  </button>
+                  <button onClick={(e) => handleDeleteCloud(p.id, e)}
+                          className="text-[11px] px-2 py-1 rounded"
+                          style={{ color: 'var(--accent-red)' }}
+                          title="Delete from cloud">
+                    &#x2715;
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
 
         {/* Toast */}

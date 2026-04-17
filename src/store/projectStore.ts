@@ -71,9 +71,6 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         });
         if (!res.ok) {
           const err = await res.json().catch(() => ({ error: res.statusText }));
-          if (res.status === 402) {
-            throw new Error('No storage available. Purchase storage credits from the settings menu.');
-          }
           throw new Error(err.error || `Save failed (${res.status})`);
         }
         const data = await res.json();

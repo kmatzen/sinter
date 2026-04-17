@@ -82,6 +82,25 @@ if (!columnExists('projects', 'thumbnail')) {
   db.exec('ALTER TABLE projects ADD COLUMN thumbnail TEXT');
 }
 
+// OAuth token storage for external storage providers
+if (!columnExists('users', 'oauth_access_token')) {
+  db.exec('ALTER TABLE users ADD COLUMN oauth_access_token TEXT');
+}
+if (!columnExists('users', 'oauth_refresh_token')) {
+  db.exec('ALTER TABLE users ADD COLUMN oauth_refresh_token TEXT');
+}
+if (!columnExists('users', 'oauth_token_expires_at')) {
+  db.exec('ALTER TABLE users ADD COLUMN oauth_token_expires_at TEXT');
+}
+
+// External storage references for projects
+if (!columnExists('projects', 'storage_provider')) {
+  db.exec('ALTER TABLE projects ADD COLUMN storage_provider TEXT');
+}
+if (!columnExists('projects', 'storage_external_id')) {
+  db.exec('ALTER TABLE projects ADD COLUMN storage_external_id TEXT');
+}
+
 db.exec('CREATE TABLE IF NOT EXISTS used_sessions (key TEXT PRIMARY KEY)');
 
 export default db;

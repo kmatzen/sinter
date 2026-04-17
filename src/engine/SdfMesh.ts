@@ -95,7 +95,7 @@ void main() {
     }
     d = sdf(p);
     if (abs(d) < minStep) { hit = true; break; }
-    t += abs(d);
+    t += abs(d) * 0.7;
     if (t > tEnd) break;
   }
   if (!hit) discard;

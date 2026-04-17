@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { isDirty, markClean, saveToLocal } from '../../store/localPersist';
+import { isDirty, markClean } from '../../store/localPersist';
 import { useModelerStore } from '../../store/modelerStore';
 import { useAuthStore } from '../../store/authStore';
 import { useProjectStore } from '../../store/projectStore';
@@ -8,8 +8,6 @@ import { triggerDownload } from '../../utils/download';
 import { useChatStore } from '../../store/chatStore';
 import { ProjectList } from '../projects/ProjectList';
 import { ImportProject } from '../projects/ImportProject';
-import { features } from '../../config';
-import { UsageBadge } from '../billing/UsageBadge';
 import { SettingsPage } from '../settings/SettingsPage';
 import { FolderOpen, Save, Undo2, Redo2, MessageSquare, FileDown, FilePlus, Share2, Link } from 'lucide-react';
 
@@ -82,9 +80,9 @@ export function Toolbar() {
          style={{ background: 'var(--bg-panel)', borderBottom: '1px solid var(--border-subtle)' }}>
       <div className="flex items-center gap-2">
         <img src="/logo-64.png" alt="Sinter" className="w-5 h-5 rounded"
-             style={{ cursor: features.auth ? 'pointer' : 'default' }}
-             onClick={() => { if (features.auth) window.dispatchEvent(new Event('show-landing')); }}
-             title={features.auth ? 'Back to home' : 'Sinter'} />
+             style={{ cursor: 'pointer' }}
+             onClick={() => window.dispatchEvent(new Event('show-landing'))}
+             title="Back to home" />
         <input
           value={projectName}
           onChange={(e) => setProjectName(e.target.value)}
@@ -96,12 +94,8 @@ export function Toolbar() {
       <div className="w-px h-4 mx-1" style={{ background: 'var(--border-default)' }} />
       <IconBtn icon={<FilePlus size={14} />} title="New project" onClick={() => { useModelerStore.getState().setTree(null); useModelerStore.getState().setProjectName('Untitled'); }} />
       <IconBtn icon={<FolderOpen size={14} />} title="Projects" onClick={() => setShowProjects(true)} />
-      {features.cloudStorage ? (
-        <IconBtn icon={<Save size={14} />} title={saving ? 'Saving...' : 'Save to cloud'} onClick={handleSaveCloud} disabled={saving || !dirty} />
-      ) : (
-        <IconBtn icon={<Save size={14} />} title="Save" onClick={() => { saveToLocal(); markClean(); setDirty(false); }} disabled={!dirty} />
-      )}
-      {features.sharing && projectId && (
+      <IconBtn icon={<Save size={14} />} title={saving ? 'Saving...' : 'Save to cloud'} onClick={handleSaveCloud} disabled={saving || !dirty} />
+      {projectId && (
         shareToken ? (
           <IconBtn
             icon={<Link size={14} />}
@@ -146,8 +140,7 @@ export function Toolbar() {
         <MessageSquare size={14} />
       </button>
       <div className="w-px h-4 mx-1" style={{ background: 'var(--border-default)' }} />
-      <UsageBadge />
-      {features.auth && !user && (
+      {!user && (
         <a href="/app"
            onClick={() => localStorage.removeItem('sinter_launched')}
            className="text-[11px] px-3 py-1 rounded font-medium"
@@ -156,7 +149,7 @@ export function Toolbar() {
           Sign In
         </a>
       )}
-      {features.auth && user && (
+      {user && (
         <button onClick={() => setShowSettings(true)} title="Settings" aria-label="Account settings" className="flex items-center gap-2 rounded px-1.5 py-1"
                 style={{ background: 'transparent' }}
                 onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}

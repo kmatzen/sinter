@@ -8,16 +8,15 @@ import cors from 'cors';
 import path from 'path';
 import db from './db';
 import { setupAuth } from './auth';
-import { checkAllowlist } from './middleware/allowlist';
 import authRoutes from './routes/auth';
 import projectRoutes from './routes/projects';
-import llmRoutes from './routes/llm';
-import billingRoutes from './routes/billing';
-import { startStorageBillingCron } from './storageBilling';
 
 const app = express();
 const PORT = parseInt(process.env.PORT || '3000');
 const isDev = process.env.NODE_ENV !== 'production';
+
+// Trust proxy in production (Fly.io terminates TLS at the proxy layer)
+if (!isDev) app.set('trust proxy', 1);
 
 // Require SESSION_SECRET in production
 if (!isDev && (!process.env.SESSION_SECRET || process.env.SESSION_SECRET === 'dev-secret-change-me')) {
@@ -25,17 +24,7 @@ if (!isDev && (!process.env.SESSION_SECRET || process.env.SESSION_SECRET === 'de
   process.exit(1);
 }
 
-// Middleware — raw body for Stripe webhook, JSON for everything else
-app.use('/api/billing/webhook', express.raw({ type: 'application/json' }));
 app.use(express.json({ limit: '10mb' }));
-
-// Site password gate (set SITE_PASSWORD to enable).
-// Visit /gate to unlock via Basic Auth — sets a session flag.
-const sitePassword = process.env.SITE_PASSWORD;
-
-function isGateUnlocked(req: any): boolean {
-  return !sitePassword || req.session?.gateUnlocked === true;
-}
 
 // Security headers
 app.use((req, res, next) => {
@@ -59,8 +48,7 @@ app.use(cors({
   credentials: true,
 }));
 
-// Sessions with SQLite store — only initialized when cookie consent is given
-// or when accessing auth/gate routes (which imply consent).
+// Sessions with SQLite store
 const SessionStore = SqliteStore(session);
 
 const sessionMiddleware = session({
@@ -72,7 +60,7 @@ const sessionMiddleware = session({
     secure: !isDev,
     httpOnly: true,
     maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
-    sameSite: isDev ? 'lax' : 'strict',
+    sameSite: 'lax',
   },
 });
 
@@ -80,8 +68,8 @@ setupAuth();
 const passportInit = passport.initialize();
 const passportSession = passport.session();
 
-// Only attach session + passport when consent cookie exists, or on auth/gate routes
-const consentPaths = ['/api/auth', '/gate', '/api/llm', '/api/projects', '/api/billing'];
+// Attach session + passport on auth/project routes or when consent cookie exists
+const consentPaths = ['/api/auth', '/api/projects'];
 app.use((req, res, next) => {
   const hasConsent = req.headers.cookie?.includes('sinter_cookie_consent=accepted');
   const needsSession = hasConsent || consentPaths.some((p) => req.path.startsWith(p));
@@ -93,49 +81,9 @@ app.use((req, res, next) => {
   });
 });
 
-// Site password gate routes (need session to be available)
-if (sitePassword) {
-  // /gate — Basic Auth prompt that unlocks the session
-  app.get('/gate', (req: any, res) => {
-    const auth = req.headers.authorization;
-    if (auth) {
-      const [scheme, encoded] = auth.split(' ');
-      if (scheme === 'Basic') {
-        const [, pass] = Buffer.from(encoded, 'base64').toString().split(':');
-        if (pass === sitePassword) {
-          req.session.gateUnlocked = true;
-          return res.redirect('/app');
-        }
-      }
-    }
-    res.setHeader('WWW-Authenticate', 'Basic realm="Sinter"');
-    res.status(401).send('Access restricted');
-  });
-
-  // Block OAuth routes unless gate is unlocked
-  const gatedPaths = ['/api/auth/google', '/api/auth/github'];
-  app.use((req: any, res, next) => {
-    if (!gatedPaths.some((p) => req.path.startsWith(p))) return next();
-    if (isGateUnlocked(req)) return next();
-    res.status(403).json({ error: 'Sign-in not available yet' });
-  });
-}
-
-// Tell the frontend whether sign-in is available (checks session gate)
-app.get('/api/auth/config', (req: any, res) => {
-  res.json({ signInEnabled: isGateUnlocked(req) });
-});
-
-// Allowlist check (after auth, before API routes)
-app.use('/api/projects', checkAllowlist);
-app.use('/api/llm', checkAllowlist);
-app.use('/api/billing', checkAllowlist);
-
 // API routes
 app.use('/api/auth', authRoutes);
 app.use('/api/projects', projectRoutes);
-app.use('/api/llm', llmRoutes);
-app.use('/api/billing', billingRoutes);
 
 // In production, serve the built frontend
 if (!isDev) {
@@ -149,7 +97,6 @@ if (!isDev) {
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Sinter server running on port ${PORT}`);
-  if (!isDev) startStorageBillingCron();
   if (isDev) {
     console.log(`Frontend dev server should be at http://localhost:5173`);
     console.log(`API server at http://localhost:${PORT}`);

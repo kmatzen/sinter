@@ -3,12 +3,12 @@ import { v4 as uuidv4 } from 'uuid';
 import { NODE_LABELS, NODE_DEFAULTS } from '../../types/operations';
 import type { SDFNodeUI } from '../../types/operations';
 import { useModelerStore } from '../../store/modelerStore';
-import { Box, Circle, Cylinder, Donut, Cone, Pill, Merge, Minus, Combine, Shell, Expand, CircleDot, FlipHorizontal, Scissors, RotateCcw, Scaling, Move, Repeat, CircleDashed, GripVertical } from 'lucide-react';
+import { Box, Circle, Cylinder, Donut, Cone, Pill, Egg, Merge, Minus, Combine, Shell, Expand, CircleDot, FlipHorizontal, Scissors, RotateCcw, Scaling, Move, Repeat, CircleDashed, GripVertical } from 'lucide-react';
 import type { ReactNode } from 'react';
 
 const ICONS: Record<string, ReactNode> = {
   box: <Box size={14} />, sphere: <Circle size={14} />, cylinder: <Cylinder size={14} />,
-  torus: <Donut size={14} />, cone: <Cone size={14} />, capsule: <Pill size={14} />,
+  torus: <Donut size={14} />, cone: <Cone size={14} />, capsule: <Pill size={14} />, ellipsoid: <Egg size={14} />,
   union: <Merge size={13} />, subtract: <Minus size={13} />, intersect: <Combine size={13} />,
   shell: <Shell size={13} />, offset: <Expand size={13} />, round: <CircleDot size={13} />,
   mirror: <FlipHorizontal size={13} />, halfSpace: <Scissors size={13} />,
@@ -195,7 +195,7 @@ export function PartsPalette() {
       <div className="p-2 overflow-y-auto" style={{ maxHeight: '220px' }}>
         {tab === 'shapes' && (
           <div className="flex flex-wrap gap-1 justify-center">
-            {(['box', 'sphere', 'cylinder', 'torus', 'cone', 'capsule'] as const).map((kind) => (
+            {(['box', 'sphere', 'cylinder', 'torus', 'cone', 'capsule', 'ellipsoid'] as const).map((kind) => (
               <ShapeTile key={kind} kind={kind} color={CAT_COLORS.shapes} />
             ))}
           </div>

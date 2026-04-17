@@ -1,6 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
 import { useChatStore } from '../../store/chatStore';
-import { features } from '../../config';
 import { Send, Settings, X } from 'lucide-react';
 
 export function ChatDrawer() {
@@ -37,15 +36,12 @@ export function ChatDrawer() {
          style={{ background: 'var(--bg-panel)', borderLeft: '1px solid var(--border-subtle)', boxShadow: 'var(--shadow-lg)' }}>
       <div className="px-3 py-2 flex items-center justify-between" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
         <span className="font-mono text-[10px] tracking-[0.15em] uppercase" style={{ color: 'var(--text-muted)' }}>AI Assistant</span>
-        {features.byok && (
-          <button onClick={toggleSettings} style={{ color: 'var(--text-muted)' }} className="hover:opacity-80">
-            {showSettings ? <X size={16} /> : <Settings size={16} />}
-          </button>
-        )}
+        <button onClick={toggleSettings} style={{ color: 'var(--text-muted)' }} className="hover:opacity-80">
+          {showSettings ? <X size={16} /> : <Settings size={16} />}
+        </button>
       </div>
 
-      {/* BYOK settings — community edition only */}
-      {features.byok && showSettings && (
+      {showSettings && (
         <div className="p-3 space-y-2" style={{ borderBottom: '1px solid var(--border-subtle)', background: 'var(--bg-surface)' }}>
           <div>
             <label className="text-[10px] uppercase font-mono tracking-wider" style={{ color: 'var(--text-muted)' }}>Provider</label>

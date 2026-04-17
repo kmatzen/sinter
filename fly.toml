@@ -7,7 +7,6 @@ primary_region = 'iad'
   NODE_ENV = 'production'
   PORT = '3000'
   DATA_DIR = '/data'
-  VITE_EDITION = 'paid'
 
 [http_service]
   internal_port = 3000

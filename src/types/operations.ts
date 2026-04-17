@@ -10,7 +10,7 @@ export interface SDFNodeUI {
 
 // All valid node kinds
 export const NODE_KINDS = {
-  primitives: ['box', 'sphere', 'cylinder', 'torus', 'cone', 'capsule'] as const,
+  primitives: ['box', 'sphere', 'cylinder', 'torus', 'cone', 'capsule', 'ellipsoid'] as const,
   booleans: ['union', 'subtract', 'intersect'] as const,
   modifiers: ['shell', 'offset', 'round', 'mirror', 'halfSpace'] as const,
   patterns: ['linearPattern', 'circularPattern'] as const,

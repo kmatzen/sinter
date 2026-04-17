@@ -1,10 +1,8 @@
 import type { ChatMessage } from '../store/chatStore';
-import { features } from '../config';
 
 interface LLMRequest {
   systemPrompt: string;
   messages: ChatMessage[];
-  // Community mode fields (BYOK)
   apiKey?: string;
   apiEndpoint?: string;
   model?: string;
@@ -51,47 +49,14 @@ function stripOldImages(messages: ChatMessage[]): ChatMessage[] {
   );
 }
 
+/** Check if a model supports extended thinking */
+function supportsExtendedThinking(model: string): boolean {
+  // Claude 4.5 and 4.6+ models support extended thinking
+  return /claude-(opus|sonnet)-4/i.test(model);
+}
+
 export async function sendLLMMessage(req: LLMRequest): Promise<string> {
   req = { ...req, messages: stripOldImages(req.messages) };
-  if (features.serverLLM) {
-    return sendViaServer(req);
-  }
-  return sendDirect(req);
-}
-
-// Paid edition: proxy through our server
-async function sendViaServer(req: LLMRequest): Promise<string> {
-  const response = await fetch('/api/llm/chat', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    credentials: 'include',
-    body: JSON.stringify({
-      systemPrompt: req.systemPrompt,
-      messages: req.messages.map((m) => ({ role: m.role, content: toAnthropicContent(m) })),
-    }),
-  });
-
-  if (!response.ok) {
-    const text = await response.text();
-    let errMsg: string;
-    try {
-      errMsg = JSON.parse(text).error;
-    } catch {
-      errMsg = text || response.statusText;
-    }
-    throw new Error(errMsg || `Server error (${response.status})`);
-  }
-
-  const data = await response.json();
-  // Dispatch usage info for the credit badge
-  if (data.usage) {
-    window.dispatchEvent(new CustomEvent('credits-updated', { detail: data.usage }));
-  }
-  return data.content || '';
-}
-
-// Community edition: direct API call with user's key
-async function sendDirect(req: LLMRequest): Promise<string> {
   if (!req.apiKey) throw new Error('API key required. Configure it in the settings.');
 
   if (req.provider === 'openai') {
@@ -102,6 +67,22 @@ async function sendDirect(req: LLMRequest): Promise<string> {
 
 async function sendAnthropic(req: LLMRequest): Promise<string> {
   const endpoint = req.apiEndpoint || 'https://api.anthropic.com';
+  const model = req.model || 'claude-opus-4-7';
+  const useThinking = supportsExtendedThinking(model);
+
+  const body: any = {
+    model,
+    max_tokens: useThinking ? 16000 : 4096,
+    messages: req.messages.map((m) => ({ role: m.role, content: toAnthropicContent(m) })),
+  };
+
+  body.system = req.systemPrompt;
+  if (useThinking) {
+    body.thinking = { type: 'adaptive' };
+    body.output_config = { effort: 'max' };
+    body.temperature = 1;
+  }
+
   const response = await fetch(`${endpoint}/v1/messages`, {
     method: 'POST',
     headers: {
@@ -110,12 +91,7 @@ async function sendAnthropic(req: LLMRequest): Promise<string> {
       'anthropic-version': '2023-06-01',
       'anthropic-dangerous-direct-browser-access': 'true',
     },
-    body: JSON.stringify({
-      model: req.model || 'claude-sonnet-4-20250514',
-      max_tokens: 4096,
-      system: req.systemPrompt,
-      messages: req.messages.map((m) => ({ role: m.role, content: toAnthropicContent(m) })),
-    }),
+    body: JSON.stringify(body),
   });
 
   if (!response.ok) {
@@ -124,6 +100,14 @@ async function sendAnthropic(req: LLMRequest): Promise<string> {
   }
 
   const data = await response.json();
+
+  // With extended thinking, response contains thinking blocks and text blocks
+  // Extract only the text blocks
+  if (data.content && Array.isArray(data.content)) {
+    const textBlocks = data.content.filter((b: any) => b.type === 'text');
+    return textBlocks.map((b: any) => b.text).join('') || '';
+  }
+
   return data.content?.[0]?.text || '';
 }
 
