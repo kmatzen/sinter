@@ -1,12 +1,13 @@
 import { useState, useRef, useEffect } from 'react';
 import { useChatStore } from '../../store/chatStore';
-import { Send } from 'lucide-react';
+import { Send, RotateCcw } from 'lucide-react';
 
 export function ChatDrawer() {
   const isOpen = useChatStore((s) => s.isOpen);
   const messages = useChatStore((s) => s.messages);
   const isLoading = useChatStore((s) => s.isLoading);
   const sendMessage = useChatStore((s) => s.sendMessage);
+  const retryLast = useChatStore((s) => s.retryLast);
 
   const [input, setInput] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -55,6 +56,20 @@ export function ChatDrawer() {
               </div>
             )}
             <pre className="whitespace-pre-wrap break-words overflow-hidden font-sans">{msg.content}</pre>
+            {msg.parseFailed && (
+              <div className="mt-2 pt-2 flex items-center gap-2" style={{ borderTop: '1px solid var(--border-subtle)' }}>
+                <span className="text-[11px]" style={{ color: 'var(--text-muted)' }}>Could not apply changes to model</span>
+                {i === messages.length - 1 && !isLoading && (
+                  <button
+                    onClick={retryLast}
+                    className="flex items-center gap-1 text-[11px] px-2 py-0.5 rounded"
+                    style={{ background: 'var(--bg-elevated)', color: 'var(--accent)', border: '1px solid var(--border-subtle)' }}
+                  >
+                    <RotateCcw size={10} /> Retry
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         ))}
         {isLoading && messages.length > 0 && messages[messages.length - 1].role === 'assistant' && !messages[messages.length - 1].content && (

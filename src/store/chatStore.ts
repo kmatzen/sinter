@@ -9,6 +9,8 @@ export interface ChatMessage {
   content: string;
   /** Base64 PNG data URLs of viewport renders, attached to user messages */
   images?: string[];
+  /** Set on assistant messages when the response couldn't be parsed into a model action */
+  parseFailed?: boolean;
 }
 
 interface ChatState {
@@ -24,10 +26,28 @@ interface ChatState {
   toggleOpen: () => void;
   setApiConfig: (config: { apiKey?: string; apiEndpoint?: string; model?: string; provider?: 'openai' | 'anthropic' }) => void;
   sendMessage: (content: string) => Promise<void>;
+  retryLast: () => Promise<void>;
   clearMessages: () => void;
 }
 
 const SETTINGS_KEY = 'sinter_llm_settings';
+const MESSAGES_KEY = 'sinter_chat_messages';
+
+function loadMessages(): ChatMessage[] {
+  try {
+    const raw = localStorage.getItem(MESSAGES_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch { /* */ }
+  return [];
+}
+
+function saveMessages(messages: ChatMessage[]) {
+  try {
+    // Strip images to keep localStorage small
+    const stripped = messages.map(m => m.images ? { ...m, images: undefined } : m);
+    localStorage.setItem(MESSAGES_KEY, JSON.stringify(stripped));
+  } catch { /* */ }
+}
 
 function loadSettings(): { apiKey: string; apiEndpoint: string; model: string; provider: 'openai' | 'anthropic' } {
   try {
@@ -54,7 +74,7 @@ function saveSettings(s: { apiKey: string; apiEndpoint: string; model: string; p
 const initialSettings = loadSettings();
 
 export const useChatStore = create<ChatState>((set, get) => ({
-  messages: [],
+  messages: loadMessages(),
   isOpen: false,
   isLoading: false,
 
@@ -64,7 +84,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   provider: initialSettings.provider,
 
   toggleOpen: () => set((s) => ({ isOpen: !s.isOpen })),
-  clearMessages: () => set({ messages: [] }),
+  clearMessages: () => { set({ messages: [] }); saveMessages([]); },
 
   setApiConfig: (config) => {
     set((s) => {
@@ -104,7 +124,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const userMessage: ChatMessage = { role: 'user', content: augmentedContent, images };
     // Add user message + empty assistant placeholder for streaming
     const assistantPlaceholder: ChatMessage = { role: 'assistant', content: '' };
-    set((s) => ({ messages: [...s.messages, userMessage, assistantPlaceholder], isLoading: true }));
+    set((s) => {
+      const msgs = [...s.messages, userMessage, assistantPlaceholder];
+      saveMessages(msgs);
+      return { messages: msgs, isLoading: true };
+    });
 
     try {
       const currentTree = useModelerStore.getState().tree;
@@ -131,13 +155,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
       );
 
       // Ensure the final message content matches the full response
+      const parsed = parseResponse(response);
+      const parseFailed = !parsed && response.length > 0;
       set((s) => {
         const msgs = s.messages.slice();
-        msgs[msgs.length - 1] = { ...msgs[msgs.length - 1], content: response };
+        msgs[msgs.length - 1] = { ...msgs[msgs.length - 1], content: response, parseFailed: parseFailed || undefined };
+        saveMessages(msgs);
         return { messages: msgs, isLoading: false };
       });
 
-      const parsed = parseResponse(response);
       if (parsed) {
         const store = useModelerStore.getState();
         if (parsed.action === 'replace' && parsed.tree) {
@@ -152,16 +178,37 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const msg = `Error: ${err.message}`;
       set((s) => {
         const msgs = s.messages.slice();
-        // If the placeholder is still empty, replace it; otherwise append
         const last = msgs[msgs.length - 1];
         if (last.role === 'assistant' && !last.content) {
           msgs[msgs.length - 1] = { role: 'assistant', content: msg };
         } else {
           msgs.push({ role: 'assistant', content: msg });
         }
+        saveMessages(msgs);
         return { messages: msgs, isLoading: false };
       });
     }
+  },
+
+  retryLast: async () => {
+    const { messages, isLoading } = get();
+    if (isLoading || messages.length < 2) return;
+    // Find the last user message (skip the failed assistant response)
+    const last = messages[messages.length - 1];
+    if (last.role !== 'assistant') return;
+    // Remove the failed assistant message, re-extract the user content
+    const userMsg = messages[messages.length - 2];
+    if (userMsg.role !== 'user') return;
+    // Strip the "[Attached: ...]" prefix to get the original user text
+    const content = userMsg.content.replace(/^\[Attached:[^\]]*\]\n\n/, '');
+    // Remove the last two messages (user + failed assistant)
+    set((s) => {
+      const msgs = s.messages.slice(0, -2);
+      saveMessages(msgs);
+      return { messages: msgs };
+    });
+    // Re-send
+    await get().sendMessage(content);
   },
 }));
 
