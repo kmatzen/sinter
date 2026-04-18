@@ -7,7 +7,7 @@ import type { SDFNode, BBox } from './sdf/types';
 import { evaluateSDF } from './sdf/evaluate';
 import { computeBounds } from './sdf/bounds';
 import { generateSDFFunction } from './sdf/codegen';
-import { marchingCubes } from './sdf/marchingCubes';
+import { dualContour } from './sdf/dualContour';
 import { exportBinarySTL } from './stlExporter';
 import { export3MF } from './exporters';
 import { toSDFNode } from './sdf/convert';
@@ -36,7 +36,7 @@ function evaluateAndMesh(tree: SDFNodeUI | null, resolution = RESOLUTION, _clip?
 
   const grid = evaluateCPU(root, bbox, resolution);
 
-  const mesh = marchingCubes(grid, resolution, bbox, root);
+  const mesh = dualContour(grid, resolution, bbox, root);
 
   return mesh;
 }
