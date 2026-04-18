@@ -21,5 +21,6 @@ export type WorkerResponse =
   | { type: 'mesh'; positions: ArrayBuffer; normals: ArrayBuffer; indices: ArrayBuffer; thickness?: ArrayBuffer }
   | { type: 'sdf'; glsl: string; paramCount: number; paramValues: number[]; textures?: { name: string; width: number; height: number; data: number[] }[]; bbMin: [number, number, number]; bbMax: [number, number, number]; hasWarn?: boolean }
   | { type: 'exportResult'; format: 'stl' | '3mf'; data: ArrayBuffer }
+  | { type: 'progress'; stage: string; percent: number }
   | { type: 'error'; message: string }
   | { type: 'ready' };
