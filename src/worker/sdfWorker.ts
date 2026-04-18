@@ -1,7 +1,7 @@
 /// <reference lib="webworker" />
 declare const self: DedicatedWorkerGlobalScope;
 
-import type { WorkerRequest, ClipPlane } from '../types/geometry';
+import type { WorkerRequest } from '../types/geometry';
 import type { SDFNodeUI } from '../types/operations';
 import type { SDFNode, BBox } from './sdf/types';
 import { evaluateSDF } from './sdf/evaluate';
@@ -13,17 +13,11 @@ import { export3MF } from './exporters';
 import { toSDFNode } from './sdf/convert';
 import { simplifyMesh } from './sdf/simplify';
 
-const RESOLUTION = 192;
-
 self.postMessage({ type: 'ready' });
 
-function evaluateAndMesh(tree: SDFNodeUI | null, resolution = RESOLUTION, _clip?: ClipPlane) {
-  if (!tree) return null;
-  let root = toSDFNode(tree);
-  if (!root) return null;
+type ProgressFn = (stage: string, percent: number) => void;
 
-  // Clipping is handled on the GPU side, not in the SDF
-
+function prepareBBox(root: SDFNode): BBox {
   const bbox = computeBounds(root);
   const margin = Math.max(
     (bbox.max[0] - bbox.min[0]) * 0.1,
@@ -33,21 +27,43 @@ function evaluateAndMesh(tree: SDFNodeUI | null, resolution = RESOLUTION, _clip?
   );
   bbox.min = [bbox.min[0] - margin, bbox.min[1] - margin, bbox.min[2] - margin];
   bbox.max = [bbox.max[0] + margin, bbox.max[1] + margin, bbox.max[2] + margin];
+  return bbox;
+}
 
-  const grid = evaluateCPU(root, bbox, resolution);
+function evaluateAndMeshWithProgress(tree: SDFNodeUI | null, resolution: number, progress: ProgressFn) {
+  if (!tree) return null;
+  let root = toSDFNode(tree);
+  if (!root) return null;
 
+  const bbox = prepareBBox(root);
+
+  // Grid evaluation with progress
+  progress('Evaluating SDF grid', 0);
+  const grid = evaluateCPUWithProgress(root, bbox, resolution, (pct) => {
+    progress('Evaluating SDF grid', pct);
+  });
+
+  // Dual contouring
+  progress('Generating mesh', 60);
   const mesh = dualContour(grid, resolution, bbox, root);
 
   return mesh;
 }
 
-function evaluateCPU(root: SDFNode, bbox: BBox, res: number): Float32Array {
+function evaluateCPUWithProgress(root: SDFNode, bbox: BBox, res: number, onProgress: (pct: number) => void): Float32Array {
   const grid = new Float32Array(res * res * res);
   const dx = (bbox.max[0] - bbox.min[0]) / res;
   const dy = (bbox.max[1] - bbox.min[1]) / res;
   const dz = (bbox.max[2] - bbox.min[2]) / res;
 
+  let lastReport = 0;
   for (let z = 0; z < res; z++) {
+    // Report progress every ~5% (grid eval is 0-60% of total)
+    const pct = (z / res) * 60;
+    if (pct - lastReport >= 3) {
+      onProgress(pct);
+      lastReport = pct;
+    }
     for (let y = 0; y < res; y++) {
       for (let x = 0; x < res; x++) {
         grid[z * res * res + y * res + x] = evaluateSDF(root, [
@@ -76,33 +92,37 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
           self.postMessage({ type: 'sdf', glsl: '', paramCount: 0, paramValues: [], bbMin: [0,0,0], bbMax: [0,0,0] });
           return;
         }
-        const bbox = computeBounds(root);
-        const margin = Math.max(
-          (bbox.max[0] - bbox.min[0]) * 0.1,
-          (bbox.max[1] - bbox.min[1]) * 0.1,
-          (bbox.max[2] - bbox.min[2]) * 0.1,
-          1,
-        );
-        const bbMin: [number, number, number] = [bbox.min[0] - margin, bbox.min[1] - margin, bbox.min[2] - margin];
-        const bbMax: [number, number, number] = [bbox.max[0] + margin, bbox.max[1] + margin, bbox.max[2] + margin];
+        const bbox = prepareBBox(root);
+        const bbMin: [number, number, number] = [...bbox.min];
+        const bbMax: [number, number, number] = [...bbox.max];
         const compiled = generateSDFFunction(root);
         self.postMessage({ type: 'sdf', glsl: compiled.glsl, paramCount: compiled.paramCount, paramValues: compiled.paramValues, textures: compiled.textures, bbMin, bbMax });
         break;
       }
 
       case 'exportSTL': {
-        const mesh = evaluateAndMesh(req.tree, 256);
+        const progress: ProgressFn = (stage, percent) => {
+          self.postMessage({ type: 'progress', stage, percent });
+        };
+        const mesh = evaluateAndMeshWithProgress(req.tree, 256, progress);
         if (!mesh) { self.postMessage({ type: 'error', message: 'No geometry to export' }); return; }
+        progress('Simplifying mesh', 70);
         const simplified = simplifyMesh(mesh, 0.5);
+        progress('Encoding STL', 90);
         const data = exportBinarySTL(simplified);
         self.postMessage({ type: 'exportResult', format: 'stl' as const, data }, [data]);
         break;
       }
 
       case 'export3MF': {
-        const mesh = evaluateAndMesh(req.tree, 256);
+        const progress: ProgressFn = (stage, percent) => {
+          self.postMessage({ type: 'progress', stage, percent });
+        };
+        const mesh = evaluateAndMeshWithProgress(req.tree, 256, progress);
         if (!mesh) { self.postMessage({ type: 'error', message: 'No geometry to export' }); return; }
+        progress('Simplifying mesh', 70);
         const simplified = simplifyMesh(mesh, 0.5);
+        progress('Encoding 3MF', 90);
         const data = export3MF(simplified);
         self.postMessage({ type: 'exportResult', format: '3mf' as const, data }, [data]);
         break;

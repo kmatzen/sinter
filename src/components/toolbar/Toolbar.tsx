@@ -37,6 +37,7 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
   const [showOverflow, setShowOverflow] = useState(false);
   const [avatarFailed, setAvatarFailed] = useState(false);
   const [exporting, setExporting] = useState<string | null>(null);
+  const [exportProgress, setExportProgress] = useState<{ stage: string; percent: number } | null>(null);
   const [exportPreview, setExportPreview] = useState<{ blob: Blob; name: string; triangles: number; size: number } | null>(null);
   const [dirty, setDirty] = useState(false);
   const overflowRef = useRef<HTMLDivElement>(null);
@@ -59,25 +60,30 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
     return () => document.removeEventListener('mousedown', handler);
   }, [showOverflow]);
 
+  const onProgress = (stage: string, percent: number) => setExportProgress({ stage, percent });
+
   const handleExportSTL = async () => {
     if (!tree || exporting) return;
     setExporting('STL');
+    setExportProgress({ stage: 'Starting', percent: 0 });
     try {
-      const blob = await workerBridge.exportSTL(tree);
+      const blob = await workerBridge.exportSTL(tree, onProgress);
       const triangles = new DataView(await blob.slice(80, 84).arrayBuffer()).getUint32(0, true);
       setExportPreview({ blob, name: `${projectName}.stl`, triangles, size: blob.size });
     } catch (err: any) {
       console.error('Export STL failed:', err);
     } finally {
       setExporting(null);
+      setExportProgress(null);
     }
   };
 
   const handleExport3MF = async () => {
     if (!tree || exporting) return;
     setExporting('3MF');
+    setExportProgress({ stage: 'Starting', percent: 0 });
     try {
-      const blob = await workerBridge.export3MF(tree);
+      const blob = await workerBridge.export3MF(tree, onProgress);
       // 3MF is a zip — estimate triangles from the uncompressed mesh size
       // STL: 50 bytes/tri. 3MF XML is ~120 bytes/tri on average.
       const triangles = Math.round(blob.size / 120);
@@ -86,6 +92,7 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
       console.error('Export 3MF failed:', err);
     } finally {
       setExporting(null);
+      setExportProgress(null);
     }
   };
 
@@ -147,8 +154,8 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
 
       {/* Desktop-only: export buttons */}
       <div className="hidden md:contents">
-        <IconBtn icon={<FileDown size={14} />} label={exporting === 'STL' ? 'Exporting...' : 'STL'} title="Export STL" onClick={handleExportSTL} disabled={evaluating || !tree || !!exporting} />
-        <IconBtn icon={<FileDown size={14} />} label={exporting === '3MF' ? 'Exporting...' : '3MF'} title="Export 3MF" onClick={handleExport3MF} disabled={evaluating || !tree || !!exporting} />
+        <IconBtn icon={<FileDown size={14} />} label={exporting === 'STL' && exportProgress ? `${exportProgress.percent}%` : 'STL'} title="Export STL" onClick={handleExportSTL} disabled={evaluating || !tree || !!exporting} />
+        <IconBtn icon={<FileDown size={14} />} label={exporting === '3MF' && exportProgress ? `${exportProgress.percent}%` : '3MF'} title="Export 3MF" onClick={handleExport3MF} disabled={evaluating || !tree || !!exporting} />
         <div className="w-px h-4 mx-1" style={{ background: 'var(--border-default)' }} />
       </div>
 
@@ -181,8 +188,8 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
             <OverflowItem label="Undo" onClick={() => { undo(); setShowOverflow(false); }} />
             <OverflowItem label="Redo" onClick={() => { redo(); setShowOverflow(false); }} />
             <OverflowDivider />
-            <OverflowItem label={exporting === 'STL' ? 'Exporting...' : 'Export STL'} onClick={() => { handleExportSTL(); setShowOverflow(false); }} disabled={evaluating || !tree || !!exporting} />
-            <OverflowItem label={exporting === '3MF' ? 'Exporting...' : 'Export 3MF'} onClick={() => { handleExport3MF(); setShowOverflow(false); }} disabled={evaluating || !tree || !!exporting} />
+            <OverflowItem label={exporting === 'STL' && exportProgress ? `Exporting ${exportProgress.percent}%` : 'Export STL'} onClick={() => { handleExportSTL(); setShowOverflow(false); }} disabled={evaluating || !tree || !!exporting} />
+            <OverflowItem label={exporting === '3MF' && exportProgress ? `Exporting ${exportProgress.percent}%` : 'Export 3MF'} onClick={() => { handleExport3MF(); setShowOverflow(false); }} disabled={evaluating || !tree || !!exporting} />
             {projectId && (
               <>
                 <OverflowDivider />
@@ -238,6 +245,15 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
         )}
       </div>
     </div>
+
+    {exportProgress && (
+      <div className="h-1 w-full shrink-0" style={{ background: 'var(--bg-elevated)' }}>
+        <div
+          className="h-full transition-all duration-200"
+          style={{ width: `${Math.round(exportProgress.percent)}%`, background: 'var(--accent)' }}
+        />
+      </div>
+    )}
 
     {saveError && (
       <div className="absolute top-12 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 px-4 py-2 rounded-lg shadow-lg text-sm"
