@@ -96,6 +96,19 @@ describe('simplifyMesh', () => {
     expect(result.indices.length).toBe(mesh.indices.length);
   });
 
+  it('produces no duplicate faces', () => {
+    const mesh = meshFromSDF({ kind: 'sphere', radius: 5 }, 24);
+    const simplified = simplifyMesh(mesh, 0.3);
+
+    const faces = new Set<string>();
+    for (let t = 0; t < simplified.indices.length; t += 3) {
+      const tri = [simplified.indices[t], simplified.indices[t + 1], simplified.indices[t + 2]];
+      const key = [...tri].sort((a, b) => a - b).join(',');
+      expect(faces.has(key)).toBe(false);
+      faces.add(key);
+    }
+  });
+
   it('preserves sharp features on a box', () => {
     const box: SDFNode = { kind: 'box', size: [10, 10, 10] };
     const mesh = meshFromSDF(box, 24);

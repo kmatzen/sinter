@@ -300,10 +300,18 @@ export function simplifyMesh(mesh: MeshResult, targetRatio: number): MeshResult 
     return mapped;
   }
 
+  // Deduplicate: multiple collapses can make distinct triangles resolve
+  // to the same three vertices, producing overlapping faces.
+  const emittedFaces = new Set<string>();
   for (let t = 0; t < numTris; t++) {
     if (!triAlive[t]) continue;
     const v0 = find(triV[t * 3]), v1 = find(triV[t * 3 + 1]), v2 = find(triV[t * 3 + 2]);
     if (v0 === v1 || v1 === v2 || v0 === v2) continue;
+    // Canonical face key: sorted vertex representatives
+    const sorted = [v0, v1, v2].sort((a, b) => a - b);
+    const faceKey = `${sorted[0]},${sorted[1]},${sorted[2]}`;
+    if (emittedFaces.has(faceKey)) continue;
+    emittedFaces.add(faceKey);
     outIdx.push(mapVert(v0), mapVert(v1), mapVert(v2));
   }
 
