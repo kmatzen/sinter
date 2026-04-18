@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { simplifyMesh } from './simplify';
+import { simplifyMesh, splitCreaseEdges } from './simplify';
 import { marchingCubes } from './marchingCubes';
 import { evaluateSDF } from './evaluate';
 import type { SDFNode, BBox } from './types';
@@ -128,6 +128,67 @@ describe('simplifyMesh', () => {
     if (faceCount > 0) {
       // Average error on the face should be small
       expect(faceErr / faceCount).toBeLessThan(0.5);
+    }
+  });
+});
+
+describe('splitCreaseEdges', () => {
+  it('splits vertices at sharp edges on a box', () => {
+    const box: SDFNode = { kind: 'box', size: [10, 10, 10] };
+    const mesh = meshFromSDF(box, 16);
+
+    const before = mesh.positions.length / 3;
+    const split = splitCreaseEdges(mesh);
+    const after = split.positions.length / 3;
+
+    // A box has sharp 90° edges → vertices on edges should be split.
+    // More vertices after splitting than before.
+    expect(after).toBeGreaterThan(before);
+    // Triangle count unchanged
+    expect(split.indices.length).toBe(mesh.indices.length);
+  });
+
+  it('does not split smooth surfaces', () => {
+    const sphere: SDFNode = { kind: 'sphere', radius: 5 };
+    const mesh = meshFromSDF(sphere, 16);
+
+    const before = mesh.positions.length / 3;
+    const split = splitCreaseEdges(mesh);
+    const after = split.positions.length / 3;
+
+    // A sphere has no sharp edges → vertex count should stay the same
+    expect(after).toBe(before);
+  });
+
+  it('face normals on box faces are axis-aligned after splitting', () => {
+    const box: SDFNode = { kind: 'box', size: [10, 10, 10] };
+    const mesh = meshFromSDF(box, 24);
+    const split = splitCreaseEdges(mesh);
+
+    // Vertices on the +X face (x ≈ 5, well inside the face) should have
+    // normals tightly aligned with the X axis after crease splitting.
+    let faceCount = 0;
+    let alignErr = 0;
+    for (let i = 0; i < split.positions.length; i += 3) {
+      const px = split.positions[i], py = split.positions[i + 1], pz = split.positions[i + 2];
+      if (Math.abs(px - 5) < 0.5 && Math.abs(py) < 3 && Math.abs(pz) < 3) {
+        alignErr += Math.abs(1 - Math.abs(split.normals[i]));
+        faceCount++;
+      }
+    }
+    if (faceCount > 0) {
+      expect(alignErr / faceCount).toBeLessThan(0.01);
+    }
+  });
+
+  it('normals are unit length after splitting', () => {
+    const box: SDFNode = { kind: 'box', size: [10, 10, 10] };
+    const mesh = meshFromSDF(box, 16);
+    const split = splitCreaseEdges(mesh);
+
+    for (let i = 0; i < split.normals.length; i += 3) {
+      const len = Math.sqrt(split.normals[i] ** 2 + split.normals[i + 1] ** 2 + split.normals[i + 2] ** 2);
+      expect(len).toBeCloseTo(1, 1);
     }
   });
 });

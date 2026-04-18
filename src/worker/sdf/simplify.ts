@@ -413,3 +413,196 @@ export function simplifyMesh(mesh: MeshResult, targetRatio: number): MeshResult 
     indices: new Uint32Array(outIdx),
   };
 }
+
+/**
+ * Split vertices along sharp edges so each face gets its own normal.
+ *
+ * For each edge shared by two triangles whose face normals diverge beyond
+ * `creaseAngle`, the shared vertices on that edge are duplicated so the
+ * two faces have independent normals.  Smooth regions keep shared vertices
+ * with area-weighted averaged normals.
+ *
+ * @param mesh        Input mesh (positions may be shared across faces)
+ * @param creaseAngle Angle threshold in radians (default ~40°). Edges with
+ *                    adjacent face normals diverging more than this get split.
+ */
+export function splitCreaseEdges(mesh: MeshResult, creaseAngle = 0.7): MeshResult {
+  const { positions, indices } = mesh;
+  const numTris = indices.length / 3;
+  const cosThresh = Math.cos(creaseAngle);
+
+  // Compute face normals (unnormalized — area-weighted)
+  const faceNx = new Float32Array(numTris);
+  const faceNy = new Float32Array(numTris);
+  const faceNz = new Float32Array(numTris);
+  for (let t = 0; t < numTris; t++) {
+    const i0 = indices[t * 3], i1 = indices[t * 3 + 1], i2 = indices[t * 3 + 2];
+    const e1x = positions[i1 * 3] - positions[i0 * 3];
+    const e1y = positions[i1 * 3 + 1] - positions[i0 * 3 + 1];
+    const e1z = positions[i1 * 3 + 2] - positions[i0 * 3 + 2];
+    const e2x = positions[i2 * 3] - positions[i0 * 3];
+    const e2y = positions[i2 * 3 + 1] - positions[i0 * 3 + 1];
+    const e2z = positions[i2 * 3 + 2] - positions[i0 * 3 + 2];
+    const nx = e1y * e2z - e1z * e2y;
+    const ny = e1z * e2x - e1x * e2z;
+    const nz = e1x * e2y - e1y * e2x;
+    const len = Math.sqrt(nx * nx + ny * ny + nz * nz) || 1;
+    faceNx[t] = nx / len; faceNy[t] = ny / len; faceNz[t] = nz / len;
+  }
+
+  // Build edge → [tri0, tri1] adjacency map
+  const edgeToTris = new Map<string, number[]>();
+  for (let t = 0; t < numTris; t++) {
+    for (let k = 0; k < 3; k++) {
+      const a = indices[t * 3 + k], b = indices[t * 3 + (k + 1) % 3];
+      const ek = a < b ? `${a},${b}` : `${b},${a}`;
+      const list = edgeToTris.get(ek);
+      if (list) list.push(t);
+      else edgeToTris.set(ek, [t]);
+    }
+  }
+
+  // Find crease edges: edges where adjacent face normals diverge
+  const creaseEdges = new Set<string>();
+  for (const [ek, tris] of edgeToTris) {
+    if (tris.length !== 2) { creaseEdges.add(ek); continue; } // boundary = crease
+    const [t0, t1] = tris;
+    const dot = faceNx[t0] * faceNx[t1] + faceNy[t0] * faceNy[t1] + faceNz[t0] * faceNz[t1];
+    if (dot < cosThresh) creaseEdges.add(ek);
+  }
+
+  if (creaseEdges.size === 0) {
+    // No creases — just return with area-weighted normals
+    return { ...mesh, normals: computeSmoothedNormals(positions, indices, numTris, faceNx, faceNy, faceNz) };
+  }
+
+  // Group each vertex's adjacent faces into smooth groups separated by creases.
+  // Each smooth group gets its own copy of the vertex with an averaged normal.
+  const numVerts = positions.length / 3;
+
+  // vertex → list of adjacent triangle indices
+  const vertFaces: number[][] = new Array(numVerts);
+  for (let i = 0; i < numVerts; i++) vertFaces[i] = [];
+  for (let t = 0; t < numTris; t++) {
+    vertFaces[indices[t * 3]].push(t);
+    vertFaces[indices[t * 3 + 1]].push(t);
+    vertFaces[indices[t * 3 + 2]].push(t);
+  }
+
+  // For each vertex, flood-fill its adjacent faces into smooth groups.
+  // Two faces are in the same group if the edge between them is not a crease.
+  const outPos: number[] = [];
+  const outNorm: number[] = [];
+  const newIndices = new Uint32Array(indices.length);
+  let newVertCount = 0;
+
+  // Per-triangle per-corner: new vertex index
+  const triCornerVert = new Int32Array(numTris * 3).fill(-1);
+
+  for (let v = 0; v < numVerts; v++) {
+    const faces = vertFaces[v];
+    if (faces.length === 0) continue;
+
+    const visited = new Set<number>();
+    for (const startFace of faces) {
+      if (visited.has(startFace)) continue;
+
+      // Flood fill from startFace through non-crease edges that share vertex v
+      const group: number[] = [];
+      const queue = [startFace];
+      visited.add(startFace);
+      while (queue.length > 0) {
+        const f = queue.pop()!;
+        group.push(f);
+        // Find neighbors of f that share vertex v and a non-crease edge with f
+        for (const g of faces) {
+          if (visited.has(g)) continue;
+          // Check if f and g share an edge through v
+          const sharedEdge = findSharedEdge(indices, f, g, v);
+          if (sharedEdge === null) continue;
+          if (!creaseEdges.has(sharedEdge)) {
+            visited.add(g);
+            queue.push(g);
+          }
+        }
+      }
+
+      // Create a new vertex for this smooth group with averaged normal
+      const vi = newVertCount++;
+      outPos.push(positions[v * 3], positions[v * 3 + 1], positions[v * 3 + 2]);
+
+      // Average face normals in this group (area-weighted since faceN is normalized,
+      // but face area weighting was already baked into the unnormalized cross product)
+      let nx = 0, ny = 0, nz = 0;
+      for (const f of group) {
+        nx += faceNx[f]; ny += faceNy[f]; nz += faceNz[f];
+      }
+      const len = Math.sqrt(nx * nx + ny * ny + nz * nz);
+      if (len > 1e-10) {
+        outNorm.push(nx / len, ny / len, nz / len);
+      } else {
+        outNorm.push(0, 1, 0); // degenerate — arbitrary up vector
+      }
+
+      // Record which corner of which triangle maps to this new vertex
+      for (const f of group) {
+        for (let k = 0; k < 3; k++) {
+          if (indices[f * 3 + k] === v) {
+            triCornerVert[f * 3 + k] = vi;
+          }
+        }
+      }
+    }
+  }
+
+  // Build new index buffer
+  for (let t = 0; t < numTris; t++) {
+    newIndices[t * 3] = triCornerVert[t * 3];
+    newIndices[t * 3 + 1] = triCornerVert[t * 3 + 1];
+    newIndices[t * 3 + 2] = triCornerVert[t * 3 + 2];
+  }
+
+  return {
+    positions: new Float32Array(outPos),
+    normals: new Float32Array(outNorm),
+    indices: newIndices,
+  };
+}
+
+/** Find the shared edge key between two triangles that passes through vertex v, or null */
+function findSharedEdge(indices: Uint32Array, f: number, g: number, v: number): string | null {
+  // Get the other two vertices of f that are connected to v via an edge
+  const fVerts: number[] = [];
+  for (let k = 0; k < 3; k++) {
+    const u = indices[f * 3 + k];
+    if (u !== v) fVerts.push(u);
+  }
+  // Check if any of those form an edge that also appears in g
+  const gSet = new Set([indices[g * 3], indices[g * 3 + 1], indices[g * 3 + 2]]);
+  for (const u of fVerts) {
+    if (gSet.has(u)) {
+      return v < u ? `${v},${u}` : `${u},${v}`;
+    }
+  }
+  return null;
+}
+
+function computeSmoothedNormals(
+  positions: Float32Array, indices: Uint32Array, numTris: number,
+  faceNx: Float32Array, faceNy: Float32Array, faceNz: Float32Array,
+): Float32Array {
+  const normals = new Float32Array(positions.length).fill(0);
+  for (let t = 0; t < numTris; t++) {
+    for (let k = 0; k < 3; k++) {
+      const vi = indices[t * 3 + k];
+      normals[vi * 3] += faceNx[t];
+      normals[vi * 3 + 1] += faceNy[t];
+      normals[vi * 3 + 2] += faceNz[t];
+    }
+  }
+  for (let i = 0; i < normals.length; i += 3) {
+    const len = Math.sqrt(normals[i] ** 2 + normals[i + 1] ** 2 + normals[i + 2] ** 2) || 1;
+    normals[i] /= len; normals[i + 1] /= len; normals[i + 2] /= len;
+  }
+  return normals;
+}
