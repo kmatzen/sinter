@@ -222,6 +222,71 @@ export function simplifyMesh(mesh: MeshResult, targetRatio: number): MeshResult 
     }
   }
 
+  /** Compute triangle normal (unnormalized) */
+  function triNormal(v0: number, v1: number, v2: number): [number, number, number] {
+    const e1x = vx[v1] - vx[v0], e1y = vy[v1] - vy[v0], e1z = vz[v1] - vz[v0];
+    const e2x = vx[v2] - vx[v0], e2y = vy[v2] - vy[v0], e2z = vz[v2] - vz[v0];
+    return [e1y * e2z - e1z * e2y, e1z * e2x - e1x * e2z, e1x * e2y - e1y * e2x];
+  }
+
+  /**
+   * Check if collapsing edge (ra, rb) to position pos would flip any
+   * adjacent triangle's normal or create degenerate slivers.
+   * Returns true if the collapse is safe.
+   */
+  function isCollapseValid(ra: number, rb: number, pos: [number, number, number]): boolean {
+    const MIN_QUALITY = 0.05; // minimum triangle quality (0 = degenerate, 1 = equilateral)
+
+    // Check all triangles that reference ra or rb
+    for (const src of [vertTris[ra], vertTris[rb]]) {
+      for (const t of src) {
+        if (!triAlive[t]) continue;
+
+        const i0 = find(triV[t * 3]), i1 = find(triV[t * 3 + 1]), i2 = find(triV[t * 3 + 2]);
+
+        // Triangle will be degenerate after collapse (shared edge) — that's fine, it'll be removed
+        const touches = (i0 === ra || i0 === rb ? 1 : 0) + (i1 === ra || i1 === rb ? 1 : 0) + (i2 === ra || i2 === rb ? 1 : 0);
+        if (touches >= 2) continue;
+
+        // Compute normal before collapse
+        const nBefore = triNormal(i0, i1, i2);
+        const lenBefore = Math.sqrt(nBefore[0] ** 2 + nBefore[1] ** 2 + nBefore[2] ** 2);
+        if (lenBefore < 1e-20) continue; // already degenerate
+
+        // Simulate the collapse: replace ra/rb with pos
+        const sv0 = (i0 === ra || i0 === rb) ? pos : [vx[i0], vy[i0], vz[i0]] as [number, number, number];
+        const sv1 = (i1 === ra || i1 === rb) ? pos : [vx[i1], vy[i1], vz[i1]] as [number, number, number];
+        const sv2 = (i2 === ra || i2 === rb) ? pos : [vx[i2], vy[i2], vz[i2]] as [number, number, number];
+
+        const ae1x = sv1[0] - sv0[0], ae1y = sv1[1] - sv0[1], ae1z = sv1[2] - sv0[2];
+        const ae2x = sv2[0] - sv0[0], ae2y = sv2[1] - sv0[1], ae2z = sv2[2] - sv0[2];
+        const nAfter: [number, number, number] = [
+          ae1y * ae2z - ae1z * ae2y, ae1z * ae2x - ae1x * ae2z, ae1x * ae2y - ae1y * ae2x,
+        ];
+        const lenAfter = Math.sqrt(nAfter[0] ** 2 + nAfter[1] ** 2 + nAfter[2] ** 2);
+
+        // Reject if the triangle would flip (normal reverses direction)
+        const dot = nBefore[0] * nAfter[0] + nBefore[1] * nAfter[1] + nBefore[2] * nAfter[2];
+        if (dot < 0) return false;
+
+        // Reject if the triangle becomes a sliver (very thin)
+        // Quality = 2 * area / (max_edge_length^2 * sqrt(3)) — simplified check:
+        // Use area / perimeter^2 as a proxy
+        if (lenAfter < 1e-20) return false; // degenerate
+        const l0 = Math.sqrt(ae1x ** 2 + ae1y ** 2 + ae1z ** 2);
+        const l1 = Math.sqrt(ae2x ** 2 + ae2y ** 2 + ae2z ** 2);
+        const ae3x = sv2[0] - sv1[0], ae3y = sv2[1] - sv1[1], ae3z = sv2[2] - sv1[2];
+        const l2 = Math.sqrt(ae3x ** 2 + ae3y ** 2 + ae3z ** 2);
+        const maxEdge = Math.max(l0, l1, l2);
+        if (maxEdge < 1e-20) return false;
+        // Aspect ratio: area / maxEdge^2.  For equilateral triangle this is ~0.43
+        const quality = (lenAfter * 0.5) / (maxEdge * maxEdge);
+        if (quality < MIN_QUALITY) return false;
+      }
+    }
+    return true;
+  }
+
   // Collapse loop
   while (aliveTris > targetTris && heap.size > 0) {
     const top = heap.pop()!;
@@ -234,6 +299,9 @@ export function simplifyMesh(mesh: MeshResult, targetRatio: number): MeshResult 
     if (currentGen !== undefined && top.gen < currentGen) continue;
 
     const { pos } = computeEdgeCost(ra, rb);
+
+    // Reject collapses that would flip triangles or create slivers
+    if (!isCollapseValid(ra, rb, pos)) continue;
 
     // Perform collapse: merge rb into ra
     rep[rb] = ra;
