@@ -150,16 +150,17 @@ describe('Modeler editing scenarios', () => {
       expect(getState().tree).toBeNull();
     });
 
-    it('deleting a child of a boolean leaves remaining child', () => {
+    it('deleting a child of a boolean preserves slot order', () => {
       getState().addPrimitive('box');
       getState().addPrimitive('sphere');
       // tree is union(box, sphere)
-      const sphereId = getState().tree!.children[1].id;
-      getState().removeNode(sphereId);
-      // Union with 1 child should have only the box left
-      // removeFromTree filters out null children
+      const boxId = getState().tree!.children[0].id;
+      getState().removeNode(boxId);
+      // Slot order preserved: empty placeholder at index 0, sphere at index 1
       expect(getState().tree!.kind).toBe('union');
-      expect(getState().tree!.children).toHaveLength(1);
+      expect(getState().tree!.children).toHaveLength(2);
+      expect(getState().tree!.children[0].kind).toBe('_empty');
+      expect(getState().tree!.children[1].kind).toBe('sphere');
     });
 
     it('deleting a modifier promotes its child', () => {

@@ -85,7 +85,7 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
         const bbMin: [number, number, number] = [bbox.min[0] - margin, bbox.min[1] - margin, bbox.min[2] - margin];
         const bbMax: [number, number, number] = [bbox.max[0] + margin, bbox.max[1] + margin, bbox.max[2] + margin];
         const compiled = generateSDFFunction(root);
-        self.postMessage({ type: 'sdf', glsl: compiled.glsl, paramCount: compiled.paramCount, paramValues: compiled.paramValues, textures: compiled.textures, bbMin, bbMax });
+        self.postMessage({ type: 'sdf', glsl: compiled.glsl, paramCount: compiled.paramCount, paramValues: compiled.paramValues, textures: compiled.textures, bbMin, bbMax, hasWarn: compiled.hasWarn });
         break;
       }
 

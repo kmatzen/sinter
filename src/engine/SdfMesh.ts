@@ -33,7 +33,7 @@ bool isClipped(vec3 p) {
 }
 `;
 
-function buildFrag(sdfFunc: string, paramCount: number): string {
+function buildFrag(sdfFunc: string, paramCount: number, hasWarn: boolean): string {
   return `
 precision highp float;
 uniform float u_p[${paramCount}];
@@ -102,6 +102,9 @@ void main() {
 
   vec3 normal = calcNormal(p);
   vec3 baseColor = vec3(0.45, 0.56, 0.82);
+${hasWarn ? `  float warnDist = abs(sdfWarn(p));
+  float warnEps = length(u_bbMax - u_bbMin) * 0.002;
+  if (warnDist < warnEps) baseColor = vec3(0.85, 0.45, 0.25);` : ''}
   vec3 viewDir = normalize(vViewDir);
   vec3 lightDir = normalize(u_lightDir);
 
@@ -181,7 +184,7 @@ export class SdfMesh {
     }
   }
 
-  private rebuild(sdf: { glsl: string; paramCount: number; paramValues: number[]; textures: any[]; bbMin: [number,number,number]; bbMax: [number,number,number] }) {
+  private rebuild(sdf: { glsl: string; paramCount: number; paramValues: number[]; textures: any[]; bbMin: [number,number,number]; bbMax: [number,number,number]; hasWarn: boolean }) {
     if (this.mesh) this.engine.scene.remove(this.mesh);
 
     const initialParams = new Float32Array(sdf.paramCount);
@@ -206,7 +209,7 @@ export class SdfMesh {
 
     this.material = new THREE.ShaderMaterial({
       vertexShader: VERT,
-      fragmentShader: buildFrag(sdf.glsl, sdf.paramCount),
+      fragmentShader: buildFrag(sdf.glsl, sdf.paramCount, sdf.hasWarn),
       uniforms: {
         u_p: { value: initialParams },
         u_cameraPos: { value: new THREE.Vector3() },

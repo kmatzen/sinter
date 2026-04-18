@@ -177,6 +177,8 @@ export function computeBounds(node: SDFNode): BBox {
 
       return { min: rMin, max: rMax };
     }
+    case '_far':
+      return { min: [0, 0, 0], max: [0, 0, 0] };
   }
 }
 

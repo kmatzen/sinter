@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { nodeSummary, expectedChildren, isPrimitive, isBoolean, NODE_DEFAULTS, NODE_LABELS } from './operations';
+import { nodeSummary, expectedChildren, isPrimitive, isBoolean, incompleteNodeIds, NODE_DEFAULTS, NODE_LABELS } from './operations';
 import type { SDFNodeUI } from './operations';
 
 describe('operations types', () => {
@@ -66,5 +66,45 @@ describe('operations types', () => {
 
     const smoothUnion: SDFNodeUI = { id: '4', kind: 'union', label: 'Union', params: { smooth: 3 }, children: [], enabled: true };
     expect(nodeSummary(smoothUnion)).toContain('3');
+  });
+
+  it('incompleteNodeIds finds nodes missing children', () => {
+    const box: SDFNodeUI = { id: 'b', kind: 'box', label: 'Box', params: { width: 10, height: 20, depth: 30 }, children: [], enabled: true };
+    // A complete union
+    const fullUnion: SDFNodeUI = { id: 'u1', kind: 'union', label: 'Union', params: { smooth: 0 }, children: [
+      { id: 'b1', kind: 'box', label: 'Box', params: { width: 10, height: 20, depth: 30 }, children: [], enabled: true },
+      { id: 'b2', kind: 'sphere', label: 'Sphere', params: { radius: 5 }, children: [], enabled: true },
+    ], enabled: true };
+    expect(incompleteNodeIds(fullUnion).size).toBe(0);
+
+    // A union missing one child
+    const partialUnion: SDFNodeUI = { id: 'u2', kind: 'union', label: 'Union', params: { smooth: 0 }, children: [box], enabled: true };
+    const ids = incompleteNodeIds(partialUnion);
+    expect(ids.has('u2')).toBe(true);
+    expect(ids.size).toBe(1);
+
+    // A modifier with no child
+    const emptyShell: SDFNodeUI = { id: 's1', kind: 'shell', label: 'Shell', params: { thickness: 2 }, children: [], enabled: true };
+    expect(incompleteNodeIds(emptyShell).has('s1')).toBe(true);
+
+    // Disabled nodes are not flagged
+    const disabledUnion: SDFNodeUI = { id: 'u3', kind: 'union', label: 'Union', params: { smooth: 0 }, children: [], enabled: false };
+    expect(incompleteNodeIds(disabledUnion).size).toBe(0);
+
+    // Null tree returns empty set
+    expect(incompleteNodeIds(null).size).toBe(0);
+
+    // Ancestors up to root are also flagged
+    const deepIncomplete: SDFNodeUI = {
+      id: 'root', kind: 'subtract', label: 'Subtract', params: { smooth: 0 }, enabled: true,
+      children: [
+        { id: 'shell', kind: 'shell', label: 'Shell', params: { thickness: 2 }, enabled: true, children: [] },
+        { id: 'b3', kind: 'box', label: 'Box', params: { width: 10, height: 20, depth: 30 }, children: [], enabled: true },
+      ],
+    };
+    const deepIds = incompleteNodeIds(deepIncomplete);
+    expect(deepIds.has('shell')).toBe(true);  // directly incomplete
+    expect(deepIds.has('root')).toBe(true);   // ancestor propagation
+    expect(deepIds.has('b3')).toBe(false);    // valid sibling not flagged
   });
 });

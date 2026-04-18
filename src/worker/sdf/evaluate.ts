@@ -236,6 +236,8 @@ export function evaluateSDF(node: SDFNode, p: Vec3): number {
       const inside = Math.min(Math.max(qx, qy, qz), 0);
       return outside + inside;
     }
+    case '_far':
+      return 1e10;
   }
 }
 

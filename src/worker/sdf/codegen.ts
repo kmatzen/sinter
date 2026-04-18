@@ -254,6 +254,9 @@ function emitNode(node: SDFNode, pVar: string, lines: string[]): string {
       lines.push(`float ${result} = length(max(qt_${result}, 0.0)) + min(max(qt_${result}.x, max(qt_${result}.y, qt_${result}.z)), 0.0);`);
       return result;
     }
+    case '_far':
+      lines.push(`float ${result} = 1e10;`);
+      return result;
   }
 }
 
@@ -269,6 +272,48 @@ export interface SDFCompileResult {
   paramCount: number;
   paramValues: number[];
   textures: TextureData[];
+  hasWarn: boolean;
+}
+
+/** Check if any node in the subtree has warn=true */
+function hasWarnDescendant(node: SDFNode): boolean {
+  if (node.warn) return true;
+  if ('a' in node && 'b' in node) return hasWarnDescendant(node.a) || hasWarnDescendant(node.b);
+  if ('child' in node) return hasWarnDescendant(node.child);
+  return false;
+}
+
+/** Sentinel node that emits 1e10 (no surface) — used to blank non-warned branches */
+const FAR_NODE: SDFNode = { kind: '_far' };
+
+/**
+ * Build a filtered copy of the tree that keeps only the path to warned
+ * nodes.  Non-warned leaf branches are replaced with FAR_NODE so the
+ * normal emitNode produces 1e10 there, while transforms/modifiers along
+ * the path to warned geometry are preserved.
+ */
+function filterWarnTree(node: SDFNode): SDFNode {
+  if (node.warn) return node; // whole subtree is warned — keep as-is
+
+  if ('a' in node && 'b' in node) {
+    const aHas = hasWarnDescendant(node.a);
+    const bHas = hasWarnDescendant(node.b);
+    if (!aHas && !bHas) return FAR_NODE;
+    // Replace the full boolean with a union of the filtered branches
+    // so that both warned sides contribute without the boolean's
+    // subtract/intersect semantics removing warned surfaces.
+    const fa = aHas ? filterWarnTree(node.a) : FAR_NODE;
+    const fb = bHas ? filterWarnTree(node.b) : FAR_NODE;
+    return { kind: 'union', a: fa, b: fb, k: 0 };
+  }
+
+  if ('child' in node) {
+    if (!hasWarnDescendant(node.child)) return FAR_NODE;
+    return { ...node, child: filterWarnTree(node.child) } as SDFNode;
+  }
+
+  // Leaf without warn
+  return FAR_NODE;
 }
 
 // Compile SDF tree to GLSL with uniform parameters
@@ -282,15 +327,29 @@ export function generateSDFFunction(root: SDFNode): SDFCompileResult {
   const lines: string[] = [];
   const finalVar = emitNode(root, 'p', lines);
 
+  // Check for warned subtrees and generate sdfWarn() if any exist.
+  // Skip if root itself is warned — the entire shape is incomplete,
+  // so there's nothing to localize. The tree UI handles that case.
+  const hasWarn = !root.warn && hasWarnDescendant(root);
+  let warnFunc = '';
+
+  if (hasWarn) {
+    const warnTree = filterWarnTree(root);
+    const warnLines: string[] = [];
+    const wv = emitNode(warnTree, 'p', warnLines);
+    warnLines.push(`return ${wv};`);
+    warnFunc = `\n\nfloat sdfWarn(vec3 p) {\n  ${warnLines.join('\n  ')}\n}`;
+  }
+
   const count = Math.max(paramIndex, 1);
   const texDecls = textures.map((t) => `uniform sampler2D ${t.name};`).join('\n');
   const helpers = helperFunctions.join('\n\n');
   const glsl = `${texDecls}${texDecls ? '\n' : ''}${helpers}${helpers ? '\n\n' : ''}float sdf(vec3 p) {
   ${lines.join('\n  ')}
   return ${finalVar};
-}`;
+}${warnFunc}`;
 
-  return { glsl, paramCount: count, paramValues: [...paramValues], textures: [...textures] };
+  return { glsl, paramCount: count, paramValues: [...paramValues], textures: [...textures], hasWarn };
 }
 
 // Legacy: baked constants for export (no uniforms)

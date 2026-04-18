@@ -1,6 +1,11 @@
 import type { SDFNodeUI } from '../../types/operations';
 import type { SDFNode } from './types';
 
+/** Recursively mark an entire subtree with warn=true */
+function markWarn(node: SDFNode): SDFNode {
+  return { ...node, warn: true } as SDFNode;
+}
+
 /** Convert UI tree to internal SDFNode (strip UI metadata) */
 export function toSDFNode(ui: SDFNodeUI): SDFNode | null {
   if (!ui.enabled) return null;
@@ -32,7 +37,7 @@ export function toSDFNode(ui: SDFNodeUI): SDFNode | null {
     case 'union':
     case 'subtract':
     case 'intersect':
-      if (children.length < 2) return children[0] || null;
+      if (children.length < 2) return children[0] ? markWarn(children[0]) : null;
       return { kind: ui.kind as 'union' | 'subtract' | 'intersect', a: children[0], b: children[1], k: p.smooth || 0 };
 
     case 'shell':
