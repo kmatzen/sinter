@@ -98,12 +98,41 @@ export function dualContour(grid: Float32Array, res: number, bbox: BBox, sdf: SD
   }
 
   // --- Step 1: Compute one vertex per active cell ---
-  // cellVert[z][y][x] = vertex index, or -1 if cell has no sign change
-  // Active cell: any of its 12 edges has a sign change
   const cellVert = new Int32Array(res * res * res).fill(-1);
   const positions: number[] = [];
   const normals: number[] = [];
   let vertCount = 0;
+
+  // Edge crossing cache: key = (min_corner_flat_index * 3 + dir)
+  // Each grid edge is shared by up to 4 cells; caching avoids redundant
+  // bisection + gradient evaluations (12 evaluateSDF calls per crossing).
+  const edgeCache = new Map<number, { pos: Vec3; normal: Vec3 }>();
+
+  function cachedCrossing(
+    x1: number, y1: number, z1: number, v1: number,
+    x2: number, y2: number, z2: number, _v2: number,
+  ): { pos: Vec3; normal: Vec3 } {
+    // Edge direction: 0=X, 1=Y, 2=Z
+    const dir = x1 !== x2 ? 0 : y1 !== y2 ? 1 : 2;
+    const mx = Math.min(x1, x2), my = Math.min(y1, y2), mz = Math.min(z1, z2);
+    const key = (mz * r2 + my * res + mx) * 3 + dir;
+    const cached = edgeCache.get(key);
+    if (cached) return cached;
+    const result = findCrossing(x1, y1, z1, v1, x2, y2, z2, _v2);
+    edgeCache.set(key, result);
+    return result;
+  }
+
+  // Cell edge connectivity (hoisted out of loop)
+  const EC: [number, number][] = [
+    [0, 1], [1, 2], [2, 3], [3, 0],
+    [4, 5], [5, 6], [6, 7], [7, 4],
+    [0, 4], [1, 5], [2, 6], [3, 7],
+  ];
+  const CO: [number, number, number][] = [
+    [0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0],
+    [0, 0, 1], [1, 0, 1], [1, 1, 1], [0, 1, 1],
+  ];
 
   let lastPct = -1;
   for (let z = 0; z < res - 1; z++) {
@@ -118,24 +147,13 @@ export function dualContour(grid: Float32Array, res: number, bbox: BBox, sdf: SD
           gv(x, y, z + 1), gv(x + 1, y, z + 1), gv(x + 1, y + 1, z + 1), gv(x, y + 1, z + 1),
         ];
 
-        // Check sign changes on all 12 edges
-        const edgeCorners: [number, number][] = [
-          [0, 1], [1, 2], [2, 3], [3, 0],
-          [4, 5], [5, 6], [6, 7], [7, 4],
-          [0, 4], [1, 5], [2, 6], [3, 7],
-        ];
-        const cornerOffsets: [number, number, number][] = [
-          [0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0],
-          [0, 0, 1], [1, 0, 1], [1, 1, 1], [0, 1, 1],
-        ];
-
         const crossPoints: Vec3[] = [];
         const crossNormals: Vec3[] = [];
 
-        for (const [c1, c2] of edgeCorners) {
+        for (const [c1, c2] of EC) {
           if ((corners[c1] < 0) !== (corners[c2] < 0)) {
-            const o1 = cornerOffsets[c1], o2 = cornerOffsets[c2];
-            const { pos, normal } = findCrossing(
+            const o1 = CO[c1], o2 = CO[c2];
+            const { pos, normal } = cachedCrossing(
               x + o1[0], y + o1[1], z + o1[2], corners[c1],
               x + o2[0], y + o2[1], z + o2[2], corners[c2],
             );
