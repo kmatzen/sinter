@@ -1,6 +1,6 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { useModelerStore } from '../../store/modelerStore';
-import { NODE_LABELS, nodeSummary, expectedChildren } from '../../types/operations';
+import { NODE_LABELS, nodeSummary, expectedChildren, incompleteNodeIds } from '../../types/operations';
 import type { SDFNodeUI } from '../../types/operations';
 
 const KIND_COLORS: Record<string, string> = {
@@ -20,9 +20,12 @@ interface Props {
   node: SDFNodeUI;
   depth: number;
   isLast?: boolean;
+  incompleteIds?: Set<string>;
 }
 
-export function TreeNode({ node, depth, isLast = true }: Props) {
+export function TreeNode({ node, depth, isLast = true, incompleteIds: incompleteIdsProp }: Props) {
+  // Only subscribe to tree at the root level (when incompleteIdsProp is not provided)
+  const tree = useModelerStore((s) => incompleteIdsProp ? null : s.tree);
   const selectedId = useModelerStore((s) => s.selectedNodeId);
   const expandedNodes = useModelerStore((s) => s.expandedNodes);
   const selectNode = useModelerStore((s) => s.selectNode);
@@ -34,11 +37,18 @@ export function TreeNode({ node, depth, isLast = true }: Props) {
   const addNodeFromData = useModelerStore((s) => s.addNodeFromData);
   const [dragOver, setDragOver] = useState(false);
 
+  // Compute incomplete IDs once at the root, pass down to children
+  const incompleteIds = useMemo(
+    () => incompleteIdsProp ?? incompleteNodeIds(tree),
+    [incompleteIdsProp, tree],
+  );
+  const isIncomplete = node.enabled && incompleteIds.has(node.id);
+
   const rowRef = useRef<HTMLDivElement>(null);
   const isSelected = selectedId === node.id;
   const expected = expectedChildren(node.kind);
   const hasChildren = node.children.length > 0 || expected > 0;
-  const isExpanded = expandedNodes.has(node.id);
+  const isExpanded = expandedNodes.has(node.id) || isIncomplete;
   const missingSlots = Math.max(0, expected - node.children.length);
   const summary = nodeSummary(node);
   const color = KIND_COLORS[node.kind] || '#888';
@@ -87,8 +97,8 @@ export function TreeNode({ node, depth, isLast = true }: Props) {
         className="flex items-center gap-1 pr-1.5 h-[26px] cursor-pointer relative"
         style={{
           paddingLeft: `${leftPad}px`,
-          background: isSelected ? 'var(--accent-subtle)' : dragOver ? 'rgba(91,140,223,0.1)' : 'transparent',
-          borderLeft: isSelected ? `2px solid var(--accent)` : '2px solid transparent',
+          background: isSelected ? 'var(--accent-subtle)' : dragOver ? 'rgba(91,140,223,0.1)' : isIncomplete ? 'rgba(212,90,90,0.08)' : 'transparent',
+          borderLeft: isSelected ? `2px solid var(--accent)` : isIncomplete ? '2px solid rgba(212,90,90,0.5)' : '2px solid transparent',
           opacity: node.enabled ? 1 : 0.35,
         }}
         onClick={() => selectNode(node.id)}
@@ -145,10 +155,21 @@ export function TreeNode({ node, depth, isLast = true }: Props) {
         {/* Label */}
         <span
           className="text-[11px] font-medium truncate shrink-0"
-          style={{ color: isSelected ? 'var(--text-primary)' : 'var(--text-secondary)' }}
+          style={{ color: isIncomplete ? '#d45a5a' : isSelected ? 'var(--text-primary)' : 'var(--text-secondary)' }}
         >
           {NODE_LABELS[node.kind] || node.kind}
         </span>
+
+        {/* Incomplete warning */}
+        {isIncomplete && (
+          <span
+            className="text-[9px] shrink-0"
+            style={{ color: '#d45a5a' }}
+            title={missingSlots > 0 ? `Needs ${missingSlots} more ${missingSlots === 1 ? 'child' : 'children'}` : 'Has incomplete children'}
+          >
+            {'\u26A0'}
+          </span>
+        )}
 
         {/* Summary */}
         <span
@@ -197,12 +218,23 @@ export function TreeNode({ node, depth, isLast = true }: Props) {
       {hasChildren && isExpanded && (
         <div className="relative">
           {node.children.map((child, i) => (
-            <TreeNode
-              key={child.id}
-              node={child}
-              depth={depth + 1}
-              isLast={i === node.children.length - 1 && missingSlots === 0}
-            />
+            child.kind === '_empty' ? (
+              <PlaceholderSlot
+                key={child.id}
+                parentId={node.id}
+                depth={depth + 1}
+                isLast={i === node.children.length - 1 && missingSlots === 0}
+                urgent={isIncomplete}
+              />
+            ) : (
+              <TreeNode
+                key={child.id}
+                node={child}
+                depth={depth + 1}
+                isLast={i === node.children.length - 1 && missingSlots === 0}
+                incompleteIds={incompleteIds}
+              />
+            )
           ))}
           {Array.from({ length: missingSlots }).map((_, i) => (
             <PlaceholderSlot
@@ -210,6 +242,7 @@ export function TreeNode({ node, depth, isLast = true }: Props) {
               parentId={node.id}
               depth={depth + 1}
               isLast={i === missingSlots - 1}
+              urgent={isIncomplete}
             />
           ))}
         </div>
@@ -218,7 +251,7 @@ export function TreeNode({ node, depth, isLast = true }: Props) {
   );
 }
 
-function PlaceholderSlot({ parentId, depth, isLast }: { parentId: string; depth: number; isLast: boolean }) {
+function PlaceholderSlot({ parentId, depth, isLast, urgent }: { parentId: string; depth: number; isLast: boolean; urgent?: boolean }) {
   const moveNode = useModelerStore((s) => s.moveNode);
   const addNodeFromData = useModelerStore((s) => s.addNodeFromData);
   const [dragOver, setDragOver] = useState(false);
@@ -272,9 +305,13 @@ function PlaceholderSlot({ parentId, depth, isLast }: { parentId: string; depth:
       >
         <span
           className="text-[10px] px-1.5 py-0.5 rounded border border-dashed"
-          style={{ borderColor: dragOver ? 'var(--accent-blue)' : 'var(--border-default)', color: 'var(--text-muted)' }}
+          style={{
+            borderColor: dragOver ? 'var(--accent-blue)' : urgent ? 'rgba(212,90,90,0.5)' : 'var(--border-default)',
+            color: urgent ? '#d45a5a' : 'var(--text-muted)',
+            background: urgent ? 'rgba(212,90,90,0.06)' : 'transparent',
+          }}
         >
-          drop here
+          {urgent ? '\u26A0 needs shape' : 'drop here'}
         </span>
       </div>
     </div>

@@ -214,7 +214,7 @@ test.describe('Modeler: Node operations', () => {
     await addShape(page, 'Box');
     await page.locator(`text=50\u00d730\u00d750`).click();
     await addOp(page, 'Subtract');
-    await expect(page.locator('text=drop here')).toBeVisible();
+    await expect(page.locator('text=needs shape')).toBeVisible();
   });
 });
 

@@ -1,7 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { useModelerStore } from '../store/modelerStore';
 import { workerBridge } from './workerBridge';
-import { isTreeValid } from '../types/operations';
 
 export function useEvaluator() {
   const prevKeyRef = useRef<string>('');
@@ -19,12 +18,6 @@ export function useEvaluator() {
         const key = JSON.stringify(tree);
         if (key === prevKeyRef.current) return;
         prevKeyRef.current = key;
-
-        if (tree && !isTreeValid(tree)) {
-          useModelerStore.getState().setSDFDisplay(null);
-          useModelerStore.getState().setEvaluating(false);
-          return;
-        }
 
         const seq = ++evalSeqRef.current;
         useModelerStore.getState().setEvaluating(true);

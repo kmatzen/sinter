@@ -76,9 +76,37 @@ export function expectedChildren(kind: string): number {
 export function isTreeValid(node: SDFNodeUI | null): boolean {
   if (!node) return false;
   if (!node.enabled) return true; // disabled nodes don't count
+  if (node.kind === '_empty') return false;
   const expected = expectedChildren(node.kind);
-  if (node.children.length < expected) return false;
+  if (realChildCount(node) < expected) return false;
   return node.children.every(child => isTreeValid(child));
+}
+
+/** Count how many real (non-placeholder) children a node has. */
+export function realChildCount(node: SDFNodeUI): number {
+  return node.children.filter(c => c.kind !== '_empty').length;
+}
+
+// Collect IDs of enabled operator nodes whose subtree is incomplete.
+// This includes the node directly missing children AND all ancestor
+// operators up to the root, so the entire invalid branch is highlighted.
+export function incompleteNodeIds(node: SDFNodeUI | null): Set<string> {
+  const ids = new Set<string>();
+  if (!node) return ids;
+  function walk(n: SDFNodeUI): boolean {
+    if (!n.enabled) return false;
+    if (n.kind === '_empty') return false;
+    const expected = expectedChildren(n.kind);
+    const missingHere = realChildCount(n) < expected;
+    const childInvalid = n.children.some(walk);
+    if (missingHere || childInvalid) {
+      ids.add(n.id);
+      return true;
+    }
+    return false;
+  }
+  walk(node);
+  return ids;
 }
 
 export function isPrimitive(kind: string): boolean {

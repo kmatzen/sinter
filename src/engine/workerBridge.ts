@@ -36,7 +36,7 @@ class WorkerBridge {
           if (!msg.glsl) {
             resolve(null);
           } else {
-            resolve({ glsl: msg.glsl, paramCount: msg.paramCount, paramValues: msg.paramValues, textures: msg.textures || [], bbMin: msg.bbMin, bbMax: msg.bbMax });
+            resolve({ glsl: msg.glsl, paramCount: msg.paramCount, paramValues: msg.paramValues, textures: msg.textures || [], bbMin: msg.bbMin, bbMax: msg.bbMax, hasWarn: !!msg.hasWarn });
           }
         } else if (msg.type === 'error') reject(new Error(msg.message));
       };

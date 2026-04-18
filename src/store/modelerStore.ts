@@ -11,6 +11,7 @@ export interface SDFDisplayData {
   textures: { name: string; width: number; height: number; data: number[] }[];
   bbMin: [number, number, number];
   bbMax: [number, number, number];
+  hasWarn: boolean;
 }
 
 interface ModelerState {
@@ -93,18 +94,42 @@ function updateInTree(tree: SDFNodeUI, id: string, updater: (node: SDFNodeUI) =>
   };
 }
 
+// A placeholder that occupies a boolean slot without producing geometry.
+// The tree UI renders it as an empty slot and the SDF converter skips it.
+function emptySlot(): SDFNodeUI {
+  return { id: uuidv4(), kind: '_empty', label: '', params: {}, children: [], enabled: false };
+}
+
 function removeFromTree(tree: SDFNodeUI, id: string): SDFNodeUI | null {
   if (tree.id === id) {
     // If this node has exactly one child, promote the child
     if (tree.children.length === 1) return tree.children[0];
     return null;
   }
-  return {
-    ...tree,
-    children: tree.children
-      .map((child) => removeFromTree(child, id))
-      .filter((c): c is SDFNodeUI => c !== null),
-  };
+
+  const mapped = tree.children.map((child) => removeFromTree(child, id));
+
+  let newChildren: SDFNodeUI[];
+  if (NODE_KINDS.booleans.includes(tree.kind as any)) {
+    // For booleans, preserve slot positions: replace removed children with
+    // disabled placeholder nodes so the remaining operand keeps its index.
+    newChildren = mapped.map((c) => c ?? emptySlot());
+  } else {
+    newChildren = mapped.filter((c): c is SDFNodeUI => c !== null);
+  }
+
+  return { ...tree, children: newChildren };
+}
+
+/** Add a child to a node, replacing the first _empty placeholder if one exists. */
+function addChildPreferSlot(node: SDFNodeUI, child: SDFNodeUI): SDFNodeUI {
+  const emptyIdx = node.children.findIndex(c => c.kind === '_empty');
+  if (emptyIdx >= 0) {
+    const updated = [...node.children];
+    updated[emptyIdx] = child;
+    return { ...node, children: updated };
+  }
+  return { ...node, children: [...node.children, child] };
 }
 
 function reassignIds(node: SDFNodeUI): SDFNodeUI {
@@ -413,7 +438,8 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
     if (!targetNode) return;
     const targetIsPrim = NODE_KINDS.primitives.includes(targetNode.kind as any);
     const targetExpected = expectedChildren(targetNode.kind);
-    const targetHasRoom = targetNode.children.length < targetExpected;
+    const targetEmptySlot = targetNode.children.findIndex(c => c.kind === '_empty');
+    const targetHasRoom = targetNode.children.length < targetExpected || targetEmptySlot >= 0;
 
     if (isOp && targetIsPrim) {
       // Operation dropped on a primitive → WRAP the primitive
@@ -438,10 +464,7 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
       commit(newTree, newNode.id, [unionNode.id]);
     } else if (targetHasRoom || targetExpected === 0) {
       // Target has room for children, or is a primitive somehow → add as child
-      const newTree = updateInTree(tree, targetId, (node) => ({
-        ...node,
-        children: [...node.children, newNode],
-      }));
+      const newTree = updateInTree(tree, targetId, (node) => addChildPreferSlot(node, newNode));
       commit(newTree, newNode.id, [targetId]);
     } else if (isOp) {
       // Operation dropped on an operation that's full → wrap the target
@@ -454,11 +477,8 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
       }
       commit(newTree, newNode.id, [newNode.id]);
     } else {
-      // Primitive on a full operation → add as child anyway (user can fix)
-      const newTree = updateInTree(tree, targetId, (node) => ({
-        ...node,
-        children: [...node.children, newNode],
-      }));
+      // Primitive on a full operation → replace empty slot or add as child
+      const newTree = updateInTree(tree, targetId, (node) => addChildPreferSlot(node, newNode));
       commit(newTree, newNode.id, [targetId]);
     }
   },
@@ -482,10 +502,7 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
     if (!treeWithout) return;
 
     // Add source as child of target
-    const newTree = updateInTree(treeWithout, targetId, (node) => ({
-      ...node,
-      children: [...node.children, cloneTree(sourceNode)],
-    }));
+    const newTree = updateInTree(treeWithout, targetId, (node) => addChildPreferSlot(node, cloneTree(sourceNode)));
 
     const expanded = new Set(get().expandedNodes);
     expanded.add(targetId);
