@@ -66,9 +66,26 @@ function App() {
   );
 }
 
+function isMobile() {
+  return typeof window !== 'undefined' && window.innerWidth < 768;
+}
+
 function ModelerApp() {
   useEvaluator();
   const [mobilePanel, setMobilePanel] = useState<'tree' | 'props' | null>(null);
+
+  // Auto-open bottom sheet when a node is selected on mobile
+  useEffect(() => {
+    let prev = useModelerStore.getState().selectedNodeId;
+    const unsub = useModelerStore.subscribe(() => {
+      const curr = useModelerStore.getState().selectedNodeId;
+      if (curr && curr !== prev && isMobile()) {
+        setMobilePanel('props');
+      }
+      prev = curr;
+    });
+    return unsub;
+  }, []);
 
   useEffect(() => {
     startAutoSave();
