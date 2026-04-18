@@ -154,8 +154,8 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
 
       {/* Desktop-only: export buttons */}
       <div className="hidden md:contents">
-        <IconBtn icon={<FileDown size={14} />} label={exporting === 'STL' && exportProgress ? `${exportProgress.percent}%` : 'STL'} title="Export STL" onClick={handleExportSTL} disabled={evaluating || !tree || !!exporting} />
-        <IconBtn icon={<FileDown size={14} />} label={exporting === '3MF' && exportProgress ? `${exportProgress.percent}%` : '3MF'} title="Export 3MF" onClick={handleExport3MF} disabled={evaluating || !tree || !!exporting} />
+        <IconBtn icon={<FileDown size={14} />} label={exporting === 'STL' && exportProgress ? `${Math.round(exportProgress.percent)}%` : 'STL'} title="Export STL" onClick={handleExportSTL} disabled={evaluating || !tree || !!exporting} />
+        <IconBtn icon={<FileDown size={14} />} label={exporting === '3MF' && exportProgress ? `${Math.round(exportProgress.percent)}%` : '3MF'} title="Export 3MF" onClick={handleExport3MF} disabled={evaluating || !tree || !!exporting} />
         <div className="w-px h-4 mx-1" style={{ background: 'var(--border-default)' }} />
       </div>
 

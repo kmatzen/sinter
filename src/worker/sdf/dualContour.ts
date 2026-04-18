@@ -56,7 +56,7 @@ function solveQEF(
   ];
 }
 
-export function dualContour(grid: Float32Array, res: number, bbox: BBox, sdf: SDFNode): MeshResult {
+export function dualContour(grid: Float32Array, res: number, bbox: BBox, sdf: SDFNode, onProgress?: (pct: number) => void): MeshResult {
   const dx = (bbox.max[0] - bbox.min[0]) / res;
   const dy = (bbox.max[1] - bbox.min[1]) / res;
   const dz = (bbox.max[2] - bbox.min[2]) / res;
@@ -105,7 +105,12 @@ export function dualContour(grid: Float32Array, res: number, bbox: BBox, sdf: SD
   const normals: number[] = [];
   let vertCount = 0;
 
+  let lastPct = -1;
   for (let z = 0; z < res - 1; z++) {
+    if (onProgress) {
+      const pct = Math.round((z / (res - 1)) * 100);
+      if (pct > lastPct) { lastPct = pct; onProgress(pct); }
+    }
     for (let y = 0; y < res - 1; y++) {
       for (let x = 0; x < res - 1; x++) {
         const corners = [

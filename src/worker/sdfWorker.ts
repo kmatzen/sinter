@@ -43,9 +43,11 @@ function evaluateAndMeshWithProgress(tree: SDFNodeUI | null, resolution: number,
     progress('Evaluating SDF grid', pct);
   });
 
-  // Dual contouring
+  // Dual contouring (60-80%)
   progress('Generating mesh', 60);
-  const mesh = dualContour(grid, resolution, bbox, root);
+  const mesh = dualContour(grid, resolution, bbox, root, (pct) => {
+    progress('Generating mesh', 60 + pct * 0.2);
+  });
 
   return mesh;
 }
@@ -102,13 +104,15 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
 
       case 'exportSTL': {
         const progress: ProgressFn = (stage, percent) => {
-          self.postMessage({ type: 'progress', stage, percent });
+          self.postMessage({ type: 'progress', stage, percent: Math.round(percent) });
         };
         const mesh = evaluateAndMeshWithProgress(req.tree, 256, progress);
         if (!mesh) { self.postMessage({ type: 'error', message: 'No geometry to export' }); return; }
-        progress('Simplifying mesh', 70);
-        const simplified = simplifyMesh(mesh, 0.5);
-        progress('Encoding STL', 90);
+        progress('Simplifying mesh', 80);
+        const simplified = simplifyMesh(mesh, 0.5, (pct) => {
+          progress('Simplifying mesh', 80 + pct * 0.15);
+        });
+        progress('Encoding STL', 95);
         const data = exportBinarySTL(simplified);
         self.postMessage({ type: 'exportResult', format: 'stl' as const, data }, [data]);
         break;
@@ -116,13 +120,15 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
 
       case 'export3MF': {
         const progress: ProgressFn = (stage, percent) => {
-          self.postMessage({ type: 'progress', stage, percent });
+          self.postMessage({ type: 'progress', stage, percent: Math.round(percent) });
         };
         const mesh = evaluateAndMeshWithProgress(req.tree, 256, progress);
         if (!mesh) { self.postMessage({ type: 'error', message: 'No geometry to export' }); return; }
-        progress('Simplifying mesh', 70);
-        const simplified = simplifyMesh(mesh, 0.5);
-        progress('Encoding 3MF', 90);
+        progress('Simplifying mesh', 80);
+        const simplified = simplifyMesh(mesh, 0.5, (pct) => {
+          progress('Simplifying mesh', 80 + pct * 0.15);
+        });
+        progress('Encoding 3MF', 95);
         const data = export3MF(simplified);
         self.postMessage({ type: 'exportResult', format: '3mf' as const, data }, [data]);
         break;

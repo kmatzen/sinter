@@ -121,7 +121,7 @@ function edgeKey(a: number, b: number): string {
  * @param targetRatio Target ratio of triangles to keep (0..1), e.g. 0.5 = keep 50%
  * @returns Simplified mesh
  */
-export function simplifyMesh(mesh: MeshResult, targetRatio: number): MeshResult {
+export function simplifyMesh(mesh: MeshResult, targetRatio: number, onProgress?: (pct: number) => void): MeshResult {
   const { positions, normals, indices } = mesh;
   const numVerts = positions.length / 3;
   const numTris = indices.length / 3;
@@ -288,7 +288,13 @@ export function simplifyMesh(mesh: MeshResult, targetRatio: number): MeshResult 
   }
 
   // Collapse loop
+  const trisToRemove = numTris - targetTris;
+  let lastSimplifyPct = -1;
   while (aliveTris > targetTris && heap.size > 0) {
+    if (onProgress) {
+      const pct = Math.round(((numTris - aliveTris) / trisToRemove) * 100);
+      if (pct > lastSimplifyPct) { lastSimplifyPct = pct; onProgress(pct); }
+    }
     const top = heap.pop()!;
     const ra = find(top.va), rb = find(top.vb);
     if (ra === rb) continue; // already merged
