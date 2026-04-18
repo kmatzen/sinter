@@ -68,16 +68,16 @@ function optimalQ(q: Quadric): [number, number, number] | null {
 
 /** Binary min-heap keyed by cost */
 class MinHeap {
-  private data: { edgeKey: number; cost: number }[] = [];
+  private data: { va: number; vb: number; cost: number; gen: number }[] = [];
 
   get size() { return this.data.length; }
 
-  push(edgeKey: number, cost: number) {
-    this.data.push({ edgeKey, cost });
+  push(va: number, vb: number, cost: number, gen: number) {
+    this.data.push({ va, vb, cost, gen });
     this.bubbleUp(this.data.length - 1);
   }
 
-  pop(): { edgeKey: number; cost: number } | undefined {
+  pop() {
     if (this.data.length === 0) return undefined;
     const top = this.data[0];
     const last = this.data.pop()!;
@@ -111,14 +111,8 @@ class MinHeap {
   }
 }
 
-function edgeKey(a: number, b: number): number {
-  return a < b ? a * 1e7 + b : b * 1e7 + a;
-}
-
-function edgePair(key: number): [number, number] {
-  const a = Math.floor(key / 1e7);
-  const b = key - a * 1e7;
-  return [a, b];
+function edgeKey(a: number, b: number): string {
+  return a < b ? `${a},${b}` : `${b},${a}`;
 }
 
 /**
@@ -189,27 +183,13 @@ export function simplifyMesh(mesh: MeshResult, targetRatio: number): MeshResult 
     quadrics[i2] = addQ(quadrics[i2], fq);
   }
 
-  // Build edge set and compute initial costs
-  const edges = new Set<number>();
-  for (let t = 0; t < numTris; t++) {
-    const a = triV[t * 3], b = triV[t * 3 + 1], c = triV[t * 3 + 2];
-    edges.add(edgeKey(a, b));
-    edges.add(edgeKey(a, c));
-    edges.add(edgeKey(b, c));
-  }
-
-  // Track which edges are still valid (not collapsed)
-  const edgeValid = new Set<number>(edges);
-
-  function computeEdgeCost(ek: number): { cost: number; pos: [number, number, number] } {
-    const [a, b] = edgePair(ek);
-    const ra = find(a), rb = find(b);
+  // Compute cost and optimal position for collapsing edge (ra, rb)
+  function computeEdgeCost(ra: number, rb: number): { cost: number; pos: [number, number, number] } {
     const q = addQ(quadrics[ra], quadrics[rb]);
     const opt = optimalQ(q);
     if (opt) {
       return { cost: evalQ(q, opt[0], opt[1], opt[2]), pos: opt };
     }
-    // Fallback: pick the endpoint with lower error, or midpoint
     const mid: [number, number, number] = [
       (vx[ra] + vx[rb]) * 0.5, (vy[ra] + vy[rb]) * 0.5, (vz[ra] + vz[rb]) * 0.5,
     ];
@@ -221,44 +201,41 @@ export function simplifyMesh(mesh: MeshResult, targetRatio: number): MeshResult 
     return { cost: em, pos: mid };
   }
 
-  // Priority queue
+  // Priority queue — entries carry the original vertex pair and a generation
+  // counter so stale entries (from edges that have been updated) are skipped.
   const heap = new MinHeap();
-  // Track generation per edge to invalidate stale heap entries
-  const edgeGen = new Map<number, number>();
   let gen = 0;
+  // Per-edge generation: only the latest generation is valid
+  const edgeGen = new Map<string, number>();
 
-  for (const ek of edges) {
-    const { cost } = computeEdgeCost(ek);
-    edgeGen.set(ek, gen);
-    heap.push(ek, cost);
+  // Seed the heap with all edges
+  const seenEdges = new Set<string>();
+  for (let t = 0; t < numTris; t++) {
+    const a = triV[t * 3], b = triV[t * 3 + 1], c = triV[t * 3 + 2];
+    for (const [u, v] of [[a,b],[a,c],[b,c]] as [number,number][]) {
+      const ek = edgeKey(u, v);
+      if (seenEdges.has(ek)) continue;
+      seenEdges.add(ek);
+      const { cost } = computeEdgeCost(u, v);
+      edgeGen.set(ek, gen);
+      heap.push(u, v, cost, gen);
+    }
   }
 
   // Collapse loop
   while (aliveTris > targetTris && heap.size > 0) {
     const top = heap.pop()!;
-    const ek = top.edgeKey;
+    const ra = find(top.va), rb = find(top.vb);
+    if (ra === rb) continue; // already merged
 
-    // Skip stale or already-removed edges
-    if (!edgeValid.has(ek)) continue;
+    // Skip stale entries
+    const ek = edgeKey(ra, rb);
     const currentGen = edgeGen.get(ek);
-    if (currentGen !== undefined && currentGen > gen) continue;
+    if (currentGen !== undefined && top.gen < currentGen) continue;
 
-    const [a, b] = edgePair(ek);
-    const ra = find(a), rb = find(b);
-    if (ra === rb) { edgeValid.delete(ek); continue; } // already merged
-
-    // Recompute cost (may have changed since insertion)
-    const { cost, pos } = computeEdgeCost(ek);
-    // If cost changed significantly, re-insert with correct priority
-    if (Math.abs(cost - top.cost) > Math.abs(top.cost) * 0.01 + 1e-15) {
-      gen++;
-      edgeGen.set(ek, gen);
-      heap.push(ek, cost);
-      continue;
-    }
+    const { pos } = computeEdgeCost(ra, rb);
 
     // Perform collapse: merge rb into ra
-    edgeValid.delete(ek);
     rep[rb] = ra;
     vx[ra] = pos[0]; vy[ra] = pos[1]; vz[ra] = pos[2];
     quadrics[ra] = addQ(quadrics[ra], quadrics[rb]);
@@ -266,43 +243,36 @@ export function simplifyMesh(mesh: MeshResult, targetRatio: number): MeshResult 
     // Merge triangle lists
     for (const t of vertTris[rb]) {
       if (!triAlive[t]) continue;
-      // Replace rb with ra in triangle
       for (let k = 0; k < 3; k++) {
-        if (find(triV[t * 3 + k]) === ra || find(triV[t * 3 + k]) === rb) {
-          triV[t * 3 + k] = ra;
-        } else {
-          triV[t * 3 + k] = find(triV[t * 3 + k]);
-        }
+        triV[t * 3 + k] = find(triV[t * 3 + k]);
       }
-      // Check if triangle is degenerate (two or more same vertices)
       const v0 = triV[t * 3], v1 = triV[t * 3 + 1], v2 = triV[t * 3 + 2];
       if (v0 === v1 || v1 === v2 || v0 === v2) {
         triAlive[t] = 0;
         aliveTris--;
-        vertTris[ra].delete(t);
-        // Also remove from other vertex
-        if (v0 !== ra) vertTris[v0]?.delete(t);
-        if (v1 !== ra) vertTris[v1]?.delete(t);
-        if (v2 !== ra) vertTris[v2]?.delete(t);
+        vertTris[v0]?.delete(t);
+        vertTris[v1]?.delete(t);
+        vertTris[v2]?.delete(t);
       } else {
         vertTris[ra].add(t);
       }
     }
 
-    // Re-insert affected edges
+    // Re-insert affected edges with new costs
+    const neighbors = new Set<number>();
     for (const t of vertTris[ra]) {
       if (!triAlive[t]) continue;
       for (let k = 0; k < 3; k++) {
-        const vi = triV[t * 3 + k];
-        const vj = triV[t * 3 + (k + 1) % 3];
-        const nek = edgeKey(find(vi), find(vj));
-        if (find(vi) === find(vj)) continue;
-        if (!edgeValid.has(nek)) edgeValid.add(nek);
-        gen++;
-        edgeGen.set(nek, gen);
-        const { cost: nc } = computeEdgeCost(nek);
-        heap.push(nek, nc);
+        const vi = find(triV[t * 3 + k]);
+        if (vi !== ra) neighbors.add(vi);
       }
+    }
+    gen++;
+    for (const nb of neighbors) {
+      const nek = edgeKey(ra, nb);
+      edgeGen.set(nek, gen);
+      const { cost } = computeEdgeCost(ra, nb);
+      heap.push(ra, nb, cost, gen);
     }
   }
 

@@ -91,7 +91,7 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
       }
 
       case 'exportSTL': {
-        const mesh = evaluateAndMesh(req.tree, 384);
+        const mesh = evaluateAndMesh(req.tree, 256);
         if (!mesh) { self.postMessage({ type: 'error', message: 'No geometry to export' }); return; }
         const simplified = simplifyMesh(mesh, 0.5);
         const data = exportBinarySTL(simplified);
@@ -100,7 +100,7 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
       }
 
       case 'export3MF': {
-        const mesh = evaluateAndMesh(req.tree, 384);
+        const mesh = evaluateAndMesh(req.tree, 256);
         if (!mesh) { self.postMessage({ type: 'error', message: 'No geometry to export' }); return; }
         const simplified = simplifyMesh(mesh, 0.5);
         const data = export3MF(simplified);
