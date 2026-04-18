@@ -11,7 +11,7 @@ import { marchingCubes } from './sdf/marchingCubes';
 import { exportBinarySTL } from './stlExporter';
 import { export3MF } from './exporters';
 import { toSDFNode } from './sdf/convert';
-import { simplifyMesh, splitCreaseEdges } from './sdf/simplify';
+import { simplifyMesh } from './sdf/simplify';
 
 const RESOLUTION = 192;
 
@@ -93,7 +93,7 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
       case 'exportSTL': {
         const mesh = evaluateAndMesh(req.tree, 256);
         if (!mesh) { self.postMessage({ type: 'error', message: 'No geometry to export' }); return; }
-        const simplified = splitCreaseEdges(simplifyMesh(mesh, 0.5));
+        const simplified = simplifyMesh(mesh, 0.5);
         const data = exportBinarySTL(simplified);
         self.postMessage({ type: 'exportResult', format: 'stl' as const, data }, [data]);
         break;
@@ -102,7 +102,7 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
       case 'export3MF': {
         const mesh = evaluateAndMesh(req.tree, 256);
         if (!mesh) { self.postMessage({ type: 'error', message: 'No geometry to export' }); return; }
-        const simplified = splitCreaseEdges(simplifyMesh(mesh, 0.5));
+        const simplified = simplifyMesh(mesh, 0.5);
         const data = export3MF(simplified);
         self.postMessage({ type: 'exportResult', format: '3mf' as const, data }, [data]);
         break;
