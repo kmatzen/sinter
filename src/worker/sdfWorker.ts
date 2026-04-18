@@ -11,6 +11,7 @@ import { marchingCubes } from './sdf/marchingCubes';
 import { exportBinarySTL } from './stlExporter';
 import { export3MF } from './exporters';
 import { toSDFNode } from './sdf/convert';
+import { simplifyMesh } from './sdf/simplify';
 
 const RESOLUTION = 192;
 
@@ -35,7 +36,7 @@ function evaluateAndMesh(tree: SDFNodeUI | null, resolution = RESOLUTION, _clip?
 
   const grid = evaluateCPU(root, bbox, resolution);
 
-  const mesh = marchingCubes(grid, resolution, bbox);
+  const mesh = marchingCubes(grid, resolution, bbox, root);
 
   return mesh;
 }
@@ -90,17 +91,19 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
       }
 
       case 'exportSTL': {
-        const mesh = evaluateAndMesh(req.tree, 256);
+        const mesh = evaluateAndMesh(req.tree, 384);
         if (!mesh) { self.postMessage({ type: 'error', message: 'No geometry to export' }); return; }
-        const data = exportBinarySTL(mesh);
+        const simplified = simplifyMesh(mesh, 0.5);
+        const data = exportBinarySTL(simplified);
         self.postMessage({ type: 'exportResult', format: 'stl' as const, data }, [data]);
         break;
       }
 
       case 'export3MF': {
-        const mesh = evaluateAndMesh(req.tree, 256);
+        const mesh = evaluateAndMesh(req.tree, 384);
         if (!mesh) { self.postMessage({ type: 'error', message: 'No geometry to export' }); return; }
-        const data = export3MF(mesh);
+        const simplified = simplifyMesh(mesh, 0.5);
+        const data = export3MF(simplified);
         self.postMessage({ type: 'exportResult', format: '3mf' as const, data }, [data]);
         break;
       }
