@@ -5,6 +5,7 @@ import { PropertyPanel, PropertyContent } from './components/properties/Property
 import { Toolbar } from './components/toolbar/Toolbar';
 import { ChatDrawer } from './components/chat/ChatDrawer';
 import { MobilePanel } from './components/mobile/MobilePanel';
+import { BottomSheet } from './components/mobile/BottomSheet';
 import { LoginPage } from './components/auth/LoginPage';
 import { LandingPage } from './components/landing/LandingPage';
 import { SharedViewer } from './components/share/SharedViewer';
@@ -141,9 +142,9 @@ function ModelerApp() {
         </MobilePanel>
       )}
       {mobilePanel === 'props' && (
-        <MobilePanel title="Properties" side="right" onClose={() => setMobilePanel(null)}>
+        <BottomSheet onClose={() => setMobilePanel(null)}>
           <PropertyContent />
-        </MobilePanel>
+        </BottomSheet>
       )}
     </div>
   );
