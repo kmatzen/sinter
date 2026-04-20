@@ -1,7 +1,9 @@
 User-agent: *
 Allow: /
 Disallow: /api/
-Disallow: /app
-Disallow: /gate
+Disallow: /app/
+Disallow: /app$
+Disallow: /gate/
+Disallow: /gate$
 
 Sitemap: https://sinter-3d.com/sitemap.xml
