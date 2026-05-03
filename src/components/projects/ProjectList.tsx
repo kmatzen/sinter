@@ -1,14 +1,16 @@
 import { useState, useEffect } from 'react';
 import { triggerDownload } from '../../utils/download';
 import { useModalStore } from '../../store/modalStore';
+import { useAuthStore, getCurrentProvider } from '../../store/authStore';
+import { useProjectStore, deleteCloudProject } from '../../store/projectStore';
+import { useModelerStore } from '../../store/modelerStore';
+import { getStorageProvider, type ProviderName, type ProjectMeta } from '../../storage';
+import { getThumbnail } from '../../storage/thumbnailCache';
 
-interface CloudProject {
-  id: string;
-  name: string;
-  thumbnail: string | null;
-  created_at: string;
-  updated_at: string;
+interface CloudProject extends ProjectMeta {
   source: 'cloud';
+  provider: ProviderName;
+  thumbnail: string | null;
 }
 
 interface LocalProject {
@@ -19,22 +21,17 @@ interface LocalProject {
   source: 'local';
 }
 
-
 interface Props {
-  onSelect: (id: string) => void;
-  onNew: () => void;
   onClose: () => void;
+  onLoaded: () => void;
   onImport?: () => void;
 }
 
-const LOCAL_PROJECTS_KEY = 'sinter_local_projects';
+const LEGACY_LOCAL_KEY = 'sinter_local_project';
 
 function getLocalProjects(): LocalProject[] {
   try {
-    const raw = localStorage.getItem(LOCAL_PROJECTS_KEY);
-    if (raw) return JSON.parse(raw);
-    // Check for legacy single-project format
-    const legacy = localStorage.getItem('sinter_local_project');
+    const legacy = localStorage.getItem(LEGACY_LOCAL_KEY);
     if (legacy) {
       const data = JSON.parse(legacy);
       return [{
@@ -49,20 +46,45 @@ function getLocalProjects(): LocalProject[] {
   return [];
 }
 
-export function ProjectList({ onSelect, onNew, onClose, onImport }: Props) {
+export function ProjectList({ onClose, onLoaded, onImport }: Props) {
   const [cloudProjects, setCloudProjects] = useState<CloudProject[]>([]);
   const [localProjectList, setLocalProjectList] = useState<LocalProject[]>(getLocalProjects());
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState<string | null>(null);
+  const user = useAuthStore((s) => s.user);
+  const loadProject = useProjectStore((s) => s.loadProject);
+  const createProject = useProjectStore((s) => s.createProject);
 
   useEffect(() => {
-    fetch('/api/projects', { credentials: 'include' })
-      .then((r) => r.json())
-      .then((data) => {
-        setCloudProjects(data.map((p: any) => ({ ...p, source: 'cloud' })));
+    let cancelled = false;
+    async function loadCloud() {
+      const provider = getCurrentProvider();
+      if (!provider) {
         setLoading(false);
-      })
-      .catch(() => setLoading(false));
+        return;
+      }
+      try {
+        const accessToken = await useAuthStore.getState().getAccessToken();
+        const storage = getStorageProvider(provider);
+        const list = await storage.list(accessToken);
+        if (cancelled) return;
+        const withThumbs: CloudProject[] = await Promise.all(
+          list.map(async (p) => ({
+            ...p,
+            source: 'cloud' as const,
+            provider,
+            thumbnail: await getThumbnail(p.externalId),
+          })),
+        );
+        if (!cancelled) setCloudProjects(withThumbs);
+      } catch (err) {
+        console.error('Failed to list cloud projects:', err);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    void loadCloud();
+    return () => { cancelled = true; };
   }, []);
 
   function showToast(msg: string) {
@@ -70,91 +92,123 @@ export function ProjectList({ onSelect, onNew, onClose, onImport }: Props) {
     setTimeout(() => setToast(null), 2000);
   }
 
-  const handleDeleteCloud = (id: string, e: React.MouseEvent) => {
+  const selectCloud = async (p: CloudProject) => {
+    try {
+      await loadProject(p.provider, p.externalId, p.name);
+      onLoaded();
+    } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : 'Failed to load');
+    }
+  };
+
+  const selectLocal = (_p: LocalProject) => {
+    // Local project is already loaded by startLocalAutoSave on app boot.
+    // Selecting it just clears any cloud project state.
+    createProject();
+    try {
+      const raw = localStorage.getItem(LEGACY_LOCAL_KEY);
+      if (raw) {
+        const data = JSON.parse(raw);
+        useModelerStore.getState().setProjectName(data.projectName || 'Untitled');
+        if (data.tree) useModelerStore.getState().setTree(data.tree);
+      }
+    } catch { /* */ }
+    onLoaded();
+  };
+
+  const handleDeleteCloud = (p: CloudProject, e: React.MouseEvent) => {
     e.stopPropagation();
-    useModalStore.getState().showConfirm('Delete this cloud project? This cannot be undone.', async () => {
-      await fetch(`/api/projects/${id}`, { method: 'DELETE', credentials: 'include' });
-      setCloudProjects((p) => p.filter((x) => x.id !== id));
-      showToast('Deleted from cloud');
-    });
+    useModalStore.getState().showConfirm(
+      `Delete "${p.name}" from your ${p.provider === 'google' ? 'Drive' : 'Gists'}? This cannot be undone.`,
+      async () => {
+        try {
+          await deleteCloudProject(p.provider, p.externalId);
+          setCloudProjects((prev) => prev.filter((x) => x.externalId !== p.externalId));
+          showToast(`Deleted "${p.name}"`);
+        } catch (err: unknown) {
+          showToast(err instanceof Error ? err.message : 'Delete failed');
+        }
+      },
+    );
   };
 
   const handleDeleteLocal = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (id === 'local_default') {
-      localStorage.removeItem('sinter_local_project');
-    }
+    if (id === 'local_default') localStorage.removeItem(LEGACY_LOCAL_KEY);
     setLocalProjectList(getLocalProjects());
     showToast('Deleted from browser');
   };
 
-  const handleDownloadCloud = async (id: string, name: string, e: React.MouseEvent) => {
+  const handleDownloadCloud = async (p: CloudProject, e: React.MouseEvent) => {
     e.stopPropagation();
     try {
-      const res = await fetch(`/api/projects/${id}`, { credentials: 'include' });
-      const data = await res.json();
-      const json = JSON.stringify({ projectName: data.name, tree: data.tree_json }, null, 2);
-      const blob = new Blob([json], { type: 'application/json' });
-      triggerDownload(blob, `${name}.json`);
-    } catch { /* */ }
+      const accessToken = await useAuthStore.getState().getAccessToken();
+      const body = await getStorageProvider(p.provider).read(accessToken, p.externalId);
+      const json = JSON.stringify({ projectName: p.name, tree: body?.tree ?? null }, null, 2);
+      triggerDownload(new Blob([json], { type: 'application/json' }), `${p.name}.json`);
+    } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : 'Download failed');
+    }
   };
 
-  const handleMoveToLocal = async (id: string, e: React.MouseEvent) => {
+  const handleMoveToLocal = async (p: CloudProject, e: React.MouseEvent) => {
     e.stopPropagation();
     try {
-      const res = await fetch(`/api/projects/${id}`, { credentials: 'include' });
-      const data = await res.json();
-      const json = JSON.stringify({ projectName: data.name, tree: data.tree_json });
-      localStorage.setItem('sinter_local_project', json);
-      // Delete from cloud
-      await fetch(`/api/projects/${id}`, { method: 'DELETE', credentials: 'include' });
-      setCloudProjects((prev) => prev.filter((p) => p.id !== id));
+      const accessToken = await useAuthStore.getState().getAccessToken();
+      const body = await getStorageProvider(p.provider).read(accessToken, p.externalId);
+      const json = JSON.stringify({ projectName: p.name, tree: body?.tree ?? null });
+      localStorage.setItem(LEGACY_LOCAL_KEY, json);
+      await deleteCloudProject(p.provider, p.externalId);
+      setCloudProjects((prev) => prev.filter((x) => x.externalId !== p.externalId));
       setLocalProjectList(getLocalProjects());
-      showToast(`Moved "${data.name}" to browser`);
-    } catch {
-      showToast('Failed to move');
+      showToast(`Moved "${p.name}" to browser`);
+    } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : 'Move failed');
     }
   };
 
   const handleMoveToCloud = async (e: React.MouseEvent) => {
     e.stopPropagation();
-    const legacy = localStorage.getItem('sinter_local_project');
+    const provider = getCurrentProvider();
+    if (!provider) {
+      showToast('Sign in to enable cloud storage');
+      return;
+    }
+    const legacy = localStorage.getItem(LEGACY_LOCAL_KEY);
     if (!legacy) return;
-    let data: any;
+    let data: { projectName?: string; tree?: unknown };
     try { data = JSON.parse(legacy); } catch { return; }
     try {
-      const res = await fetch('/api/projects', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ name: data.projectName || 'Untitled', tree_json: data.tree }),
-      });
-      if (!res.ok) {
-        const err = await res.json();
-        showToast(err.error || 'Move failed');
-        return;
-      }
-      const result = await res.json();
-      // Remove from local
-      localStorage.removeItem('sinter_local_project');
+      const accessToken = await useAuthStore.getState().getAccessToken();
+      const storage = getStorageProvider(provider);
+      const name = data.projectName || 'Untitled';
+      const result = await storage.create(accessToken, name, { version: 1, thumbnail: null, tree: data.tree ?? null });
+      localStorage.removeItem(LEGACY_LOCAL_KEY);
       setLocalProjectList(getLocalProjects());
-      setCloudProjects((prev) => [{
-        id: result.id,
-        name: data.projectName || 'Untitled',
-        thumbnail: null,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-        source: 'cloud',
-      }, ...prev]);
-      showToast(`Moved "${data.projectName || 'Untitled'}" to cloud`);
-    } catch {
-      showToast('Move failed — sign in to enable cloud storage');
+      setCloudProjects((prev) => [
+        {
+          externalId: result.externalId,
+          name,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          source: 'cloud',
+          provider,
+          thumbnail: null,
+        },
+        ...prev,
+      ]);
+      showToast(`Moved "${name}" to cloud`);
+    } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : 'Move failed');
     }
   };
 
   const formatDate = (d: string) => {
-    try { return new Date(d.includes('Z') ? d : d + 'Z').toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }); }
-    catch { return d; }
+    try {
+      return new Date(d).toLocaleDateString(undefined, {
+        month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+      });
+    } catch { return d; }
   };
 
   return (
@@ -163,7 +217,6 @@ export function ProjectList({ onSelect, onNew, onClose, onImport }: Props) {
            style={{ background: 'var(--bg-panel)', border: '1px solid var(--border-default)' }}
            onClick={(e) => e.stopPropagation()}>
 
-        {/* Header */}
         <div className="flex items-center justify-between px-5 py-3" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
           <span className="font-mono text-[11px] tracking-[0.15em] uppercase" style={{ color: 'var(--text-muted)' }}>Projects</span>
           <div className="flex gap-2">
@@ -173,18 +226,17 @@ export function ProjectList({ onSelect, onNew, onClose, onImport }: Props) {
                 Import File
               </button>
             )}
-            <button onClick={onNew} className="text-[11px] px-2.5 py-1 rounded font-medium"
+            <button onClick={() => { createProject(); onLoaded(); }} className="text-[11px] px-2.5 py-1 rounded font-medium"
                     style={{ background: 'var(--accent)', color: 'var(--bg-deep)' }}>
               + New Project
             </button>
-            <button onClick={onClose} className="text-sm ml-1" style={{ color: 'var(--text-muted)' }}>{'\u2715'}</button>
+            <button onClick={onClose} className="text-sm ml-1" style={{ color: 'var(--text-muted)' }}>{'✕'}</button>
           </div>
         </div>
 
         <div className="flex-1 overflow-y-auto p-3">
           {loading && <div className="text-sm text-center py-8" style={{ color: 'var(--text-muted)' }}>Loading...</div>}
 
-          {/* Local projects */}
           {localProjectList.length > 0 && (
             <div className="mb-4">
               <div className="flex items-center gap-2 px-2 mb-2">
@@ -193,7 +245,7 @@ export function ProjectList({ onSelect, onNew, onClose, onImport }: Props) {
               </div>
               {localProjectList.map((p) => (
                 <div key={p.id}
-                     onClick={() => { onSelect(p.id); }}
+                     onClick={() => selectLocal(p)}
                      className="flex items-center gap-3 px-3 py-2.5 rounded cursor-pointer group"
                      style={{ background: 'transparent' }}
                      onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
@@ -205,12 +257,14 @@ export function ProjectList({ onSelect, onNew, onClose, onImport }: Props) {
                     <div className="text-[10px]" style={{ color: 'var(--text-muted)' }}>Stored in browser &middot; {formatDate(p.updated_at)}</div>
                   </div>
                   <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button onClick={handleMoveToCloud}
-                            className="text-[11px] px-2 py-1 rounded flex items-center gap-1"
-                            style={{ background: 'var(--accent-subtle)', color: 'var(--accent)' }}
-                            title="Move to cloud storage">
-                      <span>&#x2191;</span> Cloud
-                    </button>
+                    {user && (
+                      <button onClick={handleMoveToCloud}
+                              className="text-[11px] px-2 py-1 rounded flex items-center gap-1"
+                              style={{ background: 'var(--accent-subtle)', color: 'var(--accent)' }}
+                              title="Move to cloud storage">
+                        <span>&#x2191;</span> Cloud
+                      </button>
+                    )}
                     <button onClick={(e) => handleDeleteLocal(p.id, e)}
                             className="text-[11px] px-2 py-1 rounded"
                             style={{ color: 'var(--accent-red)' }}
@@ -223,7 +277,6 @@ export function ProjectList({ onSelect, onNew, onClose, onImport }: Props) {
             </div>
           )}
 
-          {/* Cloud projects */}
           <div>
             <div className="flex items-center gap-2 px-2 mb-2">
               <span className="font-mono text-[9px] tracking-[0.15em] uppercase" style={{ color: 'var(--text-muted)' }}>Cloud</span>
@@ -231,12 +284,12 @@ export function ProjectList({ onSelect, onNew, onClose, onImport }: Props) {
             </div>
             {!loading && cloudProjects.length === 0 && (
               <div className="text-xs text-center py-4" style={{ color: 'var(--text-muted)' }}>
-                No cloud projects yet. Sign in and save to get started.
+                {user ? 'No cloud projects yet. Save one to get started.' : 'Sign in to see your cloud projects.'}
               </div>
             )}
             {cloudProjects.map((p) => (
-              <div key={p.id}
-                   onClick={() => onSelect(p.id)}
+              <div key={p.externalId}
+                   onClick={() => selectCloud(p)}
                    className="flex items-center gap-3 px-3 py-2.5 rounded cursor-pointer group"
                    style={{ background: 'transparent' }}
                    onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
@@ -249,22 +302,24 @@ export function ProjectList({ onSelect, onNew, onClose, onImport }: Props) {
                 )}
                 <div className="flex-1 min-w-0">
                   <div className="text-sm truncate" style={{ color: 'var(--text-primary)' }}>{p.name}</div>
-                  <div className="text-[10px]" style={{ color: 'var(--text-muted)' }}>Cloud &middot; {formatDate(p.updated_at)}</div>
+                  <div className="text-[10px]" style={{ color: 'var(--text-muted)' }}>
+                    {p.provider === 'google' ? 'Google Drive' : 'GitHub Gist'} &middot; {formatDate(p.updatedAt)}
+                  </div>
                 </div>
                 <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <button onClick={(e) => handleMoveToLocal(p.id, e)}
+                  <button onClick={(e) => handleMoveToLocal(p, e)}
                           className="text-[11px] px-2 py-1 rounded flex items-center gap-1"
                           style={{ background: 'var(--accent-subtle)', color: 'var(--accent)' }}
                           title="Move to browser storage">
                     <span>&#x2193;</span> Local
                   </button>
-                  <button onClick={(e) => handleDownloadCloud(p.id, p.name, e)}
+                  <button onClick={(e) => handleDownloadCloud(p, e)}
                           className="text-[11px] px-2 py-1 rounded flex items-center gap-1"
                           style={{ background: 'var(--bg-elevated)', color: 'var(--text-secondary)' }}
                           title="Download as .json file">
                     <span>&#x21E9;</span> File
                   </button>
-                  <button onClick={(e) => handleDeleteCloud(p.id, e)}
+                  <button onClick={(e) => handleDeleteCloud(p, e)}
                           className="text-[11px] px-2 py-1 rounded"
                           style={{ color: 'var(--accent-red)' }}
                           title="Delete from cloud">
@@ -276,7 +331,6 @@ export function ProjectList({ onSelect, onNew, onClose, onImport }: Props) {
           </div>
         </div>
 
-        {/* Toast */}
         {toast && (
           <div className="px-5 py-2.5 text-xs font-medium text-center"
                style={{ borderTop: '1px solid var(--border-subtle)', color: 'var(--text-secondary)' }}>

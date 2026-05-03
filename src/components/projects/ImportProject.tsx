@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import { getCurrentProvider, useAuthStore } from '../../store/authStore';
+import { getStorageProvider } from '../../storage';
 
 interface Props {
   onDone: () => void;
@@ -6,9 +8,15 @@ interface Props {
 
 export function ImportProject({ onDone }: Props) {
   const [importing, setImporting] = useState(false);
-  const [results, setResults] = useState<{ name: string; ok: boolean }[]>([]);
+  const [results, setResults] = useState<{ name: string; ok: boolean; error?: string }[]>([]);
 
   const handleImport = async () => {
+    const provider = getCurrentProvider();
+    if (!provider) {
+      setResults([{ name: 'Sign in required', ok: false, error: 'Sign in to import projects to your cloud' }]);
+      return;
+    }
+
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = '.json';
@@ -18,25 +26,21 @@ export function ImportProject({ onDone }: Props) {
       if (!files || files.length === 0) return;
 
       setImporting(true);
-      const importResults: { name: string; ok: boolean }[] = [];
+      const importResults: typeof results = [];
+      const accessToken = await useAuthStore.getState().getAccessToken();
+      const storage = getStorageProvider(provider);
 
       for (const file of Array.from(files)) {
+        let name = file.name.replace('.json', '');
         try {
           const text = await file.text();
           const data = JSON.parse(text);
-          const name = data.projectName || file.name.replace('.json', '');
+          name = data.projectName || name;
           const tree = data.tree || null;
-
-          const res = await fetch('/api/projects', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'include',
-            body: JSON.stringify({ name, tree_json: tree }),
-          });
-
-          importResults.push({ name, ok: res.ok });
-        } catch {
-          importResults.push({ name: file.name, ok: false });
+          await storage.create(accessToken, name, { version: 1, thumbnail: null, tree });
+          importResults.push({ name, ok: true });
+        } catch (err: unknown) {
+          importResults.push({ name, ok: false, error: err instanceof Error ? err.message : 'Failed' });
         }
       }
 
@@ -53,8 +57,7 @@ export function ImportProject({ onDone }: Props) {
         <h2 className="text-sm font-medium text-zinc-200 mb-4">Import Local Projects</h2>
 
         <p className="text-xs text-zinc-300 mb-4">
-          Select one or more .json project files exported from the community edition.
-          They'll be uploaded to your cloud account.
+          Select one or more .json project files exported from Sinter. They'll be uploaded to your cloud storage.
         </p>
 
         {results.length === 0 ? (
@@ -70,9 +73,10 @@ export function ImportProject({ onDone }: Props) {
             {results.map((r, i) => (
               <div key={i} className="flex items-center gap-2 text-xs">
                 <span className={r.ok ? 'text-emerald-400' : 'text-red-400'}>
-                  {r.ok ? '\u2713' : '\u2717'}
+                  {r.ok ? '✓' : '✗'}
                 </span>
                 <span className="text-zinc-300">{r.name}</span>
+                {r.error && <span className="text-red-400 text-[10px]">— {r.error}</span>}
               </div>
             ))}
           </div>

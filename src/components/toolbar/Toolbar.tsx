@@ -25,9 +25,7 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
   const saving = useProjectStore((s) => s.saving);
   const saveError = useProjectStore((s) => s.saveError);
   const clearSaveError = useProjectStore((s) => s.clearSaveError);
-  const loadProject = useProjectStore((s) => s.loadProject);
-  const createProject = useProjectStore((s) => s.createProject);
-  const shareToken = useProjectStore((s) => s.shareToken);
+  const shareUrl = useProjectStore((s) => s.shareUrl);
   const toggleShare = useProjectStore((s) => s.toggleShare);
   const projectId = useProjectStore((s) => s.projectId);
   const [showProjects, setShowProjects] = useState(false);
@@ -130,15 +128,14 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
         <IconBtn icon={<FolderOpen size={14} />} title="Projects" onClick={() => setShowProjects(true)} />
         <IconBtn icon={<Save size={14} />} title={saving ? 'Saving...' : 'Save to cloud'} onClick={handleSaveCloud} disabled={saving || !dirty} />
         {projectId && (
-          shareToken ? (
+          shareUrl ? (
             <IconBtn
               icon={<Link size={14} />}
               label={copied ? 'Copied!' : 'Shared'}
               title="Click to copy share link, Shift+click to revoke"
               onClick={() => {
                 if ((window.event as MouseEvent)?.shiftKey) { toggleShare(); return; }
-                const url = `${window.location.origin}/share/${shareToken}`;
-                navigator.clipboard.writeText(url).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); });
+                navigator.clipboard.writeText(shareUrl).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); });
               }}
             />
           ) : (
@@ -193,10 +190,9 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
             {projectId && (
               <>
                 <OverflowDivider />
-                {shareToken ? (
+                {shareUrl ? (
                   <OverflowItem label="Copy Share Link" onClick={() => {
-                    const url = `${window.location.origin}/share/${shareToken}`;
-                    navigator.clipboard.writeText(url);
+                    navigator.clipboard.writeText(shareUrl);
                     setShowOverflow(false);
                   }} />
                 ) : (
@@ -265,9 +261,8 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
 
     {showProjects && (
       <ProjectList
-        onSelect={async (id) => { await loadProject(id); setShowProjects(false); }}
-        onNew={async () => { await createProject(); setShowProjects(false); }}
         onClose={() => setShowProjects(false)}
+        onLoaded={() => setShowProjects(false)}
         onImport={() => { setShowProjects(false); setShowImport(true); }}
       />
     )}

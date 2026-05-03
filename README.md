@@ -77,16 +77,17 @@ To use AI chat, click the gear icon in the chat panel and enter your Anthropic o
 
 ## Self-Hosting
 
-Sinter can be self-hosted. Copy `.env.example` and configure:
+Sinter is a static site that deploys to [Cloudflare Pages](https://pages.cloudflare.com). The only server-side code is two small Pages Functions that hold the OAuth client secrets and exchange `code` for tokens. Everything else (project storage, sharing) is browser → provider direct.
 
-```bash
-cp .env.example .env
-```
+See [DEPLOY.md](./DEPLOY.md) for the full deployment runbook, including how to migrate from a previous Fly.io deploy without losing data.
 
-Required for cloud storage:
-- **Google OAuth**: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` — [console.cloud.google.com](https://console.cloud.google.com/apis/credentials)
-- **GitHub OAuth**: `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` — [github.com/settings/applications/new](https://github.com/settings/applications/new)
-- **Session secret**: `SESSION_SECRET` — generate with `openssl rand -hex 32`
+Quick version:
+1. Create OAuth apps (callback URL: `https://YOUR_DOMAIN/auth/callback`):
+   - **Google**: [console.cloud.google.com](https://console.cloud.google.com/apis/credentials) — scope `drive.file`
+   - **GitHub**: [github.com/settings/applications/new](https://github.com/settings/applications/new) — scope `gist`
+2. Set GitHub Actions secrets: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `VITE_GOOGLE_CLIENT_ID`, `VITE_GITHUB_CLIENT_ID`.
+3. Set Cloudflare Pages environment variables: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`.
+4. Push to `main`.
 
 Without OAuth configured, the app still works fully for local modeling and AI chat — cloud save/load just won't be available.
 
@@ -95,7 +96,8 @@ Without OAuth configured, the app still works fully for local modeling and AI ch
 - **Frontend**: React, TypeScript, Vite, Tailwind CSS
 - **3D Viewport**: Three.js (pure, no R3F)
 - **Geometry**: Custom SDF engine with GPU ray marching and marching cubes export
-- **Server**: Express.js, SQLite (better-sqlite3), Passport.js
+- **Hosting**: Cloudflare Pages (static) + Pages Functions (OAuth token exchange)
+- **Storage**: User's own Google Drive or GitHub Gists, accessed directly from the browser
 - **State**: Zustand
 - **Font**: Outfit + JetBrains Mono
 - **Tests**: Vitest (unit) + Playwright (E2E)

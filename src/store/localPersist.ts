@@ -1,15 +1,23 @@
 import { useModelerStore } from './modelerStore';
+import { ensureConsent, hasConsent } from './consent';
 
 const STORAGE_KEY = 'sinter_local_project';
 let lastSavedJSON = '';
 let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 let unsub: (() => void) | null = null;
+let consentRequested = false;
 
 export function isDirty(): boolean {
   return useModelerStore.getState().toJSON() !== lastSavedJSON;
 }
 
-export function saveToLocal() {
+export async function saveToLocal() {
+  if (!hasConsent()) {
+    if (consentRequested) return; // already asked once this session
+    consentRequested = true;
+    const granted = await ensureConsent('local');
+    if (!granted) return;
+  }
   try {
     const json = useModelerStore.getState().toJSON();
     localStorage.setItem(STORAGE_KEY, json);

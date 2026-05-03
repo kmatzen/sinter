@@ -1,25 +1,17 @@
 import { useState, useEffect } from 'react';
 import { HeroDemo } from './HeroDemo';
-import { hasConsent, requestConsent } from '../ui/CookieConsent';
+import { ensureConsent } from '../../store/consent';
 
 export function LandingPage({ onLaunch }: { onLaunch: () => void }) {
-  const handleLaunch = () => {
-    if (!hasConsent()) {
-      requestConsent();
-      const handler = () => { onLaunch(); window.removeEventListener('cookie-consent-accepted', handler); };
-      window.addEventListener('cookie-consent-accepted', handler);
-      return;
-    }
+  const handleLaunch = async () => {
+    const granted = await ensureConsent('local');
+    if (!granted) return;
     onLaunch();
   };
 
-  const handleSignIn = () => {
-    if (!hasConsent()) {
-      requestConsent();
-      const handler = () => { window.location.href = '/app'; window.removeEventListener('cookie-consent-accepted', handler); };
-      window.addEventListener('cookie-consent-accepted', handler);
-      return;
-    }
+  const handleSignIn = async () => {
+    const granted = await ensureConsent('signin');
+    if (!granted) return;
     window.location.href = '/app';
   };
   const [showTOS, setShowTOS] = useState(false);

@@ -1,145 +1,178 @@
 import { create } from 'zustand';
 import { useModelerStore } from './modelerStore';
+import { useAuthStore, getCurrentProvider } from './authStore';
 import { captureCanvasThumbnail } from '../utils/thumbnail';
+import { getStorageProvider, buildShareUrl, type ProviderName, type ProjectFileBody } from '../storage';
+import { getThumbnail, putThumbnail, deleteThumbnail } from '../storage/thumbnailCache';
 
 interface ProjectState {
-  projectId: string | null;
+  provider: ProviderName | null;
+  projectId: string | null; // external ID at the provider
+  /** Name last persisted at the provider (so we know whether to call rename). */
+  remoteName: string;
   lastSavedHash: string;
   saving: boolean;
   dirty: boolean;
   saveError: string | null;
-  shareToken: string | null;
+  /** App share URL (origin + /shared#...) when this project is shareable, else null. */
+  shareUrl: string | null;
 
-  setProjectId: (id: string | null) => void;
+  setProjectId: (id: string | null, provider?: ProviderName | null) => void;
   save: () => Promise<void>;
-  loadProject: (id: string) => Promise<void>;
-  createProject: () => Promise<string>;
+  loadProject: (provider: ProviderName, externalId: string, name: string) => Promise<void>;
+  createProject: () => void;
   toggleShare: () => Promise<void>;
   markClean: () => void;
   clearSaveError: () => void;
 }
 
-function treeHash(): string {
+function bodyHash(): string {
   const { tree, projectName } = useModelerStore.getState();
   return JSON.stringify({ tree, projectName });
 }
 
 export const useProjectStore = create<ProjectState>((set, get) => ({
+  provider: null,
   projectId: null,
+  remoteName: '',
   lastSavedHash: '',
   saving: false,
   dirty: false,
   saveError: null,
-  shareToken: null,
+  shareUrl: null,
 
-  setProjectId: (id) => set({ projectId: id }),
+  setProjectId: (id, provider) => set({ projectId: id, provider: provider ?? null }),
 
-  markClean: () => set({ lastSavedHash: treeHash(), dirty: false }),
+  markClean: () => set({ lastSavedHash: bodyHash(), dirty: false }),
   clearSaveError: () => set({ saveError: null }),
 
   save: async () => {
-    const { projectId, saving } = get();
+    const { saving, projectId, provider, remoteName } = get();
     if (saving) return;
 
-    const hash = treeHash();
-    if (hash === get().lastSavedHash) return;
+    const hash = bodyHash();
+    if (hash === get().lastSavedHash && projectId) return;
 
     set({ saving: true, saveError: null });
-    const { tree, projectName } = useModelerStore.getState();
-    const thumbnail = captureCanvasThumbnail();
-    const body = { name: projectName, tree_json: tree, thumbnail };
-
     try {
-      if (projectId) {
-        const res = await fetch(`/api/projects/${projectId}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify(body),
-        });
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({ error: res.statusText }));
-          throw new Error(err.error || `Save failed (${res.status})`);
+      const { projectName, tree } = useModelerStore.getState();
+      const thumbnail = captureCanvasThumbnail();
+      const body: ProjectFileBody = { version: 1, thumbnail, tree };
+
+      const activeProvider = provider ?? getCurrentProvider();
+      if (!activeProvider) throw new Error('Sign in to save to cloud');
+      const accessToken = await useAuthStore.getState().getAccessToken();
+      const storage = getStorageProvider(activeProvider);
+
+      let externalId = projectId;
+      if (externalId) {
+        await storage.update(accessToken, externalId, body);
+        if (projectName !== remoteName) {
+          await storage.rename(accessToken, externalId, projectName);
         }
       } else {
-        // Auto-create a new project on first save
-        const res = await fetch('/api/projects', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify(body),
-        });
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({ error: res.statusText }));
-          throw new Error(err.error || `Save failed (${res.status})`);
-        }
-        const data = await res.json();
-        set({ projectId: data.id });
+        const result = await storage.create(accessToken, projectName, body);
+        externalId = result.externalId;
       }
-      set({ lastSavedHash: hash, dirty: false });
-    } catch (err: any) {
+
+      if (thumbnail) await putThumbnail(externalId, thumbnail);
+
+      set({
+        provider: activeProvider,
+        projectId: externalId,
+        remoteName: projectName,
+        lastSavedHash: hash,
+        dirty: false,
+      });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Save failed';
       console.error('Save failed:', err);
-      set({ saveError: err.message || 'Save failed' });
+      set({ saveError: message });
     } finally {
       set({ saving: false });
     }
   },
 
-  loadProject: async (id: string) => {
-    const res = await fetch(`/api/projects/${id}`, { credentials: 'include' });
-    if (!res.ok) throw new Error('Failed to load project');
-    const data = await res.json();
-    const store = useModelerStore.getState();
-    store.setProjectName(data.name || 'Untitled');
-    if (data.tree_json) {
-      let tree;
-      try { tree = typeof data.tree_json === 'string' ? JSON.parse(data.tree_json) : data.tree_json; } catch { tree = null; }
-      store.setTree(tree);
-    } else {
-      store.setTree(null);
-    }
-    set({ projectId: id, shareToken: data.share_token || null, lastSavedHash: treeHash(), dirty: false });
+  loadProject: async (provider, externalId, name) => {
+    const accessToken = await useAuthStore.getState().getAccessToken();
+    const storage = getStorageProvider(provider);
+    const body = await storage.read(accessToken, externalId);
+
+    const modeler = useModelerStore.getState();
+    modeler.setProjectName(name || 'Untitled');
+    modeler.setTree((body?.tree ?? null) as Parameters<typeof modeler.setTree>[0]);
+
+    if (body?.thumbnail) await putThumbnail(externalId, body.thumbnail);
+
+    let shareUrl: string | null = null;
+    try {
+      if (provider === 'github') {
+        // Gists are always URL-accessible; share URL exists by definition.
+        shareUrl = buildShareUrl(provider, externalId);
+      } else if (await storage.isPublic(accessToken, externalId)) {
+        shareUrl = buildShareUrl(provider, externalId);
+      }
+    } catch { /* sharing state best-effort */ }
+
+    set({
+      provider,
+      projectId: externalId,
+      remoteName: name,
+      lastSavedHash: bodyHash(),
+      dirty: false,
+      shareUrl,
+    });
+  },
+
+  createProject: () => {
+    useModelerStore.getState().setTree(null);
+    useModelerStore.getState().setProjectName('Untitled');
+    set({
+      projectId: null,
+      provider: null,
+      remoteName: '',
+      lastSavedHash: bodyHash(),
+      dirty: false,
+      shareUrl: null,
+    });
   },
 
   toggleShare: async () => {
-    const { projectId } = get();
-    if (!projectId) return;
-    const res = await fetch(`/api/projects/${projectId}/share`, {
-      method: 'POST',
-      credentials: 'include',
-    });
-    if (!res.ok) return;
-    const data = await res.json();
-    set({ shareToken: data.share_token || null });
-  },
-
-  createProject: async () => {
-    const res = await fetch('/api/projects', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({ name: 'Untitled' }),
-    });
-    const data = await res.json();
-    useModelerStore.getState().setTree(null);
-    useModelerStore.getState().setProjectName('Untitled');
-    set({ projectId: data.id, lastSavedHash: treeHash(), dirty: false });
-    return data.id;
+    const { projectId, provider, shareUrl } = get();
+    if (!projectId || !provider) return;
+    const accessToken = await useAuthStore.getState().getAccessToken();
+    const storage = getStorageProvider(provider);
+    if (provider === 'google') {
+      const makePublic = !shareUrl;
+      await storage.setPublic(accessToken, projectId, makePublic);
+      set({ shareUrl: makePublic ? buildShareUrl(provider, projectId) : null });
+    } else {
+      // Gist: URL is permanent; "revoke" only forgets the URL locally.
+      set({ shareUrl: shareUrl ? null : buildShareUrl(provider, projectId) });
+    }
   },
 }));
 
-// Auto-save: check every 30 seconds
+export async function deleteCloudProject(provider: ProviderName, externalId: string): Promise<void> {
+  const accessToken = await useAuthStore.getState().getAccessToken();
+  const storage = getStorageProvider(provider);
+  await storage.delete(accessToken, externalId);
+  await deleteThumbnail(externalId);
+}
+
+export async function loadThumbnail(externalId: string): Promise<string | null> {
+  return getThumbnail(externalId);
+}
+
+// Auto-save: every 30 seconds, save if dirty.
 let autoSaveInterval: ReturnType<typeof setInterval> | null = null;
 
 export function startAutoSave() {
   if (autoSaveInterval) return;
   autoSaveInterval = setInterval(() => {
-    const { projectId } = useProjectStore.getState();
-    if (projectId) {
-      const hash = treeHash();
-      if (hash !== useProjectStore.getState().lastSavedHash) {
-        useProjectStore.getState().save();
-      }
+    const { projectId, lastSavedHash } = useProjectStore.getState();
+    if (projectId && bodyHash() !== lastSavedHash) {
+      void useProjectStore.getState().save();
     }
   }, 30000);
 }

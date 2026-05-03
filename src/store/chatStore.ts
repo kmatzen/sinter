@@ -4,6 +4,7 @@ import { buildSystemPrompt } from '../llm/systemPrompt';
 import { parseResponse } from '../llm/parseResponse';
 import { useModelerStore } from './modelerStore';
 import { getEngineRef } from '../engine/engineRef';
+import { ensureConsent, hasConsent } from './consent';
 export interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
@@ -65,7 +66,11 @@ function loadSettings(): { apiKey: string; apiEndpoint: string; model: string; p
   return { apiKey: '', apiEndpoint: '', model: 'claude-opus-4-7', provider: 'anthropic' };
 }
 
-function saveSettings(s: { apiKey: string; apiEndpoint: string; model: string; provider: string }) {
+async function saveSettings(s: { apiKey: string; apiEndpoint: string; model: string; provider: string }) {
+  if (!hasConsent()) {
+    const granted = await ensureConsent('apikey');
+    if (!granted) return;
+  }
   try {
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
   } catch { /* */ }
