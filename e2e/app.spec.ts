@@ -81,7 +81,7 @@ test.describe('Landing Page', () => {
   });
 
   test('TOS modal opens and closes', async ({ page }) => {
-    await page.locator('button:has-text("Terms of Service")').click();
+    await page.locator('footer a:has-text("Terms of Service")').click();
     await expect(page.locator('text=Acceptance of Terms')).toBeVisible({ timeout: 5000 });
     await page.locator('.fixed .text-lg').click();
     await expect(page.locator('text=Acceptance of Terms')).not.toBeVisible();
