@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Privacy Policy — Sinter</title>
+    <meta name="description" content="Privacy Policy for Sinter, the AI-powered 3D modeling tool for 3D printing." />
+    <meta name="robots" content="index, follow" />
+    <link rel="canonical" href="https://sinter-3d.com/privacy" />
+    <link rel="icon" type="image/png" href="/favicon.png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <meta name="theme-color" content="#101018" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+    <style>
+      :root {
+        --bg-deep: #101018;
+        --bg-panel: #18182a;
+        --border-default: rgba(255, 255, 255, 0.14);
+        --text-primary: #f5f5ff;
+        --text-secondary: #c8c8de;
+        --text-muted: #a8a8c0;
+        --accent: #d4845a;
+        --accent-hover: #e0956b;
+      }
+      * { box-sizing: border-box; }
+      html { -webkit-text-size-adjust: 100%; }
+      body {
+        margin: 0;
+        font-family: 'Outfit', system-ui, -apple-system, sans-serif;
+        background: var(--bg-deep);
+        color: var(--text-secondary);
+        line-height: 1.65;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+      }
+      .wrap { max-width: 720px; margin: 0 auto; padding: 48px 24px 96px; }
+      header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 40px; }
+      .brand { display: flex; align-items: center; gap: 10px; text-decoration: none; }
+      .brand img { width: 28px; height: 28px; border-radius: 6px; }
+      .brand span { font-size: 16px; font-weight: 600; color: var(--text-primary); }
+      .back { font-size: 14px; color: var(--text-muted); text-decoration: none; }
+      .back:hover { color: var(--text-secondary); }
+      h1 { font-size: 30px; font-weight: 700; color: var(--text-primary); margin: 0 0 6px; }
+      .updated { font-size: 13px; color: var(--text-muted); margin: 0 0 32px; }
+      h2 { font-size: 18px; font-weight: 600; color: var(--text-primary); margin: 36px 0 8px; }
+      p { font-size: 15px; margin: 0 0 14px; }
+      strong { color: var(--text-primary); font-weight: 600; }
+      a { color: var(--accent); }
+      a:hover { color: var(--accent-hover); }
+      footer {
+        margin-top: 56px; padding-top: 24px;
+        border-top: 1px solid var(--border-default);
+        font-size: 13px; color: var(--text-muted);
+      }
+      footer a { color: var(--text-secondary); text-decoration: none; }
+      footer a:hover { text-decoration: underline; }
+      .sep { margin: 0 8px; }
+    </style>
+  </head>
+  <body>
+    <main class="wrap">
+      <header>
+        <a class="brand" href="/">
+          <img src="/logo-64.png" alt="" />
+          <span>Sinter</span>
+        </a>
+        <a class="back" href="/">&larr; Back to Sinter</a>
+      </header>
+
+      <h1>Privacy Policy</h1>
+      <p class="updated">Last updated: April 2026</p>
+
+      <h2>1. Information We Collect</h2>
+      <p><strong>Account information:</strong> When you sign in with Google or GitHub, we receive your name, email address, and profile photo. We also receive an OAuth access token to read/write files in your GitHub Gists or Google Drive on your behalf.</p>
+      <p><strong>Project metadata:</strong> We store project names, timestamps, and thumbnails in our database. Project file data (your 3D models) is stored in your own GitHub Gists or Google Drive — not on our servers.</p>
+      <p><strong>API keys:</strong> Your AI API keys (Anthropic/OpenAI) are stored only in your browser's session memory. They are sent directly from your browser to the AI provider and never pass through our servers.</p>
+
+      <h2>2. Cookies and Local Storage</h2>
+      <p><strong>Session cookie:</strong> A single HTTP-only session cookie is used for authentication. It expires after 30 days of inactivity.</p>
+      <p><strong>Local storage:</strong> We use browser local storage to save your project locally as a backup, remember your preferences, and track cookie consent. No tracking cookies or third-party analytics are used.</p>
+
+      <h2>3. How We Use Your Information</h2>
+      <p>We use your information solely to: provide and maintain the service, authenticate you, and read/write project files to your cloud storage on your behalf.</p>
+
+      <h2>4. AI Processing</h2>
+      <p>When you use AI chat, your messages and viewport screenshots are sent directly from your browser to the AI provider (Anthropic or OpenAI) using your own API key. This data does not pass through our servers.</p>
+
+      <h2>5. OAuth Tokens</h2>
+      <p>We store your OAuth access token (and refresh token for Google) to read and write project files to your cloud storage. These tokens are scoped to only access files created by Sinter (GitHub gist scope, Google Drive file scope). You can revoke access at any time through your GitHub or Google account settings.</p>
+
+      <h2>6. Data Sharing</h2>
+      <p>We do not sell, rent, or share your personal information with third parties. The only external services we interact with on your behalf are GitHub/Google (for storage) based on your explicit authentication.</p>
+
+      <h2>7. Data Storage and Security</h2>
+      <p>Project metadata is stored in a SQLite database on our server. Project file data is stored in your own cloud storage. We use HTTPS, HTTP-only cookies, and standard security practices. No system is 100% secure.</p>
+
+      <h2>8. Your Rights</h2>
+      <p>You can: access and download your project data at any time from your own GitHub/Google account, revoke Sinter's access through your OAuth provider's settings, and request deletion of your account metadata from our database. For EU residents, you have additional rights under GDPR including the right to erasure, portability, and objection to processing.</p>
+
+      <h2>9. Data Retention</h2>
+      <p>Account metadata is retained as long as your account is active. If you delete your account, metadata is removed from our database. Your project files in GitHub Gists or Google Drive are unaffected — they remain in your own storage.</p>
+
+      <h2>10. Changes to This Policy</h2>
+      <p>We may update this policy from time to time. Continued use of the service constitutes acceptance of any changes.</p>
+
+      <h2>11. Contact</h2>
+      <p>For privacy questions, open an issue on <a href="https://github.com/kmatzen/sinter">GitHub</a>.</p>
+
+      <footer>
+        &copy; <span id="year">2026</span> Kevin Blackburn-Matzen.
+        <span class="sep">·</span>
+        <a href="/">Home</a>
+        <span class="sep">·</span>
+        <a href="/terms">Terms of Service</a>
+        <span class="sep">·</span>
+        <a href="https://github.com/kmatzen/sinter">GitHub</a>
+      </footer>
+    </main>
+    <script>document.getElementById('year').textContent = new Date().getFullYear();</script>
+  </body>
+</html>
