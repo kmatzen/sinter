@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Terms of Service — Sinter</title>
+    <meta name="description" content="Terms of Service for Sinter, the AI-powered 3D modeling tool for 3D printing." />
+    <meta name="robots" content="index, follow" />
+    <link rel="canonical" href="https://sinter-3d.com/terms" />
+    <link rel="icon" type="image/png" href="/favicon.png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <meta name="theme-color" content="#101018" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+    <style>
+      :root {
+        --bg-deep: #101018;
+        --bg-panel: #18182a;
+        --border-default: rgba(255, 255, 255, 0.14);
+        --text-primary: #f5f5ff;
+        --text-secondary: #c8c8de;
+        --text-muted: #a8a8c0;
+        --accent: #d4845a;
+        --accent-hover: #e0956b;
+      }
+      * { box-sizing: border-box; }
+      html { -webkit-text-size-adjust: 100%; }
+      body {
+        margin: 0;
+        font-family: 'Outfit', system-ui, -apple-system, sans-serif;
+        background: var(--bg-deep);
+        color: var(--text-secondary);
+        line-height: 1.65;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+      }
+      .wrap { max-width: 720px; margin: 0 auto; padding: 48px 24px 96px; }
+      header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 40px; }
+      .brand { display: flex; align-items: center; gap: 10px; text-decoration: none; }
+      .brand img { width: 28px; height: 28px; border-radius: 6px; }
+      .brand span { font-size: 16px; font-weight: 600; color: var(--text-primary); }
+      .back { font-size: 14px; color: var(--text-muted); text-decoration: none; }
+      .back:hover { color: var(--text-secondary); }
+      h1 { font-size: 30px; font-weight: 700; color: var(--text-primary); margin: 0 0 6px; }
+      .updated { font-size: 13px; color: var(--text-muted); margin: 0 0 32px; }
+      h2 { font-size: 18px; font-weight: 600; color: var(--text-primary); margin: 36px 0 8px; }
+      p { font-size: 15px; margin: 0 0 14px; }
+      a { color: var(--accent); }
+      a:hover { color: var(--accent-hover); }
+      footer {
+        margin-top: 56px; padding-top: 24px;
+        border-top: 1px solid var(--border-default);
+        font-size: 13px; color: var(--text-muted);
+      }
+      footer a { color: var(--text-secondary); text-decoration: none; }
+      footer a:hover { text-decoration: underline; }
+      .sep { margin: 0 8px; }
+    </style>
+  </head>
+  <body>
+    <main class="wrap">
+      <header>
+        <a class="brand" href="/">
+          <img src="/logo-64.png" alt="" />
+          <span>Sinter</span>
+        </a>
+        <a class="back" href="/">&larr; Back to Sinter</a>
+      </header>
+
+      <h1>Terms of Service</h1>
+      <p class="updated">Last updated: April 16, 2026</p>
+
+      <h2>1. Acceptance of Terms</h2>
+      <p>By accessing or using Sinter ("the Service"), you agree to be bound by these Terms of Service. If you do not agree, do not use the Service.</p>
+
+      <h2>2. Description of Service</h2>
+      <p>Sinter is a free, open-source, AI-powered 3D modeling tool for 3D printing. You bring your own AI API key (Anthropic or OpenAI) and sign in with GitHub or Google to store projects in your own cloud storage (GitHub Gists or Google Drive).</p>
+
+      <h2>3. Accounts</h2>
+      <p>You may sign in using Google or GitHub OAuth. Authentication is used to connect your cloud storage and enable project saving and sharing. You are responsible for maintaining the security of your account and API keys.</p>
+
+      <h2>4. Your Content</h2>
+      <p>You retain all rights to models and designs you create using Sinter. Your project data is stored in your own GitHub Gists or Google Drive — we do not store project files on our servers. We store only project metadata (names, timestamps, thumbnails) in our database.</p>
+
+      <h2>5. API Keys</h2>
+      <p>Your AI API keys are stored only in your browser's memory and are sent directly from your browser to the AI provider. We never see, store, or transmit your API keys through our servers.</p>
+
+      <h2>6. Acceptable Use</h2>
+      <p>You agree not to: abuse or overload the Service; attempt to access other users' data; use the Service for illegal purposes; reverse-engineer the Service beyond what is permitted by the open-source license.</p>
+
+      <h2>7. AI Features</h2>
+      <p>AI-generated model suggestions are provided as-is. You are responsible for reviewing and validating any AI-generated geometry before manufacturing. We make no guarantees about the printability, structural integrity, or fitness for purpose of AI-generated designs.</p>
+
+      <h2>8. Limitation of Liability</h2>
+      <p>The Service is provided "as is" without warranties of any kind. We are not liable for any damages arising from the use of the Service, including but not limited to failed prints, material waste, or equipment damage resulting from models created with Sinter.</p>
+
+      <h2>9. Termination</h2>
+      <p>We may suspend or terminate your access to the Service at any time for violation of these terms. Your project data in GitHub Gists or Google Drive remains yours and is unaffected by account termination.</p>
+
+      <h2>10. Changes to Terms</h2>
+      <p>We may update these terms from time to time. Continued use of the Service after changes constitutes acceptance of the new terms.</p>
+
+      <h2>11. Contact</h2>
+      <p>For questions about these terms, open an issue on <a href="https://github.com/kmatzen/sinter">GitHub</a>.</p>
+
+      <footer>
+        &copy; <span id="year">2026</span> Kevin Blackburn-Matzen.
+        <span class="sep">·</span>
+        <a href="/">Home</a>
+        <span class="sep">·</span>
+        <a href="/privacy">Privacy Policy</a>
+        <span class="sep">·</span>
+        <a href="https://github.com/kmatzen/sinter">GitHub</a>
+      </footer>
+    </main>
+    <script>document.getElementById('year').textContent = new Date().getFullYear();</script>
+  </body>
+</html>
