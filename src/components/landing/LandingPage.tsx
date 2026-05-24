@@ -238,9 +238,9 @@ export function LandingPage({ onLaunch }: { onLaunch: () => void }) {
           {' · '}
           <a href="/LICENSE" className="hover:underline" style={{ color: 'var(--text-secondary)' }}>License</a>
           {' · '}
-          <button onClick={() => setShowTOS(true)} className="hover:underline" style={{ color: 'var(--text-secondary)' }}>Terms of Service</button>
+          <a href="/terms" onClick={(e) => { e.preventDefault(); setShowTOS(true); }} className="hover:underline" style={{ color: 'var(--text-secondary)' }}>Terms of Service</a>
           {' · '}
-          <button onClick={() => setShowPrivacy(true)} className="hover:underline" style={{ color: 'var(--text-secondary)' }}>Privacy Policy</button>
+          <a href="/privacy" onClick={(e) => { e.preventDefault(); setShowPrivacy(true); }} className="hover:underline" style={{ color: 'var(--text-secondary)' }}>Privacy Policy</a>
         </p>
       </footer>
 
