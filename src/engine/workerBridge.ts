@@ -2,15 +2,34 @@ import type { WorkerRequest, WorkerResponse, ClipPlane } from '../types/geometry
 import type { SDFNodeUI } from '../types/operations';
 import type { SDFDisplayData } from '../store/modelerStore';
 
-type ResponseHandler = (response: WorkerResponse) => void;
 type ProgressHandler = (stage: string, percent: number) => void;
+
+/**
+ * One in-flight request. Registered under its correlation id when the request
+ * is posted, removed when — and only when — its promise settles.
+ *
+ * Invariant (HandlerAgreesWithSettled in specs/WorkerBridgeFixed.tla):
+ * an id is present in `pending` iff its promise has not settled. Every path
+ * that deletes an entry must settle it, and vice versa.
+ */
+interface PendingRequest {
+  kind: 'evaluate' | 'export';
+  /** For evaluates: the evalSeq at issue time, used to detect supersession. */
+  seq: number;
+  /** Blob MIME type for exports. */
+  mime: string;
+  resolve: (value: any) => void;
+  reject: (error: Error) => void;
+  onProgress?: ProgressHandler;
+}
 
 class WorkerBridge {
   private worker: Worker;
   private readyPromise: Promise<void>;
   private resolveReady!: () => void;
-  private responseHandler: ResponseHandler | null = null;
-  private progressHandler: ProgressHandler | null = null;
+  /** Correlation id -> in-flight request. Replaces the old single handler slot. */
+  private pending = new Map<number, PendingRequest>();
+  private nextRid = 1;
   private evalSeq = 0;
 
   constructor() {
@@ -21,55 +40,97 @@ class WorkerBridge {
     this.worker.onmessage = (event: MessageEvent<WorkerResponse>) => {
       const msg = event.data;
       if (msg.type === 'ready') { this.resolveReady(); return; }
-      if (msg.type === 'progress') { if (this.progressHandler) this.progressHandler(msg.stage, msg.percent); return; }
-      if (this.responseHandler) this.responseHandler(msg);
+
+      // Route by correlation id alone — never by message type. A response for
+      // an unknown id is one we have already settled; drop it.
+      const req = this.pending.get(msg.rid);
+      if (!req) return;
+
+      if (msg.type === 'progress') {
+        req.onProgress?.(msg.stage, msg.percent);
+        return;
+      }
+
+      this.pending.delete(msg.rid);
+
+      if (msg.type === 'error') {
+        req.reject(new Error(msg.message));
+        return;
+      }
+
+      if (req.kind === 'evaluate') {
+        if (msg.type !== 'sdf') {
+          req.reject(new Error(`Unexpected '${msg.type}' response for evaluate request`));
+          return;
+        }
+        // A superseded evaluate still settles. Staleness is the caller's
+        // concern — useEvaluator has its own evalSeq guard — but the promise
+        // must never be stranded.
+        if (req.seq !== this.evalSeq) { req.resolve(null); return; }
+        if (!msg.glsl) { req.resolve(null); return; }
+        req.resolve({
+          glsl: msg.glsl,
+          paramCount: msg.paramCount,
+          paramValues: msg.paramValues,
+          textures: msg.textures || [],
+          bbMin: msg.bbMin,
+          bbMax: msg.bbMax,
+          hasWarn: !!msg.hasWarn,
+        });
+        return;
+      }
+
+      if (msg.type !== 'exportResult') {
+        req.reject(new Error(`Unexpected '${msg.type}' response for export request`));
+        return;
+      }
+      req.resolve(new Blob([msg.data], { type: req.mime }));
     };
 
-    this.worker.onerror = (err) => console.error('Worker error:', err);
+    // A worker-level failure settles everything outstanding; otherwise every
+    // pending promise hangs forever.
+    this.worker.onerror = (err) => {
+      console.error('Worker error:', err);
+      const outstanding = [...this.pending.values()];
+      this.pending.clear();
+      for (const req of outstanding) {
+        req.reject(new Error(err.message || 'Worker error'));
+      }
+    };
+  }
+
+  private async issue<T>(
+    build: (rid: number) => WorkerRequest,
+    entry: Omit<PendingRequest, 'resolve' | 'reject'>,
+  ): Promise<T> {
+    await this.readyPromise;
+    const rid = this.nextRid++;
+    return new Promise<T>((resolve, reject) => {
+      this.pending.set(rid, { ...entry, resolve, reject });
+      this.worker.postMessage(build(rid));
+    });
   }
 
   async evaluate(tree: SDFNodeUI | null, _resolution?: number, clip?: ClipPlane): Promise<SDFDisplayData | null> {
-    await this.readyPromise;
     const seq = ++this.evalSeq;
-    return new Promise((resolve, reject) => {
-      this.responseHandler = (msg) => {
-        // Ignore responses for stale evaluate calls
-        if (seq !== this.evalSeq) return;
-        if (msg.type === 'sdf') {
-          if (!msg.glsl) {
-            resolve(null);
-          } else {
-            resolve({ glsl: msg.glsl, paramCount: msg.paramCount, paramValues: msg.paramValues, textures: msg.textures || [], bbMin: msg.bbMin, bbMax: msg.bbMax, hasWarn: !!msg.hasWarn });
-          }
-        } else if (msg.type === 'error') reject(new Error(msg.message));
-      };
-      const req: WorkerRequest = { type: 'evaluate', tree, clip };
-      this.worker.postMessage(req);
-    });
+    return this.issue<SDFDisplayData | null>(
+      (rid) => ({ type: 'evaluate', rid, tree, clip }),
+      { kind: 'evaluate', seq, mime: '' },
+    );
   }
 
   async exportSTL(tree: SDFNodeUI | null, onProgress?: ProgressHandler): Promise<Blob> {
-    await this.readyPromise;
-    return new Promise((resolve, reject) => {
-      this.progressHandler = onProgress || null;
-      this.responseHandler = (msg) => {
-        if (msg.type === 'exportResult') { this.progressHandler = null; resolve(new Blob([msg.data], { type: 'application/octet-stream' })); }
-        else if (msg.type === 'error') { this.progressHandler = null; reject(new Error(msg.message)); }
-      };
-      this.worker.postMessage({ type: 'exportSTL', tree } as WorkerRequest);
-    });
+    return this.issue<Blob>(
+      (rid) => ({ type: 'exportSTL', rid, tree }),
+      { kind: 'export', seq: 0, mime: 'application/octet-stream', onProgress },
+    );
   }
 
   async export3MF(tree: SDFNodeUI | null, onProgress?: ProgressHandler): Promise<Blob> {
-    await this.readyPromise;
-    return new Promise((resolve, reject) => {
-      this.progressHandler = onProgress || null;
-      this.responseHandler = (msg) => {
-        if (msg.type === 'exportResult') { this.progressHandler = null; resolve(new Blob([msg.data], { type: 'application/vnd.ms-package.3dmanufacturing-3dmodel+xml' })); }
-        else if (msg.type === 'error') { this.progressHandler = null; reject(new Error(msg.message)); }
-      };
-      this.worker.postMessage({ type: 'export3MF', tree } as WorkerRequest);
-    });
+    return this.issue<Blob>(
+      (rid) => ({ type: 'export3MF', rid, tree }),
+      { kind: 'export', seq: 0, mime: 'application/vnd.ms-package.3dmanufacturing-3dmodel+xml', onProgress },
+    );
   }
 }
 

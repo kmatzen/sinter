@@ -12,15 +12,19 @@ export interface ClipPlane {
   position: number;
 }
 
+// Every request carries a correlation id `rid`, echoed back on every response
+// it produces. The bridge routes responses by rid alone — never by message
+// type — so concurrent requests cannot displace or settle each other. See
+// specs/WorkerBridgeFixed.tla.
 export type WorkerRequest =
-  | { type: 'evaluate'; tree: SDFNodeUI | null; resolution?: number; clip?: ClipPlane }
-  | { type: 'exportSTL'; tree: SDFNodeUI | null }
-  | { type: 'export3MF'; tree: SDFNodeUI | null };
+  | { type: 'evaluate'; rid: number; tree: SDFNodeUI | null; resolution?: number; clip?: ClipPlane }
+  | { type: 'exportSTL'; rid: number; tree: SDFNodeUI | null }
+  | { type: 'export3MF'; rid: number; tree: SDFNodeUI | null };
 
 export type WorkerResponse =
-  | { type: 'mesh'; positions: ArrayBuffer; normals: ArrayBuffer; indices: ArrayBuffer; thickness?: ArrayBuffer }
-  | { type: 'sdf'; glsl: string; paramCount: number; paramValues: number[]; textures?: { name: string; width: number; height: number; data: number[] }[]; bbMin: [number, number, number]; bbMax: [number, number, number]; hasWarn?: boolean }
-  | { type: 'exportResult'; format: 'stl' | '3mf'; data: ArrayBuffer }
-  | { type: 'progress'; stage: string; percent: number }
-  | { type: 'error'; message: string }
+  | { type: 'mesh'; rid: number; positions: ArrayBuffer; normals: ArrayBuffer; indices: ArrayBuffer; thickness?: ArrayBuffer }
+  | { type: 'sdf'; rid: number; glsl: string; paramCount: number; paramValues: number[]; textures?: { name: string; width: number; height: number; data: number[] }[]; bbMin: [number, number, number]; bbMax: [number, number, number]; hasWarn?: boolean }
+  | { type: 'exportResult'; rid: number; format: 'stl' | '3mf'; data: ArrayBuffer }
+  | { type: 'progress'; rid: number; stage: string; percent: number }
+  | { type: 'error'; rid: number; message: string }
   | { type: 'ready' };
