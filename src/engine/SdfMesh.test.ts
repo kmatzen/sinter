@@ -11,7 +11,11 @@ import type { ThreeEngine } from './ThreeEngine';
  * which only called scene.remove().
  */
 
-function display(glsl: string, textureCount = 0): SDFDisplayData {
+function display(
+  glsl: string,
+  textureCount = 0,
+  overrides: Partial<SDFDisplayData> = {},
+): SDFDisplayData {
   return {
     glsl,
     paramCount: 1,
@@ -25,6 +29,7 @@ function display(glsl: string, textureCount = 0): SDFDisplayData {
     bbMin: [-1, -1, -1],
     bbMax: [1, 1, 1],
     hasWarn: false,
+    ...overrides,
   };
 }
 
@@ -118,5 +123,45 @@ describe('SdfMesh GPU resource lifecycle', () => {
     expect(engine.scene.children).toHaveLength(1);
     sdfMesh.dispose();
     expect(engine.scene.children).toHaveLength(0);
+  });
+});
+
+describe('SdfMesh rebuild cache key', () => {
+  const GLSL = 'float sdf(vec3 p){return 1.0;}';
+
+  it('rebuilds when hasWarn changes at identical GLSL', () => {
+    useModelerStore.setState({ sdfDisplay: display(GLSL, 0, { hasWarn: false }) });
+    const sdfMesh = new SdfMesh(fakeEngine());
+    const before = currentResources(sdfMesh).material;
+
+    // Same GLSL and param count; only the warn flag differs. It is compiled
+    // into the fragment source, so the material must be rebuilt.
+    useModelerStore.setState({ sdfDisplay: display(GLSL, 0, { hasWarn: true }) });
+
+    expect(currentResources(sdfMesh).material).not.toBe(before);
+  });
+
+  it('rebuilds when texture content changes at identical dimensions', () => {
+    const withData = (data: number[]) =>
+      display(GLSL, 0, { textures: [{ name: 'u_tex0', width: 2, height: 2, data }] });
+
+    useModelerStore.setState({ sdfDisplay: withData([0, 0, 0, 0]) });
+    const sdfMesh = new SdfMesh(fakeEngine());
+    const before = currentResources(sdfMesh).material;
+
+    useModelerStore.setState({ sdfDisplay: withData([1, 2, 3, 4]) });
+
+    expect(currentResources(sdfMesh).material).not.toBe(before);
+  });
+
+  it('does not rebuild when nothing baked into the material changed', () => {
+    useModelerStore.setState({ sdfDisplay: display(GLSL) });
+    const sdfMesh = new SdfMesh(fakeEngine());
+    const before = currentResources(sdfMesh).material;
+
+    // A fresh object with identical contents must not force a recompile.
+    useModelerStore.setState({ sdfDisplay: display(GLSL) });
+
+    expect(currentResources(sdfMesh).material).toBe(before);
   });
 });
