@@ -287,3 +287,54 @@ test.describe('Modeler: Export', () => {
     await expect(stl).toBeEnabled();
   });
 });
+
+test.describe('Modeler: Worker concurrency', () => {
+  test.beforeEach(async ({ page }) => {
+    await enterModeler(page);
+  });
+
+  // The property #51 is actually about: an export must not block viewport
+  // evaluation. The worker runs each message to completion with no yield
+  // point, so with a single shared worker every evaluation queued behind a
+  // 256³ export and the viewport froze for its duration.
+  //
+  // The unit tests cannot show this — their fake worker never blocks. This
+  // one exercises real workers doing real work, and fails against a
+  // single-worker bridge.
+  test('viewport keeps evaluating while an export runs', async ({ page }) => {
+    await addShape(page, 'Box');
+
+    // Wait for the first evaluation to settle so we have a baseline.
+    await page.waitForFunction(() => {
+      const s = (window as any).__MODELER_STORE__;
+      return s?.sdfDisplay && !s.evaluating;
+    }, null, { timeout: 15000 });
+
+    const baseline = await page.evaluate(() =>
+      JSON.stringify((window as any).__MODELER_STORE__.sdfDisplay.paramValues));
+
+    // Kick off an export and wait until it is genuinely in flight.
+    await page.locator('[title="Export STL"]').click();
+    const progress = page.locator('[data-testid="export-progress"]');
+    await expect(progress).toBeVisible({ timeout: 15000 });
+
+    // Mutate the model while the export is running. This changes paramValues,
+    // so a completed evaluation is observable without a structural edit.
+    await page.evaluate(() => {
+      const store = (window as any).__MODELER_STORE__;
+      store.updateNodeParams(store.tree.id, { radius: 7 });
+    });
+
+    // The evaluation must complete...
+    await page.waitForFunction((prev) => {
+      const s = (window as any).__MODELER_STORE__;
+      return s?.sdfDisplay && !s.evaluating
+        && JSON.stringify(s.sdfDisplay.paramValues) !== prev;
+    }, baseline, { timeout: 15000 });
+
+    // ...while the export is still running. This ordering is the whole point:
+    // on a single worker the evaluation could not land until the export
+    // finished and the progress bar had already gone.
+    await expect(progress).toBeVisible();
+  });
+});
