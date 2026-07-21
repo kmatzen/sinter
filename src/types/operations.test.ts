@@ -68,6 +68,30 @@ describe('operations types', () => {
     expect(nodeSummary(smoothUnion)).toContain('3');
   });
 
+  it('nodeSummary covers every remaining node kind', () => {
+    const mk = (kind: string, params: Record<string, any>, data?: Record<string, string>): SDFNodeUI =>
+      ({ id: kind, kind, label: kind, params, children: [], enabled: true, data } as SDFNodeUI);
+
+    expect(nodeSummary(mk('cylinder', { radius: 5, height: 10 }))).toBe('r=5 h=10');
+    expect(nodeSummary(mk('torus', { majorRadius: 8, minorRadius: 2 }))).toBe('R=8 r=2');
+    expect(nodeSummary(mk('cone', { radius: 4, height: 12 }))).toBe('r=4 h=12');
+    expect(nodeSummary(mk('capsule', { radius: 3, height: 9 }))).toBe('r=3 h=9');
+    expect(nodeSummary(mk('ellipsoid', { width: 1, height: 2, depth: 3 }))).toBe('1×2×3');
+    expect(nodeSummary(mk('shell', { thickness: 2 }))).toBe('2mm');
+    expect(nodeSummary(mk('offset', { distance: 4 }))).toBe('4mm');
+    expect(nodeSummary(mk('round', { radius: 1.5 }))).toBe('r=1.5');
+    expect(nodeSummary(mk('translate', { x: 1, y: 2, z: 3 }))).toBe('1, 2, 3');
+    expect(nodeSummary(mk('rotate', { x: 90, y: 0, z: 0 }))).toBe('90°, 0°, 0°');
+    expect(nodeSummary(mk('scale', { x: 1, y: 1, z: 2 }))).toBe('1, 1, 2');
+    expect(nodeSummary(mk('mirror', { mirrorX: true, mirrorY: false, mirrorZ: true }))).toBe('XZ');
+    expect(nodeSummary(mk('mirror', { mirrorX: false, mirrorY: false, mirrorZ: false }))).toBe('none');
+    expect(nodeSummary(mk('linearPattern', { count: 4, spacing: 10 }))).toBe('4× @ 10mm');
+    expect(nodeSummary(mk('circularPattern', { count: 6 }))).toBe('6× circular');
+    expect(nodeSummary(mk('text', { size: 12 }, { text: 'Hi' }))).toBe('"Hi" 12mm');
+    expect(nodeSummary(mk('text', { size: 12 }))).toBe('"Text" 12mm');
+    expect(nodeSummary(mk('unknownKind', {}))).toBe('');
+  });
+
   it('incompleteNodeIds finds nodes missing children', () => {
     const box: SDFNodeUI = { id: 'b', kind: 'box', label: 'Box', params: { width: 10, height: 20, depth: 30 }, children: [], enabled: true };
     // A complete union

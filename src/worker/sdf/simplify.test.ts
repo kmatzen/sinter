@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { simplifyMesh } from './simplify';
+import { simplifyMesh, splitCreaseEdges } from './simplify';
 import { marchingCubes } from './marchingCubes';
 import { evaluateSDF } from './evaluate';
 import type { SDFNode, BBox } from './types';
+import type { MeshResult } from './marchingCubes';
 
 function makeGrid(node: SDFNode, resolution: number, bbox: BBox): Float32Array {
   const res = resolution;
@@ -128,6 +129,69 @@ describe('simplifyMesh', () => {
     if (faceCount > 0) {
       // Average error on the face should be small
       expect(faceErr / faceCount).toBeLessThan(0.5);
+    }
+  });
+});
+
+describe('splitCreaseEdges', () => {
+  it('splits vertices across a sharp 90-degree fold', () => {
+    // Two triangles sharing edge (1,2), folded at a right angle.
+    const mesh: MeshResult = {
+      positions: new Float32Array([
+        0, 0, 0,   // 0
+        1, 0, 0,   // 1
+        0, 1, 0,   // 2
+        0, 1, 1,   // 3
+      ]),
+      normals: new Float32Array(12),
+      indices: new Uint32Array([0, 1, 2, 1, 2, 3]),
+    };
+    const result = splitCreaseEdges(mesh);
+
+    // The shared edge is a sharp crease, so vertices 1 and 2 must be duplicated
+    // (once per face) instead of shared with an averaged normal.
+    expect(result.positions.length / 3).toBeGreaterThan(4);
+    expect(result.indices.length).toBe(6);
+    // Every index must reference a valid vertex
+    const numVerts = result.positions.length / 3;
+    for (const idx of result.indices) {
+      expect(idx).toBeGreaterThanOrEqual(0);
+      expect(idx).toBeLessThan(numVerts);
+    }
+    // Normals should be unit length
+    for (let i = 0; i < result.normals.length; i += 3) {
+      const len = Math.sqrt(result.normals[i] ** 2 + result.normals[i + 1] ** 2 + result.normals[i + 2] ** 2);
+      expect(len).toBeCloseTo(1, 5);
+    }
+  });
+
+  it('keeps shared vertices with averaged normals on a smooth closed mesh', () => {
+    // A finely-tessellated sphere has no boundary edges and small angles
+    // between adjacent faces, so no creases should be detected.
+    const bbox: BBox = { min: [-8, -8, -8], max: [8, 8, 8] };
+    const res = 32;
+    const grid = new Float32Array(res * res * res);
+    const dx = (bbox.max[0] - bbox.min[0]) / res;
+    for (let z = 0; z < res; z++) {
+      for (let y = 0; y < res; y++) {
+        for (let x = 0; x < res; x++) {
+          const px = bbox.min[0] + (x + 0.5) * dx;
+          const py = bbox.min[1] + (y + 0.5) * dx;
+          const pz = bbox.min[2] + (z + 0.5) * dx;
+          grid[z * res * res + y * res + x] = evaluateSDF({ kind: 'sphere', radius: 5 }, [px, py, pz]);
+        }
+      }
+    }
+    const sdfNode: SDFNode = { kind: 'sphere', radius: 5 };
+    const mesh = marchingCubes(grid, res, bbox, sdfNode);
+
+    const result = splitCreaseEdges(mesh);
+    // A smooth closed mesh keeps the same vertex/index count, only normals change.
+    expect(result.positions.length).toBe(mesh.positions.length);
+    expect(result.indices.length).toBe(mesh.indices.length);
+    for (let i = 0; i < result.normals.length; i += 3) {
+      const len = Math.sqrt(result.normals[i] ** 2 + result.normals[i + 1] ** 2 + result.normals[i + 2] ** 2);
+      expect(len).toBeCloseTo(1, 1);
     }
   });
 });

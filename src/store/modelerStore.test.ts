@@ -361,6 +361,370 @@ describe('Modeler editing scenarios', () => {
     });
   });
 
+  // ─── Scenario 13: Expanded node tracking ──────────────────────────
+  describe('Scenario: Expand/collapse tree nodes', () => {
+    it('toggles a single node expanded state', () => {
+      getState().toggleExpanded('a');
+      expect(getState().expandedNodes.has('a')).toBe(true);
+      getState().toggleExpanded('a');
+      expect(getState().expandedNodes.has('a')).toBe(false);
+    });
+
+    it('expandAll expands every node with children or expected children', () => {
+      getState().addPrimitive('box');
+      getState().selectNode(getState().tree!.id);
+      getState().wrapSelected('shell');
+      const shellId = getState().tree!.id;
+      const boxId = getState().tree!.children[0].id;
+
+      getState().expandAll();
+      expect(getState().expandedNodes.has(shellId)).toBe(true);
+      expect(getState().expandedNodes.has(boxId)).toBe(false);
+    });
+
+    it('expandAll is a no-op with no tree', () => {
+      getState().expandAll();
+      expect(getState().expandedNodes.size).toBe(0);
+    });
+
+    it('collapseAll clears expanded nodes', () => {
+      getState().toggleExpanded('a');
+      getState().toggleExpanded('b');
+      getState().collapseAll();
+      expect(getState().expandedNodes.size).toBe(0);
+    });
+
+    it('selectNode auto-expands ancestors of the selected node', () => {
+      getState().addPrimitive('box');
+      getState().selectNode(getState().tree!.id);
+      getState().wrapSelected('shell');
+      const shellId = getState().tree!.id;
+      const boxId = getState().tree!.children[0].id;
+
+      getState().collapseAll();
+      getState().selectNode(boxId);
+      expect(getState().expandedNodes.has(shellId)).toBe(true);
+      expect(getState().selectedNodeId).toBe(boxId);
+    });
+
+    it('selectNode(null) just clears selection', () => {
+      getState().addPrimitive('box');
+      getState().selectNode(getState().tree!.id);
+      getState().selectNode(null);
+      expect(getState().selectedNodeId).toBeNull();
+    });
+  });
+
+  // ─── Scenario 14: Add child to selected node directly ─────────────
+  describe('Scenario: Add child to selected node', () => {
+    it('adds a child under the selected node and selects it', () => {
+      getState().addPrimitive('box');
+      getState().selectNode(getState().tree!.id);
+      getState().wrapSelected('union'); // union(box) — invalid but fine for the test
+      const unionId = getState().tree!.id;
+      getState().selectNode(unionId);
+      getState().addChildToSelected('sphere');
+
+      const union = getState().tree!;
+      expect(union.children).toHaveLength(2);
+      expect(union.children[1].kind).toBe('sphere');
+      expect(getState().selectedNodeId).toBe(union.children[1].id);
+      expect(getState().expandedNodes.has(unionId)).toBe(true);
+    });
+
+    it('is a no-op with no tree or no selection', () => {
+      getState().addChildToSelected('box');
+      expect(getState().tree).toBeNull();
+
+      getState().addPrimitive('box');
+      getState().selectNode(null);
+      getState().addChildToSelected('sphere');
+      expect(getState().tree!.kind).toBe('box');
+    });
+  });
+
+  // ─── Scenario 15: Node data updates (e.g. text content) ───────────
+  describe('Scenario: updateNodeData', () => {
+    it('merges data fields onto a node', () => {
+      getState().addPrimitive('text');
+      const id = getState().tree!.id;
+      getState().updateNodeData(id, { text: 'Hello' });
+      expect(getState().tree!.data?.text).toBe('Hello');
+    });
+
+    it('is a no-op with no tree', () => {
+      getState().updateNodeData('missing', { text: 'x' });
+      expect(getState().tree).toBeNull();
+    });
+  });
+
+  // ─── Scenario 16: Misc setters ─────────────────────────────────────
+  describe('Scenario: Mesh/display/evaluating/error setters', () => {
+    it('sets mesh, sdfDisplay, evaluating and error', () => {
+      const mesh = { positions: new Float32Array(), normals: new Float32Array(), indices: new Uint32Array() } as any;
+      getState().setMesh(mesh);
+      expect(getState().mesh).toBe(mesh);
+
+      const display = { glsl: 'x', paramCount: 0, paramValues: [], textures: [], bbMin: [0, 0, 0], bbMax: [1, 1, 1], hasWarn: false } as any;
+      getState().setSDFDisplay(display);
+      expect(getState().sdfDisplay).toBe(display);
+
+      getState().setEvaluating(true);
+      expect(getState().evaluating).toBe(true);
+
+      getState().setError('boom');
+      expect(getState().error).toBe('boom');
+
+      getState().setMesh(null);
+      expect(getState().mesh).toBeNull();
+      getState().setSDFDisplay(null);
+      expect(getState().sdfDisplay).toBeNull();
+      getState().setError(null);
+      expect(getState().error).toBeNull();
+    });
+  });
+
+  // ─── Scenario 17: addNodeFromData drag-and-drop paths ─────────────
+  describe('Scenario: addNodeFromData', () => {
+    it('becomes root when there is no tree', () => {
+      getState().addNodeFromData(null, { kind: 'box', params: { width: 5, height: 5, depth: 5 } });
+      expect(getState().tree!.kind).toBe('box');
+    });
+
+    it('unions a dropped primitive with the root when no target is given', () => {
+      getState().addPrimitive('box');
+      getState().addNodeFromData(null, { kind: 'sphere', params: { radius: 3 } });
+      expect(getState().tree!.kind).toBe('union');
+      expect(getState().tree!.children).toHaveLength(2);
+    });
+
+    it('ignores a dropped operation with no target on an existing tree', () => {
+      getState().addPrimitive('box');
+      getState().addNodeFromData(null, { kind: 'shell', params: { thickness: 2 } });
+      expect(getState().tree!.kind).toBe('box');
+    });
+
+    it('does nothing if the target node cannot be found', () => {
+      getState().addPrimitive('box');
+      getState().addNodeFromData('does-not-exist', { kind: 'sphere', params: { radius: 3 } });
+      expect(getState().tree!.kind).toBe('box');
+    });
+
+    it('wraps a primitive target when an operation is dropped on it', () => {
+      getState().addPrimitive('box');
+      const boxId = getState().tree!.id;
+      getState().addNodeFromData(boxId, { kind: 'shell', params: { thickness: 2 } });
+      expect(getState().tree!.kind).toBe('shell');
+      expect(getState().tree!.children[0].kind).toBe('box');
+    });
+
+    it('wraps two primitives in a union when dropped on each other', () => {
+      getState().addPrimitive('box');
+      const boxId = getState().tree!.id;
+      getState().addNodeFromData(boxId, { kind: 'sphere', params: { radius: 3 } });
+      expect(getState().tree!.kind).toBe('union');
+      expect(getState().tree!.children[0].kind).toBe('box');
+      expect(getState().tree!.children[1].kind).toBe('sphere');
+    });
+
+    it('adds as a child when the target operation has room', () => {
+      getState().addPrimitive('box');
+      const boxId = getState().tree!.id;
+      getState().selectNode(boxId);
+      getState().wrapSelected('subtract'); // subtract(box) has room for one more child
+      const subId = getState().tree!.id;
+      getState().addNodeFromData(subId, { kind: 'sphere', params: { radius: 3 } });
+      expect(getState().tree!.children).toHaveLength(2);
+      expect(getState().tree!.children[1].kind).toBe('sphere');
+    });
+
+    it('wraps a full operation target when another operation is dropped on it', () => {
+      getState().addPrimitive('box');
+      getState().addPrimitive('sphere'); // union(box, sphere) — full
+      const unionId = getState().tree!.id;
+      getState().addNodeFromData(unionId, { kind: 'shell', params: { thickness: 2 } });
+      expect(getState().tree!.kind).toBe('shell');
+      expect(getState().tree!.children[0].kind).toBe('union');
+    });
+
+    it('fills an empty slot when a primitive is dropped on a full operation', () => {
+      getState().addPrimitive('box');
+      getState().addPrimitive('sphere'); // union(box, sphere)
+      const unionId = getState().tree!.id;
+      getState().removeNode(getState().tree!.children[0].id); // union(_empty, sphere)
+      getState().addNodeFromData(unionId, { kind: 'cylinder', params: { radius: 2, height: 4 } });
+      expect(getState().tree!.children[0].kind).toBe('cylinder');
+      expect(getState().tree!.children[1].kind).toBe('sphere');
+    });
+
+    it('hydrates nested children data recursively', () => {
+      getState().addNodeFromData(null, {
+        kind: 'shell',
+        params: { thickness: 2 },
+        children: [{ kind: 'box', params: { width: 1, height: 1, depth: 1 } }],
+      });
+      expect(getState().tree!.kind).toBe('shell');
+      expect(getState().tree!.children[0].kind).toBe('box');
+    });
+  });
+
+  // ─── Scenario 18: pasteToSelected ──────────────────────────────────
+  describe('Scenario: pasteToSelected', () => {
+    it('is a no-op with an empty clipboard', () => {
+      getState().pasteToSelected();
+      expect(getState().tree).toBeNull();
+    });
+
+    it('pastes as root when there is no tree', () => {
+      getState().addPrimitive('box');
+      getState().selectNode(getState().tree!.id);
+      getState().copySelected();
+      getState().removeNode(getState().tree!.id);
+      expect(getState().tree).toBeNull();
+
+      getState().pasteToSelected();
+      expect(getState().tree!.kind).toBe('box');
+      expect(getState().selectedNodeId).toBe(getState().tree!.id);
+    });
+
+    it('is a no-op when a tree exists but nothing is selected', () => {
+      getState().addPrimitive('box');
+      getState().selectNode(getState().tree!.id);
+      getState().copySelected();
+      getState().selectNode(null);
+      getState().pasteToSelected();
+      expect(getState().tree!.children).toHaveLength(0);
+    });
+
+    it('pastes as a child of the selected node with a fresh id', () => {
+      getState().addPrimitive('box');
+      const boxId = getState().tree!.id;
+      getState().selectNode(boxId);
+      getState().wrapSelected('union');
+      const unionId = getState().tree!.id;
+      getState().selectNode(boxId);
+      getState().copySelected();
+
+      getState().selectNode(unionId);
+      getState().pasteToSelected();
+
+      const union = getState().tree!;
+      expect(union.children).toHaveLength(2);
+      expect(union.children[1].kind).toBe('box');
+      expect(union.children[1].id).not.toBe(boxId);
+      expect(getState().selectedNodeId).toBe(union.children[1].id);
+    });
+  });
+
+  // ─── Scenario 19: duplicateSelected with no parent found ──────────
+  describe('Scenario: duplicateSelected edge cases', () => {
+    it('is a no-op with no tree or no selection', () => {
+      getState().duplicateSelected();
+      expect(getState().tree).toBeNull();
+    });
+  });
+
+  // ─── Scenario 20: moveNode edge cases ──────────────────────────────
+  describe('Scenario: moveNode guards', () => {
+    it('is a no-op with no tree', () => {
+      getState().moveNode('a', 'b');
+      expect(getState().tree).toBeNull();
+    });
+
+    it('refuses to move a node into its own descendant', () => {
+      getState().addPrimitive('box');
+      const boxId = getState().tree!.id;
+      getState().selectNode(boxId);
+      getState().wrapSelected('shell');
+      const shellId = getState().tree!.id;
+      getState().moveNode(shellId, boxId);
+      expect(getState().tree!.kind).toBe('shell');
+      expect(getState().tree!.children[0].id).toBe(boxId);
+    });
+
+    it('is a no-op when the source node cannot be found', () => {
+      getState().addPrimitive('box');
+      getState().moveNode('missing', getState().tree!.id);
+      expect(getState().tree!.kind).toBe('box');
+    });
+  });
+
+  // ─── Scenario 21: simplifyTree ─────────────────────────────────────
+  describe('Scenario: simplifyTree', () => {
+    it('removes disabled nodes', () => {
+      getState().addPrimitive('box');
+      getState().addPrimitive('sphere');
+      getState().toggleNode(getState().tree!.children[1].id); // disable sphere
+      getState().simplifyTree();
+      expect(getState().tree!.kind).toBe('box');
+    });
+
+    it('collapses identity translate/rotate/scale wrappers', () => {
+      getState().addPrimitive('box');
+      const boxId = getState().tree!.id;
+      getState().selectNode(boxId);
+      getState().wrapSelected('translate'); // default translate params are 0,0,0
+      getState().simplifyTree();
+      expect(getState().tree!.kind).toBe('box');
+    });
+
+    it('collapses single-child booleans', () => {
+      getState().addPrimitive('box');
+      const boxId = getState().tree!.id;
+      getState().selectNode(boxId);
+      getState().wrapSelected('union');
+      getState().simplifyTree();
+      expect(getState().tree!.kind).toBe('box');
+    });
+
+    it('removes empty modifiers and booleans', () => {
+      const emptyShell = {
+        id: 'empty-shell', kind: 'shell', label: 'Shell',
+        params: { thickness: 2 }, children: [] as any[], enabled: true,
+      };
+      useModelerStore.setState({ tree: emptyShell as any });
+      getState().simplifyTree();
+      expect(getState().tree).toBeNull();
+    });
+
+    it('merges nested transforms of the same kind', () => {
+      getState().addPrimitive('box');
+      const boxId = getState().tree!.id;
+      getState().selectNode(boxId);
+      getState().wrapSelected('translate');
+      getState().updateNodeParams(getState().tree!.id, { x: 5, y: 0, z: 0 });
+      const innerId = getState().tree!.id;
+      getState().selectNode(innerId);
+      getState().wrapSelected('translate');
+      getState().updateNodeParams(getState().tree!.id, { x: 10, y: 0, z: 0 });
+
+      getState().simplifyTree();
+      const result = getState().tree!;
+      expect(result.kind).toBe('translate');
+      expect(result.params.x).toBe(15);
+      expect(result.children[0].kind).toBe('box');
+    });
+
+    it('is a no-op with no tree', () => {
+      getState().simplifyTree();
+      expect(getState().tree).toBeNull();
+    });
+  });
+
+  // ─── Scenario 22: undo/redo boundaries ─────────────────────────────
+  describe('Scenario: undo/redo at history boundaries', () => {
+    it('undo at the start of history is a no-op', () => {
+      getState().undo();
+      expect(getState().tree).toBeNull();
+    });
+
+    it('redo at the end of history is a no-op', () => {
+      getState().addPrimitive('box');
+      getState().redo();
+      expect(getState().tree!.kind).toBe('box');
+    });
+  });
+
   // ─── Scenario 12: Serialization round-trip ────────────────────────
   describe('Scenario: Save and load project', () => {
     it('round-trips through JSON', () => {
