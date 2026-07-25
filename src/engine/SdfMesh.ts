@@ -145,12 +145,39 @@ ${hasWarn ? `  float warnDist = abs(sdfWarn(p));
 `;
 }
 
+/** FNV-1a over the texture payload, so content edits at unchanged dimensions
+ *  still invalidate the material. */
+function hashBytes(data: number[]): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < data.length; i++) {
+    h ^= data[i] & 0xff;
+    h = Math.imul(h, 0x01000193);
+  }
+  return h >>> 0;
+}
+
+/**
+ * Cache key for the texture uniforms baked into the material.
+ *
+ * Note that codegen never populates `textures` today — the array is declared,
+ * reset, and returned, but nothing pushes to it — so this is always '' at
+ * runtime and costs nothing. It is here so the key is already correct when
+ * textures do get wired up, rather than being a latent stale-render bug
+ * waiting for that change.
+ */
+function textureKey(textures: { name: string; width: number; height: number; data: number[] }[] | undefined): string {
+  if (!textures || textures.length === 0) return '';
+  return textures.map((t) => `${t.name}:${t.width}x${t.height}:${hashBytes(t.data)}`).join('|');
+}
+
 export class SdfMesh {
   private engine: ThreeEngine;
   private mesh: THREE.Mesh | null = null;
   private material: THREE.ShaderMaterial | null = null;
   private lastGlsl = '';
   private lastParamCount = 0;
+  private lastHasWarn = false;
+  private lastTextureKey = '';
   private lastBBKey = '';
   private unsubs: (() => void)[] = [];
 
@@ -193,14 +220,26 @@ export class SdfMesh {
       this.releaseGpu();
       this.lastGlsl = '';
       this.lastParamCount = 0;
+      this.lastHasWarn = false;
+      this.lastTextureKey = '';
       this.lastBBKey = '';
       return;
     }
 
-    // Rebuild shader only if GLSL structure changed
-    if (sdf.glsl !== this.lastGlsl || sdf.paramCount !== this.lastParamCount) {
+    // Rebuild when anything baked into the material changes. hasWarn selects
+    // the fragment source via buildFrag, and the textures become uniforms, so
+    // neither can be left out of the key without rendering a stale material.
+    const texKey = textureKey(sdf.textures);
+    if (
+      sdf.glsl !== this.lastGlsl ||
+      sdf.paramCount !== this.lastParamCount ||
+      sdf.hasWarn !== this.lastHasWarn ||
+      texKey !== this.lastTextureKey
+    ) {
       this.lastGlsl = sdf.glsl;
       this.lastParamCount = sdf.paramCount;
+      this.lastHasWarn = sdf.hasWarn;
+      this.lastTextureKey = texKey;
       this.rebuild(sdf);
     }
   }
