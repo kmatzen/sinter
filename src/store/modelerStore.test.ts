@@ -130,6 +130,29 @@ describe('Modeler editing scenarios', () => {
       expect(getState().tree!.params.radius).toBe(20); // default
     });
 
+    it('clears a selection that the undone tree no longer contains', () => {
+      getState().addPrimitive('box');
+      const boxId = getState().tree!.id;
+      getState().selectNode(boxId);
+      expect(getState().selectedNodeId).toBe(boxId);
+
+      // Undo back past the box's creation — the selected node is gone.
+      getState().undo();
+      expect(getState().tree).toBeNull();
+      expect(getState().selectedNodeId).toBeNull();
+    });
+
+    it('keeps a selection that survives the undo', () => {
+      getState().addPrimitive('box');
+      const boxId = getState().tree!.id;
+      getState().updateNodeParams(boxId, { radius: 3 });
+      getState().selectNode(boxId);
+
+      getState().undo();
+      expect(getState().tree!.id).toBe(boxId);
+      expect(getState().selectedNodeId).toBe(boxId);
+    });
+
     it('undoes wrap operation', () => {
       getState().addPrimitive('box');
       const boxId = getState().tree!.id;
@@ -234,6 +257,40 @@ describe('Modeler editing scenarios', () => {
 
       getState().toggleNode(id);
       expect(getState().tree!.enabled).toBe(true);
+    });
+
+    it('records the toggle in history so undo reverts only the toggle', () => {
+      getState().addPrimitive('box');
+      const id = getState().tree!.id;
+      getState().updateNodeParams(id, { radius: 7 });
+
+      getState().toggleNode(id);
+      expect(getState().tree!.enabled).toBe(false);
+
+      // Undo should restore the enabled box with radius 7 — not discard the
+      // parameter edit along with the toggle.
+      getState().undo();
+      expect(getState().tree!.enabled).toBe(true);
+      expect(getState().tree!.params.radius).toBe(7);
+    });
+
+    it('keeps tree in sync with history[historyIndex] after a toggle', () => {
+      getState().addPrimitive('box');
+      getState().toggleNode(getState().tree!.id);
+
+      const { tree, history, historyIndex } = getState();
+      expect(history[historyIndex]).toEqual(tree);
+    });
+
+    it('redoes a toggle', () => {
+      getState().addPrimitive('box');
+      const id = getState().tree!.id;
+      getState().toggleNode(id);
+      getState().undo();
+      expect(getState().tree!.enabled).toBe(true);
+
+      getState().redo();
+      expect(getState().tree!.enabled).toBe(false);
     });
 
     it('disabled nodes pass tree validation', () => {

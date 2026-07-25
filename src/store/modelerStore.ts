@@ -76,6 +76,16 @@ function cloneTree(node: SDFNodeUI): SDFNodeUI {
   return JSON.parse(JSON.stringify(node));
 }
 
+/**
+ * The selection to keep after the tree is replaced wholesale. Undo/redo can
+ * restore a tree in which the selected node no longer exists; leaving the id
+ * dangling makes every `findNode` consumer silently no-op.
+ */
+function surviving(tree: SDFNodeUI | null, selectedNodeId: string | null): string | null {
+  if (!tree || !selectedNodeId) return null;
+  return findNode(tree, selectedNodeId) ? selectedNodeId : null;
+}
+
 function findNode(tree: SDFNodeUI, id: string): SDFNodeUI | null {
   if (tree.id === id) return tree;
   for (const child of tree.children) {
@@ -258,10 +268,17 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
   },
 
   toggleNode: (id) => {
-    const { tree } = get();
+    const state = get();
+    const { tree } = state;
     if (!tree) return;
     const newTree = updateInTree(tree, id, (node) => ({ ...node, enabled: !node.enabled }));
-    set({ tree: newTree });
+    // Disabling a node changes the rendered geometry and the exported mesh, so
+    // this is a document mutation and belongs in history like any other.
+    // Without the push, `tree` and `history[historyIndex]` diverge and a
+    // subsequent undo discards one more edit than the user asked for.
+    const newHistory = state.history.slice(0, state.historyIndex + 1);
+    newHistory.push(cloneTree(newTree));
+    set({ tree: newTree, history: newHistory, historyIndex: newHistory.length - 1 });
   },
 
   toggleExpanded: (id) => {
@@ -683,7 +700,8 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
     const { historyIndex, history } = get();
     if (historyIndex > 0) {
       const newIndex = historyIndex - 1;
-      set({ tree: history[newIndex] ? cloneTree(history[newIndex]!) : null, historyIndex: newIndex });
+      const restored = history[newIndex] ? cloneTree(history[newIndex]!) : null;
+      set({ tree: restored, historyIndex: newIndex, selectedNodeId: surviving(restored, get().selectedNodeId) });
     }
   },
 
@@ -691,7 +709,8 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
     const { historyIndex, history } = get();
     if (historyIndex < history.length - 1) {
       const newIndex = historyIndex + 1;
-      set({ tree: history[newIndex] ? cloneTree(history[newIndex]!) : null, historyIndex: newIndex });
+      const restored = history[newIndex] ? cloneTree(history[newIndex]!) : null;
+      set({ tree: restored, historyIndex: newIndex, selectedNodeId: surviving(restored, get().selectedNodeId) });
     }
   },
 
