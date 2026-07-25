@@ -86,6 +86,30 @@ function surviving(tree: SDFNodeUI | null, selectedNodeId: string | null): strin
   return findNode(tree, selectedNodeId) ? selectedNodeId : null;
 }
 
+/**
+ * Build the state patch that commits `tree` as a new document version.
+ *
+ * Truncates any redo entries ahead of the cursor, pushes a snapshot, and
+ * advances the index. `extra` carries whatever view state the action also
+ * sets (selection, expansion), so no action has to touch the history fields
+ * directly.
+ *
+ * Every mutating action goes through this. The ritual used to be open-coded
+ * at seventeen sites, and toggleNode simply omitted it -- leaving `tree` and
+ * `history[historyIndex]` divergent, so an undo discarded one more edit than
+ * the user asked for (#54). Routing through one place removes the chance to
+ * forget.
+ */
+function commit(
+  state: ModelerState,
+  tree: SDFNodeUI | null,
+  extra: Partial<ModelerState> = {},
+): Partial<ModelerState> {
+  const history = state.history.slice(0, state.historyIndex + 1);
+  history.push(tree ? cloneTree(tree) : null);
+  return { ...extra, tree, history, historyIndex: history.length - 1 };
+}
+
 function findNode(tree: SDFNodeUI, id: string): SDFNodeUI | null {
   if (tree.id === id) return tree;
   for (const child of tree.children) {
@@ -172,15 +196,7 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
   historyIndex: 0,
 
   setTree: (tree) => {
-    const state = get();
-    const newHistory = state.history.slice(0, state.historyIndex + 1);
-    newHistory.push(tree ? cloneTree(tree) : null);
-    set({
-      tree,
-      selectedNodeId: null,
-      history: newHistory,
-      historyIndex: newHistory.length - 1,
-    });
+    set(commit(get(), tree, { selectedNodeId: null }));
   },
 
   selectNode: (id) => {
@@ -217,10 +233,7 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
       ...node,
       params: { ...node.params, ...params },
     }));
-    const state = get();
-    const newHistory = state.history.slice(0, state.historyIndex + 1);
-    newHistory.push(cloneTree(newTree));
-    set({ tree: newTree, history: newHistory, historyIndex: newHistory.length - 1 });
+    set(commit(get(), newTree));
   },
 
   updateNodeData: (id, data) => {
@@ -230,10 +243,7 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
       ...node,
       data: { ...node.data, ...data },
     }));
-    const state = get();
-    const newHistory = state.history.slice(0, state.historyIndex + 1);
-    newHistory.push(cloneTree(newTree));
-    set({ tree: newTree, history: newHistory, historyIndex: newHistory.length - 1 });
+    set(commit(get(), newTree));
   },
 
   changeNodeKind: (id, kind) => {
@@ -246,39 +256,25 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
       label: NODE_LABELS[kind] || kind,
       params: { ...defaults },
     }));
-    const state = get();
-    const newHistory = state.history.slice(0, state.historyIndex + 1);
-    newHistory.push(cloneTree(newTree));
-    set({ tree: newTree, history: newHistory, historyIndex: newHistory.length - 1 });
+    set(commit(get(), newTree));
   },
 
   removeNode: (id) => {
     const { tree } = get();
     if (!tree) return;
     const newTree = removeFromTree(tree, id);
-    const state = get();
-    const newHistory = state.history.slice(0, state.historyIndex + 1);
-    newHistory.push(newTree ? cloneTree(newTree) : null);
-    set({
-      tree: newTree,
+    set(commit(get(), newTree, {
       selectedNodeId: get().selectedNodeId === id ? null : get().selectedNodeId,
-      history: newHistory,
-      historyIndex: newHistory.length - 1,
-    });
+    }));
   },
 
   toggleNode: (id) => {
-    const state = get();
-    const { tree } = state;
+    const { tree } = get();
     if (!tree) return;
-    const newTree = updateInTree(tree, id, (node) => ({ ...node, enabled: !node.enabled }));
     // Disabling a node changes the rendered geometry and the exported mesh, so
     // this is a document mutation and belongs in history like any other.
-    // Without the push, `tree` and `history[historyIndex]` diverge and a
-    // subsequent undo discards one more edit than the user asked for.
-    const newHistory = state.history.slice(0, state.historyIndex + 1);
-    newHistory.push(cloneTree(newTree));
-    set({ tree: newTree, history: newHistory, historyIndex: newHistory.length - 1 });
+    const newTree = updateInTree(tree, id, (node) => ({ ...node, enabled: !node.enabled }));
+    set(commit(get(), newTree));
   },
 
   toggleExpanded: (id) => {
@@ -310,30 +306,13 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
     const newNode = createNode(kind);
     if (!tree) {
       // First node becomes the root
-      const state = get();
-      const newHistory = state.history.slice(0, state.historyIndex + 1);
-      newHistory.push(cloneTree(newNode));
-      set({
-        tree: newNode,
-        selectedNodeId: newNode.id,
-        history: newHistory,
-        historyIndex: newHistory.length - 1,
-      });
+      set(commit(get(), newNode, { selectedNodeId: newNode.id }));
     } else {
       // Auto-wrap current tree in a union with the new primitive
       const unionNode = createNode('union', [tree, newNode]);
       const expanded = new Set(get().expandedNodes);
       expanded.add(unionNode.id);
-      const state = get();
-      const newHistory = state.history.slice(0, state.historyIndex + 1);
-      newHistory.push(cloneTree(unionNode));
-      set({
-        tree: unionNode,
-        selectedNodeId: newNode.id,
-        expandedNodes: expanded,
-        history: newHistory,
-        historyIndex: newHistory.length - 1,
-      });
+      set(commit(get(), unionNode, { selectedNodeId: newNode.id, expandedNodes: expanded }));
     }
   },
 
@@ -370,16 +349,7 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
 
     const expanded = new Set(get().expandedNodes);
     expanded.add(wrapper.id);
-    const state = get();
-    const newHistory = state.history.slice(0, state.historyIndex + 1);
-    newHistory.push(cloneTree(newTree));
-    set({
-      tree: newTree,
-      selectedNodeId: wrapper.id,
-      expandedNodes: expanded,
-      history: newHistory,
-      historyIndex: newHistory.length - 1,
-    });
+    set(commit(get(), newTree, { selectedNodeId: wrapper.id, expandedNodes: expanded }));
   },
 
   addChildToSelected: (kind) => {
@@ -396,16 +366,7 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
 
     const expanded = new Set(get().expandedNodes);
     expanded.add(selectedNodeId);
-    const state = get();
-    const newHistory = state.history.slice(0, state.historyIndex + 1);
-    newHistory.push(cloneTree(newTree));
-    set({
-      tree: newTree,
-      selectedNodeId: child.id,
-      expandedNodes: expanded,
-      history: newHistory,
-      historyIndex: newHistory.length - 1,
-    });
+    set(commit(get(), newTree, { selectedNodeId: child.id, expandedNodes: expanded }));
   },
 
   addNodeFromData: (targetId, nodeData) => {
@@ -425,19 +386,16 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
     const isPrim = NODE_KINDS.primitives.includes(newNode.kind as any);
     const isOp = !isPrim; // boolean, modifier, transform, pattern
 
-    // Helper to commit a new tree
-    const commit = (newTree: SDFNodeUI, selectedId: string, extraExpanded?: string[]) => {
+    // Commit plus the expansion bookkeeping this action shares across branches.
+    const place = (newTree: SDFNodeUI, selectedId: string, extraExpanded?: string[]) => {
       const expanded = new Set(get().expandedNodes);
       if (extraExpanded) extraExpanded.forEach(id => expanded.add(id));
-      const state = get();
-      const newHistory = state.history.slice(0, state.historyIndex + 1);
-      newHistory.push(cloneTree(newTree));
-      set({ tree: newTree, selectedNodeId: selectedId, expandedNodes: expanded, history: newHistory, historyIndex: newHistory.length - 1 });
+      set(commit(get(), newTree, { selectedNodeId: selectedId, expandedNodes: expanded }));
     };
 
     // No tree: new node becomes root
     if (!tree) {
-      commit(newNode, newNode.id);
+      place(newNode, newNode.id);
       return;
     }
 
@@ -445,7 +403,7 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
     if (!targetId) {
       if (isPrim) {
         const unionNode = createNode('union', [tree, newNode]);
-        commit(unionNode, newNode.id, [unionNode.id]);
+        place(unionNode, newNode.id, [unionNode.id]);
       }
       return;
     }
@@ -468,7 +426,7 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
       } else {
         newTree = updateInTree(tree, targetId, () => newNode);
       }
-      commit(newTree, newNode.id, [newNode.id]);
+      place(newTree, newNode.id, [newNode.id]);
     } else if (isPrim && targetIsPrim) {
       // Primitive dropped on another primitive → wrap both in a Union
       const unionNode = createNode('union', [cloneTree(targetNode), newNode]);
@@ -478,11 +436,11 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
       } else {
         newTree = updateInTree(tree, targetId, () => unionNode);
       }
-      commit(newTree, newNode.id, [unionNode.id]);
+      place(newTree, newNode.id, [unionNode.id]);
     } else if (targetHasRoom || targetExpected === 0) {
       // Target has room for children, or is a primitive somehow → add as child
       const newTree = updateInTree(tree, targetId, (node) => addChildPreferSlot(node, newNode));
-      commit(newTree, newNode.id, [targetId]);
+      place(newTree, newNode.id, [targetId]);
     } else if (isOp) {
       // Operation dropped on an operation that's full → wrap the target
       newNode.children = [cloneTree(targetNode)];
@@ -492,11 +450,11 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
       } else {
         newTree = updateInTree(tree, targetId, () => newNode);
       }
-      commit(newTree, newNode.id, [newNode.id]);
+      place(newTree, newNode.id, [newNode.id]);
     } else {
       // Primitive on a full operation → replace empty slot or add as child
       const newTree = updateInTree(tree, targetId, (node) => addChildPreferSlot(node, newNode));
-      commit(newTree, newNode.id, [targetId]);
+      place(newTree, newNode.id, [targetId]);
     }
   },
 
@@ -523,9 +481,7 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
 
     const expanded = new Set(get().expandedNodes);
     expanded.add(targetId);
-    const newHistory = get().history.slice(0, get().historyIndex + 1);
-    newHistory.push(cloneTree(newTree));
-    set({ tree: newTree, expandedNodes: expanded, history: newHistory, historyIndex: newHistory.length - 1 });
+    set(commit(get(), newTree, { expandedNodes: expanded }));
   },
 
   clipboard: null,
@@ -543,9 +499,7 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
     const fresh = reassignIds(cloneTree(clipboard));
     if (!tree) {
       // Paste as root
-      const newHistory = get().history.slice(0, get().historyIndex + 1);
-      newHistory.push(cloneTree(fresh));
-      set({ tree: fresh, selectedNodeId: fresh.id, history: newHistory, historyIndex: newHistory.length - 1 });
+      set(commit(get(), fresh, { selectedNodeId: fresh.id }));
       return;
     }
     if (!selectedNodeId) return;
@@ -556,9 +510,7 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
     }));
     const expanded = new Set(get().expandedNodes);
     expanded.add(selectedNodeId);
-    const newHistory = get().history.slice(0, get().historyIndex + 1);
-    newHistory.push(cloneTree(newTree));
-    set({ tree: newTree, selectedNodeId: fresh.id, expandedNodes: expanded, history: newHistory, historyIndex: newHistory.length - 1 });
+    set(commit(get(), newTree, { selectedNodeId: fresh.id, expandedNodes: expanded }));
   },
 
   duplicateSelected: () => {
@@ -572,9 +524,7 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
       const unionNode = createNode('union', [tree, dupe]);
       const expanded = new Set(get().expandedNodes);
       expanded.add(unionNode.id);
-      const newHistory = get().history.slice(0, get().historyIndex + 1);
-      newHistory.push(cloneTree(unionNode));
-      set({ tree: unionNode, selectedNodeId: dupe.id, expandedNodes: expanded, history: newHistory, historyIndex: newHistory.length - 1 });
+      set(commit(get(), unionNode, { selectedNodeId: dupe.id, expandedNodes: expanded }));
       return;
     }
     // Find parent, add dupe as sibling
@@ -584,9 +534,7 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
       ...p,
       children: [...p.children, dupe],
     }));
-    const newHistory = get().history.slice(0, get().historyIndex + 1);
-    newHistory.push(cloneTree(newTree));
-    set({ tree: newTree, selectedNodeId: dupe.id, history: newHistory, historyIndex: newHistory.length - 1 });
+    set(commit(get(), newTree, { selectedNodeId: dupe.id }));
   },
 
   simplifyTree: () => {
@@ -690,10 +638,7 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
       result = next;
     }
 
-    const state = get();
-    const newHistory = state.history.slice(0, state.historyIndex + 1);
-    newHistory.push(result ? cloneTree(result) : null);
-    set({ tree: result, selectedNodeId: null, history: newHistory, historyIndex: newHistory.length - 1 });
+    set(commit(get(), result, { selectedNodeId: null }));
   },
 
   undo: () => {
