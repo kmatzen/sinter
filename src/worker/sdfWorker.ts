@@ -6,6 +6,7 @@ import type { SDFNodeUI } from '../types/operations';
 import type { SDFNode, BBox } from './sdf/types';
 import { evaluateSDF } from './sdf/evaluate';
 import { computeBounds } from './sdf/bounds';
+import { evaluateInterval } from './sdf/interval';
 import { generateSDFFunction } from './sdf/codegen';
 import { dualContour } from './sdf/dualContour';
 import { exportBinarySTL } from './stlExporter';
@@ -110,11 +111,19 @@ function evaluateCPUWithProgress(root: SDFNode, bbox: BBox, res: number, onProgr
     const wx = cx * dx + bbox.min[0], wy = cy * dy + bbox.min[1], wz = cz * dz + bbox.min[2];
     const val = evaluateSDF(root, [wx, wy, wz]);
 
-    // Cell diagonal in world space
-    const diag = Math.sqrt((size * dx) ** 2 + (size * dy) ** 2 + (size * dz) ** 2);
-
-    if (Math.abs(val) > diag * 0.6) {
-      // Entire block is uniform — fill without further evaluation
+    // Whether this block is uniform is decided by an interval enclosure of the
+    // field over the block, not by comparing the centre sample against the
+    // block diagonal.  The latter is only valid when the field never
+    // overstates distance, which several nodes did not honour (#70, #71) —
+    // and when it is wrong the block is filled solid or empty and the surface
+    // inside it is erased.  An interval that excludes zero is a proof.
+    const cell: BBox = {
+      min: [bbox.min[0] + x0 * dx, bbox.min[1] + y0 * dy, bbox.min[2] + z0 * dz],
+      max: [bbox.min[0] + (x0 + size) * dx, bbox.min[1] + (y0 + size) * dy, bbox.min[2] + (z0 + size) * dz],
+    };
+    const enclosure = evaluateInterval(root, cell);
+    if (enclosure.lo > 0 || enclosure.hi < 0) {
+      // Provably no surface in this block — fill it and stop descending.
       fillBlock(x0, y0, z0, size, val);
       reportProgress();
       return;
