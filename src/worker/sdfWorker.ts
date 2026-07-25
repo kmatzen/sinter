@@ -164,60 +164,61 @@ function evaluateCPUWithProgress(root: SDFNode, bbox: BBox, res: number, onProgr
 
 self.onmessage = (event: MessageEvent<WorkerRequest>) => {
   const req = event.data;
+  const rid = req.rid;
 
   try {
     switch (req.type) {
       case 'evaluate': {
         if (!req.tree) {
-          self.postMessage({ type: 'sdf', glsl: '', paramCount: 0, paramValues: [], bbMin: [0,0,0], bbMax: [0,0,0] });
+          self.postMessage({ type: 'sdf', rid, glsl: '', paramCount: 0, paramValues: [], bbMin: [0,0,0], bbMax: [0,0,0] });
           return;
         }
         const root = toSDFNode(req.tree);
         if (!root) {
-          self.postMessage({ type: 'sdf', glsl: '', paramCount: 0, paramValues: [], bbMin: [0,0,0], bbMax: [0,0,0] });
+          self.postMessage({ type: 'sdf', rid, glsl: '', paramCount: 0, paramValues: [], bbMin: [0,0,0], bbMax: [0,0,0] });
           return;
         }
         const bbox = prepareBBox(root);
         const bbMin: [number, number, number] = [...bbox.min];
         const bbMax: [number, number, number] = [...bbox.max];
         const compiled = generateSDFFunction(root);
-        self.postMessage({ type: 'sdf', glsl: compiled.glsl, paramCount: compiled.paramCount, paramValues: compiled.paramValues, textures: compiled.textures, bbMin, bbMax, hasWarn: compiled.hasWarn });
+        self.postMessage({ type: 'sdf', rid, glsl: compiled.glsl, paramCount: compiled.paramCount, paramValues: compiled.paramValues, textures: compiled.textures, bbMin, bbMax, hasWarn: compiled.hasWarn });
         break;
       }
 
       case 'exportSTL': {
         const progress: ProgressFn = (stage, percent) => {
-          self.postMessage({ type: 'progress', stage, percent: Math.round(percent) });
+          self.postMessage({ type: 'progress', rid, stage, percent: Math.round(percent) });
         };
         const mesh = evaluateAndMeshWithProgress(req.tree, 256, progress);
-        if (!mesh) { self.postMessage({ type: 'error', message: 'No geometry to export' }); return; }
+        if (!mesh) { self.postMessage({ type: 'error', rid, message: 'No geometry to export' }); return; }
         progress('Simplifying mesh', 80);
         const simplified = simplifyMesh(mesh, 0.5, (pct) => {
           progress('Simplifying mesh', 80 + pct * 0.15);
         });
         progress('Encoding STL', 95);
         const data = exportBinarySTL(simplified);
-        self.postMessage({ type: 'exportResult', format: 'stl' as const, data }, [data]);
+        self.postMessage({ type: 'exportResult', rid, format: 'stl' as const, data }, [data]);
         break;
       }
 
       case 'export3MF': {
         const progress: ProgressFn = (stage, percent) => {
-          self.postMessage({ type: 'progress', stage, percent: Math.round(percent) });
+          self.postMessage({ type: 'progress', rid, stage, percent: Math.round(percent) });
         };
         const mesh = evaluateAndMeshWithProgress(req.tree, 256, progress);
-        if (!mesh) { self.postMessage({ type: 'error', message: 'No geometry to export' }); return; }
+        if (!mesh) { self.postMessage({ type: 'error', rid, message: 'No geometry to export' }); return; }
         progress('Simplifying mesh', 80);
         const simplified = simplifyMesh(mesh, 0.5, (pct) => {
           progress('Simplifying mesh', 80 + pct * 0.15);
         });
         progress('Encoding 3MF', 95);
         const data = export3MF(simplified);
-        self.postMessage({ type: 'exportResult', format: '3mf' as const, data }, [data]);
+        self.postMessage({ type: 'exportResult', rid, format: '3mf' as const, data }, [data]);
         break;
       }
     }
   } catch (err: any) {
-    self.postMessage({ type: 'error', message: err.message || String(err) });
+    self.postMessage({ type: 'error', rid, message: err.message || String(err) });
   }
 };
