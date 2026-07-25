@@ -5,10 +5,14 @@ import {
   completeSignIn,
   refreshGoogleToken,
   fetchUserProfile,
+  RefreshError,
 } from '../auth/oauth';
 import { clearProviderCaches } from '../storage';
 
 const AUTH_KEY = 'sinter_auth';
+
+/** The in-flight refresh, shared by all concurrent getAccessToken callers. */
+let refreshInFlight: Promise<string> | null = null;
 
 export interface AuthUser {
   id: string;
@@ -97,26 +101,55 @@ export const useAuthStore = create<AuthState>((set) => ({
   getAccessToken: async () => {
     const persisted = readPersisted();
     if (!persisted) throw new Error('Not signed in');
+
     // Refresh Google tokens that are within 60s of expiry.
-    if (persisted.provider === 'google' && persisted.expiresAt && Date.now() > persisted.expiresAt - 60_000) {
-      if (!persisted.refreshToken) {
-        // Refresh token missing: force re-auth.
-        writePersisted(null);
-        set({ user: null });
-        throw new Error('Session expired — please sign in again');
-      }
+    const needsRefresh =
+      persisted.provider === 'google' &&
+      persisted.expiresAt &&
+      Date.now() > persisted.expiresAt - 60_000;
+    if (!needsRefresh) return persisted.accessToken;
+
+    if (!persisted.refreshToken) {
+      // Refresh token missing: force re-auth.
+      writePersisted(null);
+      set({ user: null });
+      throw new Error('Session expired — please sign in again');
+    }
+
+    // Single-flight. There are nine independent getAccessToken call sites and
+    // they can overlap freely (autosave firing while the user clicks Share).
+    // Without this, each one issues its own refresh and each writes the shared
+    // localStorage record based on a snapshot taken before its await — so one
+    // caller's failure clobbers a session another caller just established.
+    // See specs/TokenRefresh.tla.
+    if (refreshInFlight) return refreshInFlight;
+
+    const refreshToken = persisted.refreshToken;
+    refreshInFlight = (async () => {
       try {
-        const refreshed = await refreshGoogleToken(persisted.refreshToken);
-        const updated: PersistedAuth = { ...persisted, accessToken: refreshed.accessToken, expiresAt: refreshed.expiresAt };
-        writePersisted(updated);
+        const refreshed = await refreshGoogleToken(refreshToken);
+        // Re-read rather than spreading the pre-await snapshot: the record may
+        // have been replaced (second tab finished a sign-in) or removed
+        // (logout) while this refresh was in flight, and neither should be
+        // resurrected.
+        const current = readPersisted();
+        if (!current) throw new Error('Signed out during refresh');
+        writePersisted({ ...current, accessToken: refreshed.accessToken, expiresAt: refreshed.expiresAt });
         return refreshed.accessToken;
       } catch (err) {
-        writePersisted(null);
-        set({ user: null });
+        // Only a dead grant clears the session. A network blip or 5xx fails
+        // this call but leaves the user signed in.
+        if (err instanceof RefreshError && err.definitive) {
+          writePersisted(null);
+          set({ user: null });
+        }
         throw err;
+      } finally {
+        refreshInFlight = null;
       }
-    }
-    return persisted.accessToken;
+    })();
+
+    return refreshInFlight;
   },
 }));
 

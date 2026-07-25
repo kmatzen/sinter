@@ -135,6 +135,18 @@ export async function completeSignIn(): Promise<ExchangeResult> {
   };
 }
 
+/**
+ * A refresh that failed. `definitive` distinguishes "this refresh token is
+ * dead, sign the user out" from "the network hiccuped, keep the session".
+ * Treating the two alike turns a dropped packet into a forced re-auth.
+ */
+export class RefreshError extends Error {
+  constructor(message: string, readonly definitive: boolean) {
+    super(message);
+    this.name = 'RefreshError';
+  }
+}
+
 export async function refreshGoogleToken(refreshToken: string): Promise<{ accessToken: string; expiresAt: number }> {
   const res = await fetch('/api/auth/google/refresh', {
     method: 'POST',
@@ -143,7 +155,11 @@ export async function refreshGoogleToken(refreshToken: string): Promise<{ access
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(err.error || `Refresh failed (${res.status})`);
+    // 400 invalid_grant / 401: the grant is genuinely gone. Anything else
+    // (5xx, 429, gateway errors) is transient — a fetch rejection never
+    // reaches here at all and is transient by construction.
+    const definitive = res.status === 400 || res.status === 401;
+    throw new RefreshError(err.error || `Refresh failed (${res.status})`, definitive);
   }
   const data = await res.json();
   return {
