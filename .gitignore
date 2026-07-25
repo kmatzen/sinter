@@ -8,3 +8,4 @@ test-results/
 playwright-report/
 coverage/
 .env.swp
+tsconfig.tsbuildinfo
