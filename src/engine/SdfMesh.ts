@@ -162,14 +162,35 @@ export class SdfMesh {
     this.onStoreChange();
   }
 
+  /**
+   * Free the GPU-side resources backing the current mesh.
+   *
+   * Three.js does not release the compiled program, the geometry buffers, or
+   * textures when an object leaves the scene graph — `scene.remove()` only
+   * unlinks it. Anything that drops the current mesh must come through here,
+   * or every rebuild leaks a shader program, a geometry, and its textures.
+   */
+  private releaseGpu() {
+    if (this.mesh) {
+      this.engine.scene.remove(this.mesh);
+      this.mesh.geometry.dispose();
+    }
+    if (this.material) {
+      // Textures are reachable only via the uniforms, not through the mesh.
+      for (const uniform of Object.values(this.material.uniforms)) {
+        const value = uniform?.value;
+        if (value instanceof THREE.Texture) value.dispose();
+      }
+      this.material.dispose();
+    }
+    this.mesh = null;
+    this.material = null;
+  }
+
   private onStoreChange() {
     const sdf = useModelerStore.getState().sdfDisplay;
     if (!sdf || !sdf.glsl) {
-      if (this.mesh) {
-        this.engine.scene.remove(this.mesh);
-        this.mesh = null;
-        this.material = null;
-      }
+      this.releaseGpu();
       this.lastGlsl = '';
       this.lastParamCount = 0;
       this.lastBBKey = '';
@@ -185,7 +206,8 @@ export class SdfMesh {
   }
 
   private rebuild(sdf: { glsl: string; paramCount: number; paramValues: number[]; textures: any[]; bbMin: [number,number,number]; bbMax: [number,number,number]; hasWarn: boolean }) {
-    if (this.mesh) this.engine.scene.remove(this.mesh);
+    // Dispose the previous build before allocating its replacement.
+    this.releaseGpu();
 
     const initialParams = new Float32Array(sdf.paramCount);
     for (let i = 0; i < sdf.paramValues.length; i++) initialParams[i] = sdf.paramValues[i];
@@ -295,6 +317,6 @@ export class SdfMesh {
 
   dispose() {
     for (const u of this.unsubs) u();
-    if (this.mesh) this.engine.scene.remove(this.mesh);
+    this.releaseGpu();
   }
 }
