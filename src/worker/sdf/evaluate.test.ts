@@ -48,6 +48,24 @@ describe('evaluateSDF', () => {
       const torus: SDFNode = { kind: 'torus', major: 10, minor: 3 };
       expect(evaluateSDF(torus, [10, 0, 0])).toBeLessThan(0);
     });
+
+    it('cone: inside near the base, outside far away', () => {
+      const cone: SDFNode = { kind: 'cone', radius: 5, height: 10 };
+      expect(evaluateSDF(cone, [0, -4, 0])).toBeLessThan(0);
+      expect(evaluateSDF(cone, [100, 0, 0])).toBeGreaterThan(0);
+    });
+
+    it('capsule: center and surface distances', () => {
+      const capsule: SDFNode = { kind: 'capsule', radius: 2, height: 10 };
+      expect(evaluateSDF(capsule, [0, 0, 0])).toBeCloseTo(-2);
+      expect(evaluateSDF(capsule, [2, 0, 0])).toBeCloseTo(0);
+    });
+
+    it('ellipsoid: center is inside, surface approx zero, and the degenerate center case', () => {
+      const ell: SDFNode = { kind: 'ellipsoid', size: [10, 20, 30] };
+      expect(evaluateSDF(ell, [0, 0, 0])).toBeCloseTo(-5);
+      expect(Math.abs(evaluateSDF(ell, [5, 0, 0]))).toBeLessThan(0.5);
+    });
   });
 
   describe('booleans', () => {
@@ -78,6 +96,14 @@ describe('evaluateSDF', () => {
       const sharpVal = evaluateSDF(sharp, p);
       const smoothVal = evaluateSDF(smooth, p);
       expect(smoothVal).toBeLessThanOrEqual(sharpVal);
+    });
+
+    it('smooth subtract and intersect evaluate without throwing', () => {
+      const smoothSub: SDFNode = { kind: 'subtract', a: boxA, b: boxB, k: 2 };
+      expect(typeof evaluateSDF(smoothSub, [-3, 0, 0])).toBe('number');
+
+      const smoothInter: SDFNode = { kind: 'intersect', a: boxA, b: boxB, k: 2 };
+      expect(typeof evaluateSDF(smoothInter, [4, 0, 0])).toBe('number');
     });
   });
 
@@ -152,5 +178,80 @@ describe('evaluateSDF', () => {
       const hs: SDFNode = { kind: 'halfSpace', axis: 'y', position: 5, flip: false };
       expect(evaluateSDF(hs, [0, 10, 0])).toBeGreaterThan(0);
     });
+
+    it('flip inverts the side, and x/z axes work too', () => {
+      expect(evaluateSDF({ kind: 'halfSpace', axis: 'y', position: 5, flip: true }, [0, 0, 0])).toBeGreaterThan(0);
+      expect(evaluateSDF({ kind: 'halfSpace', axis: 'x', position: 0, flip: false }, [5, 0, 0])).toBeGreaterThan(0);
+      expect(evaluateSDF({ kind: 'halfSpace', axis: 'z', position: 0, flip: false }, [0, 0, 5])).toBeGreaterThan(0);
+    });
+  });
+
+  describe('patterns', () => {
+    it('linearPattern repeats the child along its axis', () => {
+      const sphere: SDFNode = { kind: 'sphere', radius: 2 };
+      const pattern: SDFNode = { kind: 'linearPattern', child: sphere, axis: [1, 0, 0], count: 3, spacing: 10 };
+      expect(evaluateSDF(pattern, [0, 0, 0])).toBeCloseTo(-2);
+      expect(evaluateSDF(pattern, [10, 0, 0])).toBeCloseTo(-2);
+      expect(evaluateSDF(pattern, [20, 0, 0])).toBeCloseTo(-2);
+    });
+
+    it('linearPattern with a zero-length axis falls back to the plain child', () => {
+      const sphere: SDFNode = { kind: 'sphere', radius: 2 };
+      const pattern: SDFNode = { kind: 'linearPattern', child: sphere, axis: [0, 0, 0], count: 3, spacing: 10 };
+      expect(evaluateSDF(pattern, [0, 0, 0])).toBeCloseTo(-2);
+    });
+
+    it('circularPattern repeats around the Y, X, and Z axes', () => {
+      const sphereAtX: SDFNode = { kind: 'transform', child: { kind: 'sphere', radius: 1 }, tx: 5, ty: 0, tz: 0, rx: 0, ry: 0, rz: 0, sx: 1, sy: 1, sz: 1 };
+      const patternY: SDFNode = { kind: 'circularPattern', child: sphereAtX, axis: [0, 1, 0], count: 4 };
+      expect(evaluateSDF(patternY, [5, 0, 0])).toBeCloseTo(-1);
+      expect(evaluateSDF(patternY, [0, 0, 5])).toBeCloseTo(-1);
+
+      const sphereAtY: SDFNode = { kind: 'transform', child: { kind: 'sphere', radius: 1 }, tx: 0, ty: 5, tz: 0, rx: 0, ry: 0, rz: 0, sx: 1, sy: 1, sz: 1 };
+      const patternX: SDFNode = { kind: 'circularPattern', child: sphereAtY, axis: [1, 0, 0], count: 4 };
+      expect(evaluateSDF(patternX, [0, 5, 0])).toBeCloseTo(-1);
+
+      const patternZ: SDFNode = { kind: 'circularPattern', child: sphereAtX, axis: [0, 0, 1], count: 4 };
+      expect(evaluateSDF(patternZ, [5, 0, 0])).toBeCloseTo(-1);
+    });
+  });
+
+  describe('text', () => {
+    it('falls back to a box shape without glyph data', () => {
+      const text: SDFNode = { kind: 'text', text: 'Hi', size: 10, depth: 4, font: 'sans' };
+      expect(evaluateSDF(text, [0, 0, 0])).toBeLessThan(0);
+      expect(evaluateSDF(text, [1000, 0, 0])).toBeGreaterThan(0);
+    });
+
+    it('evaluates a glyph contour built from line segments, extruded in Z', () => {
+      const text: SDFNode = {
+        kind: 'text', text: 'I', size: 10, depth: 4, font: 'sans',
+        glyphWidth: 4, glyphAscent: 10, glyphDescent: 0,
+        glyphSegments: [
+          { type: 'L', x0: 0, y0: 0, x1: 4, y1: 0 },
+          { type: 'L', x0: 4, y0: 0, x1: 4, y1: 10 },
+          { type: 'L', x0: 4, y0: 10, x1: 0, y1: 10 },
+          { type: 'L', x0: 0, y0: 10, x1: 0, y1: 0 },
+        ],
+      };
+      expect(evaluateSDF(text, [0, 0, 0])).toBeLessThan(0);
+      expect(evaluateSDF(text, [1000, 0, 0])).toBeGreaterThan(0);
+    });
+
+    it('evaluates a glyph contour built from quadratic beziers', () => {
+      const text: SDFNode = {
+        kind: 'text', text: 'O', size: 10, depth: 4, font: 'sans',
+        glyphWidth: 6, glyphAscent: 10, glyphDescent: 0,
+        glyphBeziers: [
+          { type: 'Q', x0: 0, y0: 5, x1: 0, y1: 10, x2: 6, y2: 10 },
+          { type: 'Q', x0: 6, y0: 10, x1: 6, y1: 5, x2: 0, y2: 5 },
+        ],
+      };
+      expect(typeof evaluateSDF(text, [3, 5, 0])).toBe('number');
+    });
+  });
+
+  it('_far is always effectively infinite', () => {
+    expect(evaluateSDF({ kind: '_far' }, [0, 0, 0])).toBe(1e10);
   });
 });

@@ -11,6 +11,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test",
     "test:all": "vitest run && playwright test",
     "migrate": "tsx server/migrate-to-static.ts"
@@ -36,6 +37,7 @@
     "@types/three": "^0.170.0",
     "@types/uuid": "^10.0.0",
     "@vitejs/plugin-react": "^4.3.4",
+    "@vitest/coverage-v8": "^4.1.10",
     "better-sqlite3": "^12.8.0",
     "dotenv": "^17.4.2",
     "jsdom": "^29.0.2",
