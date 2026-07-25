@@ -301,3 +301,84 @@ export function soundBounds(node: SDFNode, seed: BBox, depth = 6): BBox | null {
   visit(seed, depth);
   return found ? { min, max } : null;
 }
+
+/**
+ * Bounds for the mesher: `computeBounds` widened by whatever the field itself
+ * says lies outside it.
+ *
+ * `computeBounds` composes a rule per node kind, and every rule is a chance to
+ * disagree with the evaluator — two defects found so far (#70, #73) were
+ * exactly that.  So it is not trusted as the answer.  But it is not discarded
+ * either, and the reason is worth stating, because the obvious construction is
+ * wrong:
+ *
+ * A search over a finite region can prove where the solid is *inside* that
+ * region, and it is tempting to stop growing the region once the solid no
+ * longer touches its edge.  That is unsound.  "Nothing reaches the edge" does
+ * not imply "nothing lies beyond it" — a second, disconnected component
+ * further out is missed entirely.  A property test caught precisely that: two
+ * spheres at x = 0 and x = -3, searched from a small box at the origin, stop
+ * at the first sphere.  No purely local search can rule out distant material.
+ *
+ * `computeBounds` is where a global claim actually comes from: it is
+ * structural, so a union covers every component.  Taking the union of the two
+ * is therefore strictly safer than either alone — it inherits that global
+ * coverage, and adds any region the interval search *proves* occupied beyond
+ * it, which is what catches a mistaken bounds rule.  Erring large only costs
+ * grid resolution; erring small silently cuts the model.
+ *
+ * `start` is a hint for the search region only.
+ */
+export function verifiedBounds(
+  node: SDFNode,
+  start: BBox,
+  maxGrowths = 6,
+  depth = 6,
+): BBox | null {
+  const finite = (v: number, f: number) => (isFinite(v) ? v : f);
+  const base: BBox = {
+    min: [finite(start.min[0], -100), finite(start.min[1], -100), finite(start.min[2], -100)],
+    max: [finite(start.max[0], 100), finite(start.max[1], 100), finite(start.max[2], 100)],
+  };
+  for (let k = 0; k < 3; k++) {
+    if (!(base.max[k] - base.min[k] > 1e-6)) {
+      const c = (base.min[k] + base.max[k]) / 2;
+      base.min[k] = c - 1; base.max[k] = c + 1;
+    }
+  }
+
+  // Search a region around the hint, growing while the solid runs into its
+  // edge — that still finds material a wrong bounds rule omitted, it just
+  // cannot be the sole source of coverage.
+  let probe: BBox = {
+    min: [0, 0, 0].map((_, k) => base.min[k] - (base.max[k] - base.min[k]) / 2) as Vec3,
+    max: [0, 0, 0].map((_, k) => base.max[k] + (base.max[k] - base.min[k]) / 2) as Vec3,
+  };
+  const result: BBox = { min: [...base.min] as Vec3, max: [...base.max] as Vec3 };
+
+  for (let attempt = 0; attempt <= maxGrowths; attempt++) {
+    const found = soundBounds(node, probe, depth);
+    if (found) {
+      for (let k = 0; k < 3; k++) {
+        result.min[k] = Math.min(result.min[k], found.min[k]);
+        result.max[k] = Math.max(result.max[k], found.max[k]);
+      }
+      const slack = [0, 1, 2].map((k) => (probe.max[k] - probe.min[k]) * 1e-6);
+      const touches = [0, 1, 2].some(
+        (k) => found.min[k] <= probe.min[k] + slack[k] || found.max[k] >= probe.max[k] - slack[k],
+      );
+      if (!touches) break;
+    } else {
+      break;   // region proved empty; nothing here to add
+    }
+    const grown: BBox = { min: [0, 0, 0], max: [0, 0, 0] };
+    for (let k = 0; k < 3; k++) {
+      const c = (probe.min[k] + probe.max[k]) / 2;
+      const h = probe.max[k] - probe.min[k];
+      grown.min[k] = c - h; grown.max[k] = c + h;
+    }
+    probe = grown;
+  }
+
+  return result;
+}

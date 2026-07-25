@@ -6,7 +6,7 @@ import type { SDFNodeUI } from '../types/operations';
 import type { SDFNode, BBox } from './sdf/types';
 import { evaluateSDF } from './sdf/evaluate';
 import { computeBounds } from './sdf/bounds';
-import { evaluateInterval } from './sdf/interval';
+import { evaluateInterval, verifiedBounds } from './sdf/interval';
 import { generateSDFFunction } from './sdf/codegen';
 import { dualContour } from './sdf/dualContour';
 import { exportBinarySTL } from './stlExporter';
@@ -19,7 +19,12 @@ self.postMessage({ type: 'ready' });
 type ProgressFn = (stage: string, percent: number) => void;
 
 function prepareBBox(root: SDFNode): BBox {
-  const bbox = computeBounds(root);
+  // `computeBounds` is only the starting hint.  The grid the mesh is built on
+  // comes from `verifiedBounds`, which asks the field itself where it can be
+  // negative instead of composing a rule per node kind — the mesher should not
+  // be able to clip geometry just because a bounds rule and the evaluator
+  // disagree, which is what #70 and #73 both were.
+  const bbox = verifiedBounds(root, computeBounds(root)) ?? computeBounds(root);
   const margin = Math.max(
     (bbox.max[0] - bbox.min[0]) * 0.1,
     (bbox.max[1] - bbox.min[1]) * 0.1,

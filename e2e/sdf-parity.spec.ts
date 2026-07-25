@@ -42,7 +42,36 @@ void main() {
   gl_FragColor = vec4(sdf(p), 0.0, 0.0, 1.0);
 }`;
 
-const CASES: [string, SDFNode][] = [
+/**
+ * Text is the one node where the two evaluators are written to disagree:
+ * `codegen.ts` emits a box approximation ("GPU: box approximation (fast)"),
+ * while `evaluate.ts` walks real glyph outlines when it has them.
+ *
+ * Today that costs nothing, because nothing populates the glyph data —
+ * `ui.data.glyphPaths` has no producer in the repo, so `convert.ts` always
+ * passes undefined and the CPU takes the same box fallback.  The divergence
+ * is latent, and becomes real the moment someone wires glyph outlines up.
+ *
+ * This case supplies glyph data directly, so it fails now and will keep
+ * failing until the shader grows a matching glyph path.  It is marked as an
+ * expected failure rather than deleted: a green suite should not imply the two
+ * agree about text when they do not.
+ */
+const TEXT_WITH_GLYPHS: SDFNode = {
+  kind: 'text', text: 'L', size: 20, depth: 6, font: 'sans-serif',
+  // A plain 'L': outlines that are nothing like the box the shader draws.
+  glyphSegments: [
+    { type: 'L', x0: 2, y0: 0, x1: 2, y1: 18 },
+    { type: 'L', x0: 2, y0: 18, x1: 6, y1: 18 },
+    { type: 'L', x0: 6, y0: 18, x1: 6, y1: 4 },
+    { type: 'L', x0: 6, y0: 4, x1: 14, y1: 4 },
+    { type: 'L', x0: 14, y0: 4, x1: 14, y1: 0 },
+    { type: 'L', x0: 14, y0: 0, x1: 2, y1: 0 },
+  ],
+  glyphWidth: 16, glyphAscent: 18, glyphDescent: 0,
+};
+
+const CASES: [string, SDFNode, boolean?][] = [
   ['box', { kind: 'box', size: [30, 20, 40] }],
   ['sphere', { kind: 'sphere', radius: 14 }],
   ['cylinder', { kind: 'cylinder', radius: 10, height: 25 }],
@@ -73,6 +102,10 @@ const CASES: [string, SDFNode][] = [
       tx: 37.5, ty: 0, tz: 0, rx: 0, ry: 0, rz: 0, sx: 1, sy: 1, sz: 1,
     },
   }],
+  ['text with glyph outlines (known divergence)', TEXT_WITH_GLYPHS, true],
+  ['text without glyph data (the reachable case)', {
+    kind: 'text', text: 'AB', size: 20, depth: 6, font: 'sans-serif',
+  }],
   ['circularPattern spanning sectors', {
     kind: 'circularPattern', axis: [0, 1, 0], count: 6,
     child: {
@@ -82,12 +115,14 @@ const CASES: [string, SDFNode][] = [
   }],
 ];
 
+
 const RES = 32;
 const SLICES = [0.2, 0.5, 0.8];
 
 test.describe('CPU and GPU evaluators agree', () => {
-  for (const [name, tree] of CASES) {
+  for (const [name, tree, expectFail] of CASES) {
     test(name, async ({ page }) => {
+      test.fail(!!expectFail, 'shader draws a box for text — see TEXT_WITH_GLYPHS');
       await page.goto('/');
       const bb = computeBounds(tree);
       const src = FRAG(bakedShader(tree));

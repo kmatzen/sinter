@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import fc from 'fast-check';
 import { evaluateSDF } from './evaluate';
 import { computeBounds } from './bounds';
-import { evaluateInterval, classifyCell, soundBounds } from './interval';
+import { evaluateInterval, classifyCell, soundBounds, verifiedBounds } from './interval';
 import { sdfTree, usableBounds, nodeCount } from './testTrees';
 import type { SDFNode, Vec3, BBox } from './types';
 
@@ -123,6 +123,66 @@ describe('soundBounds encloses the solid', () => {
       }),
       { numRuns: 100 },
     );
+  });
+
+  it('verifiedBounds contains the solid, as the mesher calls it', () => {
+    fc.assert(
+      fc.property(smallTree(3), fc.integer({ min: 1, max: 2 ** 30 }), (tree, seed) => {
+        const bb = usableBounds(tree);
+        if (!bb) return true;
+        // Exactly how prepareBBox calls it.  Coverage comes from computeBounds
+        // being structural; the interval search only ever widens the result.
+        const vb = verifiedBounds(tree, computeBounds(tree), 4, 4);
+        if (!vb) return true;
+        const ext: Vec3 = [bb.max[0] - bb.min[0], bb.max[1] - bb.min[1], bb.max[2] - bb.min[2]];
+        const tol = Math.max(ext[0], ext[1], ext[2]) * 1e-6;
+        const wide: BBox = {
+          min: [bb.min[0] - ext[0], bb.min[1] - ext[1], bb.min[2] - ext[2]],
+          max: [bb.max[0] + ext[0], bb.max[1] + ext[1], bb.max[2] + ext[2]],
+        };
+        for (const p of samplesIn(wide, 300, seed)) {
+          if (evaluateSDF(tree, p) >= 0) continue;
+          for (let k = 0; k < 3; k++) {
+            if (p[k] < vb.min[k] - tol || p[k] > vb.max[k] + tol) return false;
+          }
+        }
+        return true;
+      }),
+      { numRuns: 60 },
+    );
+  });
+
+  it('verifiedBounds widens a hint that omits real material', () => {
+    // The #70 shape fed the pre-fix margin as its hint: solid reaches x = 110
+    // but the hint stops at 20.  The interval search has to notice and widen,
+    // which is the half of the contract computeBounds cannot provide.
+    const tree: SDFNode = {
+      kind: 'round', radius: 10,
+      child: {
+        kind: 'transform', child: { kind: 'box', size: [20, 20, 20] },
+        tx: 0, ty: 0, tz: 0, rx: 0, ry: 0, rz: 0, sx: 1, sy: 0.1, sz: 1,
+      },
+    };
+    const badHint: BBox = { min: [-20, -11, -20], max: [20, 11, 20] };
+    const vb = verifiedBounds(tree, badHint, 6, 6)!;
+    expect(evaluateSDF(tree, [100, 0, 0])).toBeLessThan(0);
+    expect(vb.max[0]).toBeGreaterThanOrEqual(100);
+  });
+
+  it('halfSpace no longer clips models larger than the old 1000mm stand-in', () => {
+    // intersect(box 4000 wide, x <= 0) — the solid runs from x = -2000 to 0.
+    const tree: SDFNode = {
+      kind: 'intersect', k: 0,
+      a: { kind: 'box', size: [4000, 100, 100] },
+      b: { kind: 'halfSpace', axis: 'x', position: 0, flip: false },
+    };
+    expect(evaluateSDF(tree, [-1500, 0, 0])).toBeLessThan(0);
+    const bb = computeBounds(tree);
+    expect(bb.min[0]).toBeLessThanOrEqual(-2000);
+    // The half-space side is unbounded on its own, but the intersect defers to
+    // the box, so the result stays finite.
+    expect(isFinite(bb.min[0])).toBe(true);
+    expect(isFinite(bb.max[0])).toBe(true);
   });
 
   it('catches solid that the composed per-node bounds would have missed', () => {

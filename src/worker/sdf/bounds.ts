@@ -136,9 +136,15 @@ export function computeBounds(node: SDFNode): BBox {
       return { min: [-hw, -hh, -hd], max: [hw, hh, hd] };
     }
     case 'halfSpace':
-      // Half-space is infinite; bounds are meaningless on their own.
-      // When intersected with geometry, the parent intersect node uses the other child's bounds.
-      return { min: [-1000, -1000, -1000], max: [1000, 1000, 1000] };
+      // A half-space really is unbounded, so say so rather than substituting a
+      // 1000mm box: `intersect` takes the tighter of the two bounds per axis,
+      // so infinities there simply defer to the other child, which is the only
+      // way a halfSpace reaches the tree (convert.ts wraps it in an intersect).
+      // The old finite stand-in silently clipped any model over 1000mm.
+      return {
+        min: [-Infinity, -Infinity, -Infinity],
+        max: [Infinity, Infinity, Infinity],
+      };
     case 'transform': {
       const cb = computeBounds(node.child);
       // Transform all 8 corners of the child AABB and compute the new AABB
