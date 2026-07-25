@@ -243,7 +243,7 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
     </div>
 
     {exportProgress && (
-      <div className="h-1 w-full shrink-0" style={{ background: 'var(--bg-elevated)' }}>
+      <div data-testid="export-progress" className="h-1 w-full shrink-0" style={{ background: 'var(--bg-elevated)' }}>
         <div
           className="h-full transition-all duration-200"
           style={{ width: `${Math.round(exportProgress.percent)}%`, background: 'var(--accent)' }}

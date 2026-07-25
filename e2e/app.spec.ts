@@ -287,3 +287,67 @@ test.describe('Modeler: Export', () => {
     await expect(stl).toBeEnabled();
   });
 });
+
+test.describe('Modeler: Worker concurrency', () => {
+  test.beforeEach(async ({ page }) => {
+    await enterModeler(page);
+  });
+
+  // The property #51 is actually about: an export must not block viewport
+  // evaluation. The worker runs each message to completion with no yield
+  // point, so with a single shared worker every evaluation queued behind a
+  // 256³ export and the viewport froze for its duration.
+  //
+  // The unit tests cannot show this — their fake worker never blocks. This
+  // one exercises real workers doing real work, and fails against a
+  // single-worker bridge.
+  test('viewport keeps evaluating while an export runs', async ({ page }) => {
+    // Unlike the rest of the suite this waits on a real 256-cubed export, so it
+    // runs 25-27s on a fast machine against the 30s default. CI is slower —
+    // on the run that first exposed the bug below, the 30s test budget expired
+    // before the inner 15s wait had even started. Triple it rather than leave
+    // a genuine pass hostage to the runner's speed.
+    test.slow();
+
+    await addShape(page, 'Box');
+
+    // Wait for the first evaluation to settle so we have a baseline.
+    await page.waitForFunction(() => {
+      const s = (window as any).__MODELER_STORE__;
+      return s?.sdfDisplay && !s.evaluating;
+    }, null, { timeout: 15000 });
+
+    const baseline = await page.evaluate(() =>
+      JSON.stringify((window as any).__MODELER_STORE__.sdfDisplay.paramValues));
+
+    // Kick off an export and wait until it is genuinely in flight.
+    await page.locator('[title="Export STL"]').click();
+    const progress = page.locator('[data-testid="export-progress"]');
+    await expect(progress).toBeVisible({ timeout: 15000 });
+
+    // Mutate the model while the export is running. This changes paramValues,
+    // so a completed evaluation is observable without a structural edit.
+    //
+    // It has to be a parameter this shape actually has: the node here is a Box,
+    // whose params are width/height/depth (NODE_DEFAULTS.box).  Setting an
+    // unrelated key leaves the emitted uniforms byte-identical — convert.ts
+    // reads only width/height/depth for a box — so the wait below could never
+    // observe a change, whatever the workers were doing.
+    await page.evaluate(() => {
+      const store = (window as any).__MODELER_STORE__;
+      store.updateNodeParams(store.tree.id, { width: 7 });
+    });
+
+    // The evaluation must complete...
+    await page.waitForFunction((prev) => {
+      const s = (window as any).__MODELER_STORE__;
+      return s?.sdfDisplay && !s.evaluating
+        && JSON.stringify(s.sdfDisplay.paramValues) !== prev;
+    }, baseline, { timeout: 15000 });
+
+    // ...while the export is still running. This ordering is the whole point:
+    // on a single worker the evaluation could not land until the export
+    // finished and the progress bar had already gone.
+    await expect(progress).toBeVisible();
+  });
+});
