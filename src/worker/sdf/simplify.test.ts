@@ -133,6 +133,52 @@ describe('simplifyMesh', () => {
   });
 });
 
+describe('simplifyMesh error-bounded mode', () => {
+  it('keeps every vertex within the error budget of the surface', () => {
+    const sphere: SDFNode = { kind: 'sphere', radius: 5 };
+    const mesh = meshFromSDF(sphere, 32);
+    const voxel = 16 / 32;
+    const maxError = voxel * 0.1;
+
+    const simplified = simplifyMesh(mesh, { maxError });
+
+    let maxDev = 0;
+    for (let i = 0; i < simplified.positions.length; i += 3) {
+      maxDev = Math.max(maxDev, Math.abs(evaluateSDF(sphere, [
+        simplified.positions[i], simplified.positions[i + 1], simplified.positions[i + 2],
+      ])));
+    }
+    // Quadric cost accumulates across collapses, so allow modest slack
+    // beyond the nominal budget — but nothing like the voxel-scale error
+    // a ratio target produces.
+    expect(maxDev).toBeLessThan(maxError * 4);
+    expect(simplified.indices.length).toBeLessThan(mesh.indices.length);
+  });
+
+  it('decimates a flat-faced box far more aggressively than a sphere', () => {
+    const boxMesh = meshFromSDF({ kind: 'box', size: [10, 10, 10] }, 32);
+    const sphereMesh = meshFromSDF({ kind: 'sphere', radius: 5 }, 32);
+    const maxError = (16 / 32) * 0.1;
+
+    const box = simplifyMesh(boxMesh, { maxError });
+    const sphere = simplifyMesh(sphereMesh, { maxError });
+
+    const boxKept = box.indices.length / boxMesh.indices.length;
+    const sphereKept = sphere.indices.length / sphereMesh.indices.length;
+
+    // Box faces are planar (zero quadric cost) so nearly everything
+    // collapses; the sphere must retain triangles to hold its curvature.
+    expect(boxKept).toBeLessThan(sphereKept * 0.5);
+  });
+
+  it('respects targetRatio as a floor when both constraints are given', () => {
+    const mesh = meshFromSDF({ kind: 'box', size: [10, 10, 10] }, 24);
+    const simplified = simplifyMesh(mesh, { maxError: 10, targetRatio: 0.5 });
+    // Error budget is huge, so the ratio floor is what stops collapsing
+    expect(simplified.indices.length / 3).toBeGreaterThanOrEqual(Math.floor((mesh.indices.length / 3) * 0.5) - 1);
+  });
+});
+
 describe('splitCreaseEdges', () => {
   it('splits vertices across a sharp 90-degree fold', () => {
     // Two triangles sharing edge (1,2), folded at a right angle.

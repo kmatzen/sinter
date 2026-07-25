@@ -13,6 +13,7 @@ import { exportBinarySTL } from './stlExporter';
 import { export3MF } from './exporters';
 import { toSDFNode } from './sdf/convert';
 import { simplifyMesh } from './sdf/simplify';
+import { removeDegenerateTriangles, projectVerticesToSurface } from './sdf/meshRepair';
 
 self.postMessage({ type: 'ready' });
 
@@ -36,14 +37,28 @@ function prepareBBox(root: SDFNode): BBox {
   return bbox;
 }
 
+/**
+ * Full export meshing pipeline:
+ *   1. SDF grid evaluation (interval-verified octree descent)
+ *   2. Manifold dual contouring with SVD QEF vertex placement
+ *   3. Degenerate-face cleanup
+ *   4. Error-bounded QEM simplification (budget: 5% of a voxel)
+ *   5. Newton projection of the surviving vertices back onto the SDF
+ *      zero set, clearing the residual bias simplification introduced
+ */
 function evaluateAndMeshWithProgress(tree: SDFNodeUI | null, resolution: number, progress: ProgressFn) {
   if (!tree) return null;
-  let root = toSDFNode(tree);
+  const root = toSDFNode(tree);
   if (!root) return null;
 
   const bbox = prepareBBox(root);
+  const voxel = Math.max(
+    (bbox.max[0] - bbox.min[0]) / resolution,
+    (bbox.max[1] - bbox.min[1]) / resolution,
+    (bbox.max[2] - bbox.min[2]) / resolution,
+  );
 
-  // Grid evaluation with progress
+  // Grid evaluation with progress (0-60%)
   progress('Evaluating SDF grid', 0);
   const grid = evaluateCPUWithProgress(root, bbox, resolution, (pct) => {
     progress('Evaluating SDF grid', pct);
@@ -51,11 +66,20 @@ function evaluateAndMeshWithProgress(tree: SDFNodeUI | null, resolution: number,
 
   // Dual contouring (60-80%)
   progress('Generating mesh', 60);
-  const mesh = dualContour(grid, resolution, bbox, root, (pct) => {
+  const raw = dualContour(grid, resolution, bbox, root, (pct) => {
     progress('Generating mesh', 60 + pct * 0.2);
   });
+  if (raw.indices.length === 0) return null;
 
-  return mesh;
+  // Simplification (80-92%)
+  progress('Simplifying mesh', 80);
+  const simplified = simplifyMesh(removeDegenerateTriangles(raw), { maxError: voxel * 0.05 }, (pct) => {
+    progress('Simplifying mesh', 80 + pct * 0.12);
+  });
+
+  // Surface snap (92-95%)
+  progress('Refining surface', 92);
+  return projectVerticesToSurface(simplified, root, voxel * 0.5);
 }
 
 /**
@@ -206,12 +230,8 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
         };
         const mesh = evaluateAndMeshWithProgress(req.tree, 256, progress);
         if (!mesh) { self.postMessage({ type: 'error', rid, message: 'No geometry to export' }); return; }
-        progress('Simplifying mesh', 80);
-        const simplified = simplifyMesh(mesh, 0.5, (pct) => {
-          progress('Simplifying mesh', 80 + pct * 0.15);
-        });
         progress('Encoding STL', 95);
-        const data = exportBinarySTL(simplified);
+        const data = exportBinarySTL(mesh);
         self.postMessage({ type: 'exportResult', rid, format: 'stl' as const, data }, [data]);
         break;
       }
@@ -222,12 +242,8 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
         };
         const mesh = evaluateAndMeshWithProgress(req.tree, 256, progress);
         if (!mesh) { self.postMessage({ type: 'error', rid, message: 'No geometry to export' }); return; }
-        progress('Simplifying mesh', 80);
-        const simplified = simplifyMesh(mesh, 0.5, (pct) => {
-          progress('Simplifying mesh', 80 + pct * 0.15);
-        });
         progress('Encoding 3MF', 95);
-        const data = export3MF(simplified);
+        const data = export3MF(mesh);
         self.postMessage({ type: 'exportResult', rid, format: '3mf' as const, data }, [data]);
         break;
       }

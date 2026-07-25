@@ -1,17 +1,27 @@
 /**
- * Dual Contouring — places one vertex per cell at the QEF minimizer
- * of all edge crossings, naturally capturing sharp edges and corners.
+ * Manifold Dual Contouring — one vertex per surface patch per cell, placed
+ * at the QEF minimizer of that patch's edge crossings.
  *
- * Unlike marching cubes (vertices on grid edges), DC vertices can sit
- * anywhere inside a cell, so they land directly on creases where two
- * surface planes intersect.
+ * Plain dual contouring places a single vertex per cell, which pinches the
+ * mesh into non-manifold vertices whenever a cell contains two separate
+ * surface sheets (e.g. corners 0 and 6 inside, everything else outside).
+ * Here the cell's crossing edges are grouped into patches using the marching
+ * cubes triangle table — edges that belong to the same MC surface component
+ * share a vertex, edges on different components get separate vertices — so
+ * each sheet stays its own sheet (Nielson, "Dual Marching Cubes").
+ *
+ * Vertex placement uses the truncated-SVD QEF from qef.ts, which reproduces
+ * sharp edges and corners exactly instead of pulling them toward the cell
+ * centroid the way a Tikhonov-regularized solve does.
  */
 
 import type { SDFNode, BBox, Vec3 } from './types';
 import { evaluateSDF } from './evaluate';
+import { solveQEF } from './qef';
+import { TRI_TABLE } from './tables';
 import type { MeshResult } from './marchingCubes';
 
-const BISECT_ITERS = 6;
+const BISECT_ITERS = 8;
 
 /** Compute SDF gradient via central differences */
 function sdfGradient(sdf: SDFNode, p: Vec3, eps: number): Vec3 {
@@ -22,38 +32,60 @@ function sdfGradient(sdf: SDFNode, p: Vec3, eps: number): Vec3 {
   ];
 }
 
-/**
- * Solve QEF: minimize sum_i (n_i . (x - p_i))^2 with Tikhonov
- * regularization toward the mass point (centroid of intersections).
- */
-function solveQEF(
-  points: Vec3[], normals: Vec3[], massPoint: Vec3,
-): Vec3 {
-  let a00 = 0, a01 = 0, a02 = 0, a11 = 0, a12 = 0, a22 = 0;
-  let b0 = 0, b1 = 0, b2 = 0;
+// Cell edge connectivity and corner offsets (matches tables.ts layout)
+const EC: [number, number][] = [
+  [0, 1], [1, 2], [2, 3], [3, 0],
+  [4, 5], [5, 6], [6, 7], [7, 4],
+  [0, 4], [1, 5], [2, 6], [3, 7],
+];
+const CO: [number, number, number][] = [
+  [0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0],
+  [0, 0, 1], [1, 0, 1], [1, 1, 1], [0, 1, 1],
+];
 
-  for (let i = 0; i < points.length; i++) {
-    const [nx, ny, nz] = normals[i];
-    const d = nx * points[i][0] + ny * points[i][1] + nz * points[i][2];
-    a00 += nx * nx; a01 += nx * ny; a02 += nx * nz;
-    a11 += ny * ny; a12 += ny * nz; a22 += nz * nz;
-    b0 += nx * d; b1 += ny * d; b2 += nz * d;
+/**
+ * For each cube configuration, the crossing edges grouped into surface
+ * patches (connected components of the MC triangulation). Precomputed once
+ * from TRI_TABLE. PATCHES[config] = array of patches, each an array of edge
+ * indices; EDGE_PATCH[config][edge] = patch index or -1.
+ */
+const PATCHES: number[][][] = [];
+const EDGE_PATCH: Int8Array[] = [];
+
+for (let config = 0; config < 256; config++) {
+  const tris = TRI_TABLE[config];
+  const parent = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
+  const present = new Array<boolean>(12).fill(false);
+
+  const find = (e: number): number => {
+    while (parent[e] !== e) { parent[e] = parent[parent[e]]; e = parent[e]; }
+    return e;
+  };
+
+  for (let t = 0; t < tris.length; t += 3) {
+    const e0 = tris[t], e1 = tris[t + 1], e2 = tris[t + 2];
+    present[e0] = present[e1] = present[e2] = true;
+    parent[find(e1)] = find(e0);
+    parent[find(e2)] = find(e0);
   }
 
-  // Regularization toward mass point
-  const w = 0.01 * points.length;
-  a00 += w; a11 += w; a22 += w;
-  b0 += w * massPoint[0]; b1 += w * massPoint[1]; b2 += w * massPoint[2];
-
-  const det = a00 * (a11 * a22 - a12 * a12) - a01 * (a01 * a22 - a12 * a02) + a02 * (a01 * a12 - a11 * a02);
-  if (Math.abs(det) < 1e-12) return massPoint;
-
-  const inv = 1 / det;
-  return [
-    ((a11 * a22 - a12 * a12) * b0 + (a02 * a12 - a01 * a22) * b1 + (a01 * a12 - a02 * a11) * b2) * inv,
-    ((a02 * a12 - a01 * a22) * b0 + (a00 * a22 - a02 * a02) * b1 + (a01 * a02 - a00 * a12) * b2) * inv,
-    ((a01 * a12 - a02 * a11) * b0 + (a01 * a02 - a00 * a12) * b1 + (a00 * a11 - a01 * a01) * b2) * inv,
-  ];
+  const patchOfRoot = new Map<number, number>();
+  const patches: number[][] = [];
+  const edgePatch = new Int8Array(12).fill(-1);
+  for (let e = 0; e < 12; e++) {
+    if (!present[e]) continue;
+    const root = find(e);
+    let pi = patchOfRoot.get(root);
+    if (pi === undefined) {
+      pi = patches.length;
+      patchOfRoot.set(root, pi);
+      patches.push([]);
+    }
+    patches[pi].push(e);
+    edgePatch[e] = pi;
+  }
+  PATCHES.push(patches);
+  EDGE_PATCH.push(edgePatch);
 }
 
 export function dualContour(grid: Float32Array, res: number, bbox: BBox, sdf: SDFNode, onProgress?: (pct: number) => void): MeshResult {
@@ -71,68 +103,67 @@ export function dualContour(grid: Float32Array, res: number, bbox: BBox, sdf: SD
     return grid[z * r2 + y * res + x];
   }
 
-  /** Find zero crossing on a grid edge via bisection */
+  /**
+   * Find the zero crossing on a grid edge: bisection to bracket tightly,
+   * then one secant step for sub-bisection accuracy. Endpoint values come
+   * from the grid, which holds exact SDF samples at those points.
+   */
   function findCrossing(
     x1: number, y1: number, z1: number, v1: number,
-    x2: number, y2: number, z2: number, _v2: number,
+    x2: number, y2: number, z2: number, v2: number,
   ): { pos: Vec3; normal: Vec3 } {
-    // World-space endpoints
-    let lx: number, ly: number, lz: number; // inside (negative)
-    let hx: number, hy: number, hz: number; // outside (positive)
+    let lx: number, ly: number, lz: number, vl: number; // inside (negative)
+    let hx: number, hy: number, hz: number, vh: number; // outside (positive)
     if (v1 < 0) {
-      lx = ox + x1 * dx; ly = oy + y1 * dy; lz = oz + z1 * dz;
-      hx = ox + x2 * dx; hy = oy + y2 * dy; hz = oz + z2 * dz;
+      lx = ox + x1 * dx; ly = oy + y1 * dy; lz = oz + z1 * dz; vl = v1;
+      hx = ox + x2 * dx; hy = oy + y2 * dy; hz = oz + z2 * dz; vh = v2;
     } else {
-      lx = ox + x2 * dx; ly = oy + y2 * dy; lz = oz + z2 * dz;
-      hx = ox + x1 * dx; hy = oy + y1 * dy; hz = oz + z1 * dz;
+      lx = ox + x2 * dx; ly = oy + y2 * dy; lz = oz + z2 * dz; vl = v2;
+      hx = ox + x1 * dx; hy = oy + y1 * dy; hz = oz + z1 * dz; vh = v1;
     }
     for (let i = 0; i < BISECT_ITERS; i++) {
       const mx = (lx + hx) * 0.5, my = (ly + hy) * 0.5, mz = (lz + hz) * 0.5;
-      if (evaluateSDF(sdf, [mx, my, mz]) < 0) { lx = mx; ly = my; lz = mz; }
-      else { hx = mx; hy = my; hz = mz; }
+      const vm = evaluateSDF(sdf, [mx, my, mz]);
+      if (vm < 0) { lx = mx; ly = my; lz = mz; vl = vm; }
+      else { hx = mx; hy = my; hz = mz; vh = vm; }
     }
-    const pos: Vec3 = [(lx + hx) * 0.5, (ly + hy) * 0.5, (lz + hz) * 0.5];
+    // Secant step inside the final bracket
+    const t = vh - vl > 1e-20 ? vl / (vl - vh) : 0.5;
+    const pos: Vec3 = [lx + (hx - lx) * t, ly + (hy - ly) * t, lz + (hz - lz) * t];
     const g = sdfGradient(sdf, pos, eps);
     const len = Math.sqrt(g[0] * g[0] + g[1] * g[1] + g[2] * g[2]) || 1;
     return { pos, normal: [g[0] / len, g[1] / len, g[2] / len] };
   }
 
-  // --- Step 1: Compute one vertex per active cell ---
-  const cellVert = new Int32Array(res * res * res).fill(-1);
-  const positions: number[] = [];
-  const normals: number[] = [];
-  let vertCount = 0;
-
   // Edge crossing cache: key = (min_corner_flat_index * 3 + dir)
   // Each grid edge is shared by up to 4 cells; caching avoids redundant
-  // bisection + gradient evaluations (12 evaluateSDF calls per crossing).
+  // bisection + gradient evaluations.
   const edgeCache = new Map<number, { pos: Vec3; normal: Vec3 }>();
 
   function cachedCrossing(
     x1: number, y1: number, z1: number, v1: number,
-    x2: number, y2: number, z2: number, _v2: number,
+    x2: number, y2: number, z2: number, v2: number,
   ): { pos: Vec3; normal: Vec3 } {
-    // Edge direction: 0=X, 1=Y, 2=Z
     const dir = x1 !== x2 ? 0 : y1 !== y2 ? 1 : 2;
     const mx = Math.min(x1, x2), my = Math.min(y1, y2), mz = Math.min(z1, z2);
     const key = (mz * r2 + my * res + mx) * 3 + dir;
     const cached = edgeCache.get(key);
     if (cached) return cached;
-    const result = findCrossing(x1, y1, z1, v1, x2, y2, z2, _v2);
+    const result = findCrossing(x1, y1, z1, v1, x2, y2, z2, v2);
     edgeCache.set(key, result);
     return result;
   }
 
-  // Cell edge connectivity (hoisted out of loop)
-  const EC: [number, number][] = [
-    [0, 1], [1, 2], [2, 3], [3, 0],
-    [4, 5], [5, 6], [6, 7], [7, 4],
-    [0, 4], [1, 5], [2, 6], [3, 7],
-  ];
-  const CO: [number, number, number][] = [
-    [0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0],
-    [0, 0, 1], [1, 0, 1], [1, 1, 1], [0, 1, 1],
-  ];
+  // --- Step 1: One vertex per surface patch per cell ---
+  // cellBase[cell] = index of the cell's first patch vertex (-1 = no surface).
+  // Patch k's vertex is cellBase + k. Cells with a single patch are the
+  // overwhelming majority, so the per-edge patch map is only stored for
+  // multi-patch cells; a missing entry means "patch 0".
+  const cellBase = new Int32Array(res * res * res).fill(-1);
+  const multiPatchCells = new Map<number, Int8Array>();
+  const positions: number[] = [];
+  const normals: number[] = [];
+  let vertCount = 0;
 
   let lastPct = -1;
   for (let z = 0; z < res - 1; z++) {
@@ -147,11 +178,20 @@ export function dualContour(grid: Float32Array, res: number, bbox: BBox, sdf: SD
           gv(x, y, z + 1), gv(x + 1, y, z + 1), gv(x + 1, y + 1, z + 1), gv(x, y + 1, z + 1),
         ];
 
-        const crossPoints: Vec3[] = [];
-        const crossNormals: Vec3[] = [];
+        let config = 0;
+        for (let c = 0; c < 8; c++) if (corners[c] < 0) config |= 1 << c;
+        const patches = PATCHES[config];
+        if (patches.length === 0) continue;
 
-        for (const [c1, c2] of EC) {
-          if ((corners[c1] < 0) !== (corners[c2] < 0)) {
+        const cellIdx = z * r2 + y * res + x;
+        cellBase[cellIdx] = vertCount;
+        if (patches.length > 1) multiPatchCells.set(cellIdx, EDGE_PATCH[config]);
+
+        for (const patchEdges of patches) {
+          const crossPoints: Vec3[] = [];
+          const crossNormals: Vec3[] = [];
+          for (const e of patchEdges) {
+            const [c1, c2] = EC[e];
             const o1 = CO[c1], o2 = CO[c2];
             const { pos, normal } = cachedCrossing(
               x + o1[0], y + o1[1], z + o1[2], corners[c1],
@@ -160,62 +200,83 @@ export function dualContour(grid: Float32Array, res: number, bbox: BBox, sdf: SD
             crossPoints.push(pos);
             crossNormals.push(normal);
           }
+
+          // Mass point = centroid of this patch's intersections
+          const mp: Vec3 = [0, 0, 0];
+          for (const p of crossPoints) { mp[0] += p[0]; mp[1] += p[1]; mp[2] += p[2]; }
+          mp[0] /= crossPoints.length; mp[1] /= crossPoints.length; mp[2] /= crossPoints.length;
+
+          let v = solveQEF(crossPoints, crossNormals, mp);
+
+          // Clamp strictly to the cell so neighboring cells' surfaces
+          // cannot cross each other.
+          const cxMin = ox + x * dx, cxMax = ox + (x + 1) * dx;
+          const cyMin = oy + y * dy, cyMax = oy + (y + 1) * dy;
+          const czMin = oz + z * dz, czMax = oz + (z + 1) * dz;
+          v = [
+            Math.max(cxMin, Math.min(cxMax, v[0])),
+            Math.max(cyMin, Math.min(cyMax, v[1])),
+            Math.max(czMin, Math.min(czMax, v[2])),
+          ];
+
+          const g = sdfGradient(sdf, v, eps);
+          const len = Math.sqrt(g[0] * g[0] + g[1] * g[1] + g[2] * g[2]) || 1;
+
+          vertCount++;
+          positions.push(v[0], v[1], v[2]);
+          normals.push(-g[0] / len, -g[1] / len, -g[2] / len);
         }
-
-        if (crossPoints.length === 0) continue;
-
-        // Mass point = centroid of intersections
-        const mp: Vec3 = [0, 0, 0];
-        for (const p of crossPoints) { mp[0] += p[0]; mp[1] += p[1]; mp[2] += p[2]; }
-        mp[0] /= crossPoints.length; mp[1] /= crossPoints.length; mp[2] /= crossPoints.length;
-
-        // Solve QEF
-        let v = solveQEF(crossPoints, crossNormals, mp);
-
-        // Clamp to cell bounds (with small margin)
-        const margin = 0.1;
-        const cxMin = ox + x * dx - dx * margin, cxMax = ox + (x + 1) * dx + dx * margin;
-        const cyMin = oy + y * dy - dy * margin, cyMax = oy + (y + 1) * dy + dy * margin;
-        const czMin = oz + z * dz - dz * margin, czMax = oz + (z + 1) * dz + dz * margin;
-        v = [
-          Math.max(cxMin, Math.min(cxMax, v[0])),
-          Math.max(cyMin, Math.min(cyMax, v[1])),
-          Math.max(czMin, Math.min(czMax, v[2])),
-        ];
-
-        // Compute vertex normal from SDF gradient
-        const g = sdfGradient(sdf, v, eps);
-        const len = Math.sqrt(g[0] * g[0] + g[1] * g[1] + g[2] * g[2]) || 1;
-
-        const vi = vertCount++;
-        cellVert[z * r2 + y * res + x] = vi;
-        positions.push(v[0], v[1], v[2]);
-        normals.push(-g[0] / len, -g[1] / len, -g[2] / len);
       }
     }
   }
 
   // --- Step 2: Emit quads for each sign-changing grid edge ---
+  // The 4 cells sharing the edge each contribute the vertex of the patch
+  // that contains this edge (looked up through the cell's local edge index).
   const indices: number[] = [];
 
-  // For each internal grid edge with a sign change, connect the 4 cells
-  // that share that edge. The 4 cells form a quad.
-  //
-  // X-edges: edge from (x,y,z) to (x+1,y,z)
-  //   shared by cells (x,y,z), (x,y-1,z), (x,y,z-1), (x,y-1,z-1)
-  // Y-edges: edge from (x,y,z) to (x,y+1,z)
-  //   shared by cells (x,y,z), (x-1,y,z), (x,y,z-1), (x-1,y,z-1)
-  // Z-edges: edge from (x,y,z) to (x,y,z+1)
-  //   shared by cells (x,y,z), (x-1,y,z), (x,y-1,z), (x-1,y-1,z)
+  function vertexFor(cx: number, cy: number, cz: number, localEdge: number): number {
+    const cellIdx = cz * r2 + cy * res + cx;
+    const base = cellBase[cellIdx];
+    if (base < 0) return -1;
+    const edgePatch = multiPatchCells.get(cellIdx);
+    if (edgePatch === undefined) return base;
+    const patch = edgePatch[localEdge];
+    return patch < 0 ? -1 : base + patch;
+  }
 
-  function emitQuad(v0: number, v1: number, v2: number, v3: number, flip: boolean) {
-    if (v0 < 0 || v1 < 0 || v2 < 0 || v3 < 0) return;
-    if (flip) {
-      indices.push(v0, v2, v1);
-      indices.push(v0, v3, v2);
+  function triDot(a: number, b: number, c: number, d: number): number {
+    // Dot of the unit normals of triangles (a,b,c) and (a,c,d)
+    const ax = positions[a * 3], ay = positions[a * 3 + 1], az = positions[a * 3 + 2];
+    const bx = positions[b * 3], by = positions[b * 3 + 1], bz = positions[b * 3 + 2];
+    const cx = positions[c * 3], cy = positions[c * 3 + 1], cz = positions[c * 3 + 2];
+    const px = positions[d * 3], py = positions[d * 3 + 1], pz = positions[d * 3 + 2];
+    const n1x = (by - ay) * (cz - az) - (bz - az) * (cy - ay);
+    const n1y = (bz - az) * (cx - ax) - (bx - ax) * (cz - az);
+    const n1z = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
+    const n2x = (cy - ay) * (pz - az) - (cz - az) * (py - ay);
+    const n2y = (cz - az) * (px - ax) - (cx - ax) * (pz - az);
+    const n2z = (cx - ax) * (py - ay) - (cy - ay) * (px - ax);
+    const l1 = Math.sqrt(n1x * n1x + n1y * n1y + n1z * n1z);
+    const l2 = Math.sqrt(n2x * n2x + n2y * n2y + n2z * n2z);
+    if (l1 < 1e-20 || l2 < 1e-20) return -2; // degenerate split — avoid
+    return (n1x * n2x + n1y * n2y + n1z * n2z) / (l1 * l2);
+  }
+
+  /**
+   * Emit a quad over ring r0..r3, split along whichever diagonal keeps the
+   * two triangles most coplanar (avoids folds and slivers on curved areas).
+   */
+  function emitQuad(r0: number, r1: number, r2q: number, r3: number) {
+    if (r0 < 0 || r1 < 0 || r2q < 0 || r3 < 0) return;
+    const qA = triDot(r0, r1, r2q, r3); // diagonal r0-r2
+    const qB = triDot(r1, r2q, r3, r0); // diagonal r1-r3
+    if (qB > qA) {
+      indices.push(r1, r2q, r3);
+      indices.push(r1, r3, r0);
     } else {
-      indices.push(v0, v1, v2);
-      indices.push(v0, v2, v3);
+      indices.push(r0, r1, r2q);
+      indices.push(r0, r2q, r3);
     }
   }
 
@@ -224,45 +285,45 @@ export function dualContour(grid: Float32Array, res: number, bbox: BBox, sdf: SD
       for (let x = 0; x < res - 1; x++) {
         const v00 = gv(x, y, z);
 
-        // X-edge: (x,y,z)→(x+1,y,z)
+        // X-edge: (x,y,z)→(x+1,y,z); local edge in each adjacent cell:
+        //   (x,y,z)=0, (x,y,z-1)=4, (x,y-1,z-1)=6, (x,y-1,z)=2
         if (x < res - 2 && y > 0 && z > 0) {
           const v10 = gv(x + 1, y, z);
           if ((v00 < 0) !== (v10 < 0)) {
-            emitQuad(
-              cellVert[z * r2 + y * res + x],
-              cellVert[(z - 1) * r2 + y * res + x],
-              cellVert[(z - 1) * r2 + (y - 1) * res + x],
-              cellVert[z * r2 + (y - 1) * res + x],
-              v00 < 0,
-            );
+            const a = vertexFor(x, y, z, 0);
+            const b = vertexFor(x, y, z - 1, 4);
+            const c = vertexFor(x, y - 1, z - 1, 6);
+            const d = vertexFor(x, y - 1, z, 2);
+            if (v00 < 0) emitQuad(a, d, c, b);
+            else emitQuad(a, b, c, d);
           }
         }
 
-        // Y-edge: (x,y,z)→(x,y+1,z)
+        // Y-edge: (x,y,z)→(x,y+1,z); local edges:
+        //   (x,y,z)=3, (x-1,y,z)=1, (x-1,y,z-1)=5, (x,y,z-1)=7
         if (y < res - 2 && x > 0 && z > 0) {
           const v01 = gv(x, y + 1, z);
           if ((v00 < 0) !== (v01 < 0)) {
-            emitQuad(
-              cellVert[z * r2 + y * res + x],
-              cellVert[z * r2 + y * res + (x - 1)],
-              cellVert[(z - 1) * r2 + y * res + (x - 1)],
-              cellVert[(z - 1) * r2 + y * res + x],
-              v00 < 0,
-            );
+            const a = vertexFor(x, y, z, 3);
+            const b = vertexFor(x - 1, y, z, 1);
+            const c = vertexFor(x - 1, y, z - 1, 5);
+            const d = vertexFor(x, y, z - 1, 7);
+            if (v00 < 0) emitQuad(a, d, c, b);
+            else emitQuad(a, b, c, d);
           }
         }
 
-        // Z-edge: (x,y,z)→(x,y,z+1)
+        // Z-edge: (x,y,z)→(x,y,z+1); local edges:
+        //   (x,y,z)=8, (x,y-1,z)=11, (x-1,y-1,z)=10, (x-1,y,z)=9
         if (z < res - 2 && x > 0 && y > 0) {
           const v001 = gv(x, y, z + 1);
           if ((v00 < 0) !== (v001 < 0)) {
-            emitQuad(
-              cellVert[z * r2 + y * res + x],
-              cellVert[z * r2 + (y - 1) * res + x],
-              cellVert[z * r2 + (y - 1) * res + (x - 1)],
-              cellVert[z * r2 + y * res + (x - 1)],
-              v00 < 0,
-            );
+            const a = vertexFor(x, y, z, 8);
+            const b = vertexFor(x, y - 1, z, 11);
+            const c = vertexFor(x - 1, y - 1, z, 10);
+            const d = vertexFor(x - 1, y, z, 9);
+            if (v00 < 0) emitQuad(a, d, c, b);
+            else emitQuad(a, b, c, d);
           }
         }
       }

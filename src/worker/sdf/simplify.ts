@@ -115,17 +115,35 @@ function edgeKey(a: number, b: number): string {
   return a < b ? `${a},${b}` : `${b},${a}`;
 }
 
+export interface SimplifyOptions {
+  /** Ratio of triangles to keep (0..1). Omit to let maxError alone decide. */
+  targetRatio?: number;
+  /**
+   * Geometric error budget: an edge is only collapsed while its quadric
+   * cost (summed squared plane distances) stays at or below maxError^2.
+   * Flat regions have near-zero cost and decimate freely; curved and sharp
+   * regions stop as soon as collapsing would move the surface past the
+   * budget. This trades triangles for quality adaptively instead of
+   * blindly hitting a count.
+   */
+  maxError?: number;
+}
+
 /**
  * Simplify a triangle mesh using QEM edge collapse.
  * @param mesh Input mesh
- * @param targetRatio Target ratio of triangles to keep (0..1), e.g. 0.5 = keep 50%
+ * @param target Ratio of triangles to keep (0..1), or a SimplifyOptions
  * @returns Simplified mesh
  */
-export function simplifyMesh(mesh: MeshResult, targetRatio: number, onProgress?: (pct: number) => void): MeshResult {
+export function simplifyMesh(mesh: MeshResult, target: number | SimplifyOptions, onProgress?: (pct: number) => void): MeshResult {
+  const opts: SimplifyOptions = typeof target === 'number' ? { targetRatio: target } : target;
+  const maxErrorSq = opts.maxError !== undefined ? opts.maxError * opts.maxError : Infinity;
+
   const { positions, normals, indices } = mesh;
   const numVerts = positions.length / 3;
   const numTris = indices.length / 3;
-  const targetTris = Math.max(4, Math.floor(numTris * Math.max(0.01, Math.min(1, targetRatio))));
+  const ratio = opts.targetRatio !== undefined ? Math.max(0.01, Math.min(1, opts.targetRatio)) : 0;
+  const targetTris = Math.max(4, Math.floor(numTris * ratio));
 
   if (numTris <= targetTris) return mesh;
 
@@ -304,7 +322,11 @@ export function simplifyMesh(mesh: MeshResult, targetRatio: number, onProgress?:
     const currentGen = edgeGen.get(ek);
     if (currentGen !== undefined && top.gen < currentGen) continue;
 
-    const { pos } = computeEdgeCost(ra, rb);
+    const { cost, pos } = computeEdgeCost(ra, rb);
+
+    // Over the error budget — leave this edge alone. (Not a break: cheaper
+    // edges may still surface as collapses elsewhere lower neighbors' costs.)
+    if (cost > maxErrorSq) continue;
 
     // Reject collapses that would flip triangles or create slivers
     if (!isCollapseValid(ra, rb, pos)) continue;
