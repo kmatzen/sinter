@@ -302,6 +302,13 @@ test.describe('Modeler: Worker concurrency', () => {
   // one exercises real workers doing real work, and fails against a
   // single-worker bridge.
   test('viewport keeps evaluating while an export runs', async ({ page }) => {
+    // Unlike the rest of the suite this waits on a real 256-cubed export, so it
+    // runs 25-27s on a fast machine against the 30s default. CI is slower —
+    // on the run that first exposed the bug below, the 30s test budget expired
+    // before the inner 15s wait had even started. Triple it rather than leave
+    // a genuine pass hostage to the runner's speed.
+    test.slow();
+
     await addShape(page, 'Box');
 
     // Wait for the first evaluation to settle so we have a baseline.
@@ -320,9 +327,15 @@ test.describe('Modeler: Worker concurrency', () => {
 
     // Mutate the model while the export is running. This changes paramValues,
     // so a completed evaluation is observable without a structural edit.
+    //
+    // It has to be a parameter this shape actually has: the node here is a Box,
+    // whose params are width/height/depth (NODE_DEFAULTS.box).  Setting an
+    // unrelated key leaves the emitted uniforms byte-identical — convert.ts
+    // reads only width/height/depth for a box — so the wait below could never
+    // observe a change, whatever the workers were doing.
     await page.evaluate(() => {
       const store = (window as any).__MODELER_STORE__;
-      store.updateNodeParams(store.tree.id, { radius: 7 });
+      store.updateNodeParams(store.tree.id, { width: 7 });
     });
 
     // The evaluation must complete...
