@@ -1,4 +1,5 @@
 import type { SDFNode, Vec3 } from './types';
+import { linearWindow, circularWindow } from './patternWindow';
 
 export function evaluateSDF(node: SDFNode, p: Vec3): number {
   switch (node.kind) {
@@ -39,20 +40,36 @@ export function evaluateSDF(node: SDFNode, p: Vec3): number {
       return s * Math.sqrt(Math.min(cax * cax + cay * cay, cbx * cbx + cby * cby));
     }
     case 'capsule': {
-      // Capsule along Y axis (line segment + radius)
-      const halfH = node.height / 2 - node.radius;
+      // Capsule along Y axis (line segment + radius).  The segment degenerates
+      // to a point once height <= 2*radius; without the clamp the surrounding
+      // min/max invert and yield a sphere displaced by radius - height/2.
+      const halfH = Math.max(0, node.height / 2 - node.radius);
       const py = Math.max(-halfH, Math.min(halfH, p[1]));
       return Math.sqrt(p[0] ** 2 + (p[1] - py) ** 2 + p[2] ** 2) - node.radius;
     }
     case 'ellipsoid': {
-      // Approximate ellipsoid SDF (Quilez's gradient-corrected version)
+      // An ellipsoid is a non-uniformly scaled sphere, and this reports it as
+      // one: k0 = length(p/r) is the scaled radius, and one unit of travel in
+      // space changes k0 by at most 1/min(r), so (k0-1)*min(r) never overstates
+      // the clearance and is 1-Lipschitz.  It is the same treatment `transform`
+      // already gives an anisotropic scale.
+      //
+      // Quilez's sharper form, k0*(k0-1)/length(p/(r*r)), is the
+      // separating-hyperplane bound and so never overstates distance either —
+      // but it is not 1-Lipschitz (|grad| reaches ~7 on a 6:1 ellipsoid), and
+      // round()/offset()/shell() read a non-zero level set of their child,
+      // where that matters: the composite then claims more clearance than
+      // exists.  Since length(p/(r*r)) * min(r) <= k0 always, the Lipschitz
+      // clamp of that form collapses to exactly the expression below, so
+      // there is nothing to gain by computing both.
+      //
+      // The cost is tightness: along a long axis this reports min(r)/max(r) of
+      // the true distance, so an elongated ellipsoid needs more ray-march
+      // steps.  That is already what scaling a sphere costs here.
       const sx = node.size[0] / 2, sy = node.size[1] / 2, sz = node.size[2] / 2;
       const npx = p[0] / sx, npy = p[1] / sy, npz = p[2] / sz;
       const k0 = Math.sqrt(npx * npx + npy * npy + npz * npz);
-      if (k0 < 1e-8) return -Math.min(sx, sy, sz);
-      const gpx = npx / (sx * k0), gpy = npy / (sy * k0), gpz = npz / (sz * k0);
-      const k1 = Math.sqrt(gpx * gpx + gpy * gpy + gpz * gpz);
-      return k0 * (k0 - 1.0) / k1;
+      return (k0 - 1.0) * Math.min(sx, sy, sz);
     }
     case 'union': {
       const a = evaluateSDF(node.a, p);
@@ -121,20 +138,20 @@ export function evaluateSDF(node: SDFNode, p: Vec3): number {
       return evaluateSDF(node.child, mp);
     }
     case 'linearPattern': {
-      // Domain repetition with 3-neighbor check for overlapping copies
-      const ax = node.axis;
-      const axLen = Math.sqrt(ax[0] * ax[0] + ax[1] * ax[1] + ax[2] * ax[2]);
+      // Domain repetition over a window sized from the child's own extent, so
+      // an offset or wider-than-spacing child still finds its nearest copy.
+      const axLen = Math.hypot(node.axis[0], node.axis[1], node.axis[2]);
       if (axLen < 1e-8) return evaluateSDF(node.child, p);
-      const nax: Vec3 = [ax[0] / axLen, ax[1] / axLen, ax[2] / axLen];
+      const { axis: nax, hi, width } = linearWindow(node);
       const dot = p[0] * nax[0] + p[1] * nax[1] + p[2] * nax[2];
-      const totalLen = node.spacing * (node.count - 1);
-      const clamped = Math.max(0, Math.min(totalLen, dot));
-      const idx = Math.round(clamped / node.spacing);
+      // First instance whose span can reach p, backed off by one.
+      const base = Math.min(
+        Math.max(Math.floor((dot - hi) / node.spacing) - 1, 0),
+        node.count - width,
+      );
       let best = Infinity;
-      for (let di = -1; di <= 1; di++) {
-        const i = idx + di;
-        if (i < 0 || i >= node.count) continue;
-        const offset = i * node.spacing;
+      for (let j = 0; j < width; j++) {
+        const offset = (base + j) * node.spacing;
         const lp: Vec3 = [
           p[0] - nax[0] * offset,
           p[1] - nax[1] * offset,
@@ -145,10 +162,10 @@ export function evaluateSDF(node: SDFNode, p: Vec3): number {
       return best;
     }
     case 'circularPattern': {
-      // Angular domain repetition with 3-sector check
-      const ax = node.axis;
-      const isX = Math.abs(ax[0]) > Math.abs(ax[1]) && Math.abs(ax[0]) > Math.abs(ax[2]);
-      const isZ = !isX && Math.abs(ax[2]) > Math.abs(ax[1]);
+      // Angular domain repetition over a window sized from the child's angular
+      // extent.  Instances tile the full turn, so the index needs no clamping —
+      // rotating by any integer multiple of the sector stays in the pattern.
+      const { isX, isZ, hiAng, sector, width } = circularWindow(node);
       let angle: number, radius: number;
       if (isX) {
         angle = Math.atan2(p[2], p[1]);
@@ -160,11 +177,10 @@ export function evaluateSDF(node: SDFNode, p: Vec3): number {
         angle = Math.atan2(p[2], p[0]);
         radius = Math.sqrt(p[0] ** 2 + p[2] ** 2);
       }
-      const sector = (2 * Math.PI) / node.count;
-      const sect = Math.round(angle / sector);
+      const base = Math.floor((angle - hiAng) / sector) - 1;
       let best = Infinity;
-      for (let di = -1; di <= 1; di++) {
-        const a = angle - (sect + di) * sector;
+      for (let j = 0; j < width; j++) {
+        const a = angle - (base + j) * sector;
         const c = Math.cos(a), s = Math.sin(a);
         let cp: Vec3;
         if (isX) {

@@ -40,6 +40,7 @@
     "@vitest/coverage-v8": "^4.1.10",
     "better-sqlite3": "^12.8.0",
     "dotenv": "^17.4.2",
+    "fast-check": "^4.9.0",
     "jsdom": "^29.0.2",
     "tailwindcss": "^4.1.4",
     "tsx": "^4.21.0",

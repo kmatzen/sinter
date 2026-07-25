@@ -10,10 +10,10 @@ if [ ! -f "$JAR" ]; then
     https://github.com/tlaplus/tlaplus/releases/latest/download/tla2tools.jar
 fi
 
-# WorkerBridge models the current, known-broken design: its counterexamples
-# are the point, so a TLC failure there is the expected outcome.
+# WorkerBridge and UndoHistory model the current, known-broken designs:
+# their counterexamples are the point, so a TLC failure there is expected.
 declare -a SPECS
-if [ $# -gt 0 ]; then SPECS=("$@"); else SPECS=(WorkerBridge WorkerBridgeFixed); fi
+if [ $# -gt 0 ]; then SPECS=("$@"); else SPECS=(WorkerBridge WorkerBridgeFixed UndoHistory UndoHistoryFixed); fi
 
 status=0
 for spec in "${SPECS[@]}"; do
@@ -22,7 +22,7 @@ for spec in "${SPECS[@]}"; do
        -config "$spec.cfg" "$spec.tla"
   rc=$?
   case "$spec" in
-    WorkerBridge)
+    WorkerBridge|UndoHistory)
       if [ $rc -eq 0 ]; then
         echo "!! $spec was expected to produce a counterexample but passed."
         status=1

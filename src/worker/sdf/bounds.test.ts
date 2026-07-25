@@ -204,10 +204,24 @@ describe('computeBounds', () => {
     expect(bb.max[1]).toBeCloseTo(5);
   });
 
-  it('halfSpace returns a large fixed bounding box', () => {
+  it('halfSpace is unbounded on its own', () => {
+    // Previously a fixed +/-1000 box, which silently clipped any model larger
+    // than that.  A half-space genuinely has no bounds; `intersect` takes the
+    // tighter of the two per axis, so infinity defers to the other child —
+    // and an intersect is the only way a halfSpace enters the tree.
     const bb = computeBounds({ kind: 'halfSpace', axis: 'x', position: 0, flip: false });
-    expect(bb.min).toEqual([-1000, -1000, -1000]);
-    expect(bb.max).toEqual([1000, 1000, 1000]);
+    expect(bb.min).toEqual([-Infinity, -Infinity, -Infinity]);
+    expect(bb.max).toEqual([Infinity, Infinity, Infinity]);
+  });
+
+  it("an intersect with a halfSpace keeps the other child's extent", () => {
+    const bb = computeBounds({
+      kind: 'intersect', k: 0,
+      a: { kind: 'box', size: [4000, 100, 100] },
+      b: { kind: 'halfSpace', axis: 'x', position: 0, flip: false },
+    });
+    expect(bb.min[0]).toBe(-2000);
+    expect(bb.max[0]).toBe(2000);
   });
 
   it('_far returns a degenerate bounding box', () => {

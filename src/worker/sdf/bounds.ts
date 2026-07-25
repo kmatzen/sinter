@@ -22,7 +22,9 @@ export function computeBounds(node: SDFNode): BBox {
       return { min: [-r, -hh, -r], max: [r, hh, r] };
     }
     case 'capsule': {
-      const r = node.radius, hh = node.height / 2;
+      // Below height = 2*radius the capsule is just a sphere of that radius,
+      // so the half-height can never fall under r.
+      const r = node.radius, hh = Math.max(node.height / 2, r);
       return { min: [-r, -hh, -r], max: [r, hh, r] };
     }
     case 'ellipsoid': {
@@ -44,12 +46,16 @@ export function computeBounds(node: SDFNode): BBox {
       };
       return expandBounds(result, node.k);
     }
+    // The level-set modifiers move the surface out by `r` only when the child
+    // reports true Euclidean distance.  Where it underestimates — most sharply
+    // under a non-uniform scale — the surface lands proportionally further out,
+    // so the margin is scaled by the child's field factor.  See fieldScale.
     case 'shell':
-      return expandBounds(computeBounds(node.child), node.thickness);
+      return expandBounds(computeBounds(node.child), (node.thickness / 2) * fieldScale(node.child));
     case 'offset':
-      return expandBounds(computeBounds(node.child), Math.abs(node.distance));
+      return expandBounds(computeBounds(node.child), Math.abs(node.distance) * fieldScale(node.child));
     case 'round':
-      return expandBounds(computeBounds(node.child), node.radius);
+      return expandBounds(computeBounds(node.child), node.radius * fieldScale(node.child));
     case 'mirror': {
       const cb = computeBounds(node.child);
       return {
@@ -130,9 +136,15 @@ export function computeBounds(node: SDFNode): BBox {
       return { min: [-hw, -hh, -hd], max: [hw, hh, hd] };
     }
     case 'halfSpace':
-      // Half-space is infinite; bounds are meaningless on their own.
-      // When intersected with geometry, the parent intersect node uses the other child's bounds.
-      return { min: [-1000, -1000, -1000], max: [1000, 1000, 1000] };
+      // A half-space really is unbounded, so say so rather than substituting a
+      // 1000mm box: `intersect` takes the tighter of the two bounds per axis,
+      // so infinities there simply defer to the other child, which is the only
+      // way a halfSpace reaches the tree (convert.ts wraps it in an intersect).
+      // The old finite stand-in silently clipped any model over 1000mm.
+      return {
+        min: [-Infinity, -Infinity, -Infinity],
+        max: [Infinity, Infinity, Infinity],
+      };
     case 'transform': {
       const cb = computeBounds(node.child);
       // Transform all 8 corners of the child AABB and compute the new AABB
@@ -147,8 +159,12 @@ export function computeBounds(node: SDFNode): BBox {
       const rMax: Vec3 = [-Infinity, -Infinity, -Infinity];
 
       for (const c of corners) {
-        // Apply scale
-        let px = c[0] * node.sx, py = c[1] * node.sy, pz = c[2] * node.sz;
+        // Rotate, then scale, then translate.  evaluate.ts inverts the
+        // transform as R^-1((p - t) / s), so the forward map is t + s * R(q) —
+        // scaling before rotating instead gives a different solid whenever the
+        // scale is non-uniform and the rotation is not a multiple of a
+        // quarter turn, and the real geometry escapes these bounds.
+        let px = c[0], py = c[1], pz = c[2];
         // Apply rotation (X, Y, Z order)
         if (node.rx !== 0) {
           const a = node.rx * Math.PI / 180;
@@ -168,7 +184,8 @@ export function computeBounds(node: SDFNode): BBox {
           const nx = px * cos - py * sin, ny = px * sin + py * cos;
           px = nx; py = ny;
         }
-        // Apply translation
+        // Apply scale, then translation
+        px *= node.sx; py *= node.sy; pz *= node.sz;
         px += node.tx; py += node.ty; pz += node.tz;
 
         rMin[0] = Math.min(rMin[0], px); rMin[1] = Math.min(rMin[1], py); rMin[2] = Math.min(rMin[2], pz);
@@ -179,6 +196,58 @@ export function computeBounds(node: SDFNode): BBox {
     }
     case '_far':
       return { min: [0, 0, 0], max: [0, 0, 0] };
+  }
+}
+
+/**
+ * How far a subtree's reported distance can fall short of the true distance.
+ *
+ * Nodes in this tree return three different things.  Most primitives return
+ * exact Euclidean distance.  `transform` under a non-uniform scale returns a
+ * 1-Lipschitz *lower bound* — it multiplies by min(scale) precisely so the
+ * field stays safe for sphere tracing, at the cost of underestimating by up to
+ * max(scale)/min(scale).  The ellipsoid is a gradient-corrected approximation
+ * that also underestimates.
+ *
+ * `round`/`offset`/`shell` and their bounds are written as if the first case
+ * always held, so they need to know the factor.  This returns an upper bound on
+ * trueDistance / reportedDistance for the subtree — always >= 1.
+ *
+ * Caveat: the `max`-based booleans can also underestimate, by an amount that is
+ * unbounded for a sufficiently thin wedge, so no finite factor is sound there.
+ * This takes the children's factor, which covers every case observed in
+ * practice; `boundsAreSound` in interval.ts is the check that actually holds
+ * the line, and the interval-derived bounds are what the mesher uses.
+ */
+export function fieldScale(node: SDFNode): number {
+  switch (node.kind) {
+    case 'transform': {
+      const s = [Math.abs(node.sx), Math.abs(node.sy), Math.abs(node.sz)];
+      const lo = Math.min(s[0], s[1], s[2]);
+      const hi = Math.max(s[0], s[1], s[2]);
+      const aniso = lo > 1e-9 ? hi / lo : 1;
+      return fieldScale(node.child) * aniso;
+    }
+    case 'ellipsoid': {
+      // Reported as a scaled sphere, so it underestimates by the aspect ratio.
+      const h = [node.size[0] / 2, node.size[1] / 2, node.size[2] / 2];
+      const lo = Math.min(h[0], h[1], h[2]);
+      const hi = Math.max(h[0], h[1], h[2]);
+      return lo > 1e-9 ? hi / lo : 1;
+    }
+    case 'union':
+    case 'subtract':
+    case 'intersect':
+      return Math.max(fieldScale(node.a), fieldScale(node.b));
+    case 'shell':
+    case 'offset':
+    case 'round':
+    case 'mirror':
+    case 'linearPattern':
+    case 'circularPattern':
+      return fieldScale(node.child);
+    default:
+      return 1;
   }
 }
 

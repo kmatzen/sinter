@@ -1,4 +1,5 @@
 import type { SDFNode } from './types';
+import { linearWindow, circularWindow } from './patternWindow';
 
 let varCounter = 0;
 let paramIndex = 0;
@@ -9,6 +10,31 @@ let helperCounter = 0;
 
 function nextVar(): string {
   return `d${varCounter++}`;
+}
+
+/** Row-major 3x3 matrices, flattened, for composing Euler rotations. */
+type Mat3 = [number, number, number, number, number, number, number, number, number];
+
+const rad = (deg: number) => (deg * Math.PI) / 180;
+
+function rotX(deg: number): Mat3 {
+  const c = Math.cos(rad(deg)), s = Math.sin(rad(deg));
+  return [1, 0, 0, 0, c, -s, 0, s, c];
+}
+function rotY(deg: number): Mat3 {
+  const c = Math.cos(rad(deg)), s = Math.sin(rad(deg));
+  return [c, 0, s, 0, 1, 0, -s, 0, c];
+}
+function rotZ(deg: number): Mat3 {
+  const c = Math.cos(rad(deg)), s = Math.sin(rad(deg));
+  return [c, -s, 0, s, c, 0, 0, 0, 1];
+}
+function mul3(a: Mat3, b: Mat3): Mat3 {
+  const out = new Array(9).fill(0) as Mat3;
+  for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) {
+    out[r * 3 + c] = a[r * 3] * b[c] + a[r * 3 + 1] * b[3 + c] + a[r * 3 + 2] * b[6 + c];
+  }
+  return out;
 }
 
 // Register a parameter value as a uniform slot — returns GLSL reference
@@ -85,18 +111,21 @@ function emitNode(node: SDFNode, pVar: string, lines: string[]): string {
       return result;
     }
     case 'capsule': {
-      lines.push(`float chh_${result} = ${up(node.height)} * 0.5 - ${up(node.radius)};`);
+      // max(0, ...): below height = 2*radius the segment degenerates to a
+      // point.  Without it clamp() gets min > max, which is undefined in GLSL.
+      lines.push(`float chh_${result} = max(0.0, ${up(node.height)} * 0.5 - ${up(node.radius)});`);
       lines.push(`float cpy_${result} = clamp(${pVar}.y, -chh_${result}, chh_${result});`);
       lines.push(`float ${result} = length(vec3(${pVar}.x, ${pVar}.y - cpy_${result}, ${pVar}.z)) - ${up(node.radius)};`);
       return result;
     }
     case 'ellipsoid': {
-      // Gradient-corrected ellipsoid SDF approximation
+      // Ellipsoid as the scaled sphere it is — see evaluate.ts for why the
+      // sharper Quilez form is not used: it is not 1-Lipschitz, and its
+      // Lipschitz clamp collapses to exactly this expression.
       const sx = up(node.size[0]/2), sy = up(node.size[1]/2), sz = up(node.size[2]/2);
       lines.push(`vec3 ep_${result} = ${pVar} / vec3(${sx}, ${sy}, ${sz});`);
       lines.push(`float ek0_${result} = length(ep_${result});`);
-      lines.push(`float ek1_${result} = length(ep_${result} / vec3(${sx}, ${sy}, ${sz}));`);
-      lines.push(`float ${result} = ek0_${result} * (ek0_${result} - 1.0) / max(ek1_${result}, 1e-8);`);
+      lines.push(`float ${result} = (ek0_${result} - 1.0) * min(min(${sx}, ${sy}), ${sz});`);
       return result;
     }
     case 'union': {
@@ -158,15 +187,18 @@ function emitNode(node: SDFNode, pVar: string, lines: string[]): string {
       lines.push(`vec3 ${tp} = ${pVar} - vec3(${up(node.tx)}, ${up(node.ty)}, ${up(node.tz)});`);
       // Always emit scale (uniform can change from 1 to non-1)
       lines.push(`${tp} = ${tp} / vec3(${up(node.sx)}, ${up(node.sy)}, ${up(node.sz)});`);
-      // Rotation as a 3x3 matrix (9 uniforms) — computed on CPU from Euler angles.
-      // This avoids all Euler decomposition issues in the shader.
-      const cx = Math.cos(-node.rx * Math.PI / 180), sx = Math.sin(-node.rx * Math.PI / 180);
-      const cy = Math.cos(-node.ry * Math.PI / 180), sy = Math.sin(-node.ry * Math.PI / 180);
-      const cz = Math.cos(-node.rz * Math.PI / 180), sz = Math.sin(-node.rz * Math.PI / 180);
-      // Inverse rotation matrix = Rz(-rz) * Ry(-ry) * Rx(-rx) (column-major multiply)
-      const m00 = cy*cz,           m01 = sx*sy*cz - cx*sz,  m02 = cx*sy*cz + sx*sz;
-      const m10 = cy*sz,           m11 = sx*sy*sz + cx*cz,  m12 = cx*sy*sz - sx*cz;
-      const m20 = -sy,             m21 = sx*cy,             m22 = cx*cy;
+      // Rotation as a 3x3 matrix (9 uniforms) — computed on CPU from Euler
+      // angles, which keeps Euler decomposition out of the shader.
+      //
+      // evaluate.ts undoes the rotation by applying Rz(-rz), then Ry(-ry),
+      // then Rx(-rx) to the point, so as a matrix the inverse is
+      // Rx(-rx) * Ry(-ry) * Rz(-rz).  Composing it in the other order gives a
+      // different orientation for any node with two or more non-zero angles,
+      // which is how the viewport and the exported mesh came to disagree.
+      // Multiplied out rather than hand-expanded so the order stays legible.
+      const [m00, m01, m02, m10, m11, m12, m20, m21, m22] = mul3(
+        rotX(-node.rx), mul3(rotY(-node.ry), rotZ(-node.rz)),
+      );
       const r00=up(m00), r01=up(m01), r02=up(m02);
       const r10=up(m10), r11=up(m11), r12=up(m12);
       const r20=up(m20), r21=up(m21), r22=up(m22);
@@ -187,29 +219,27 @@ function emitNode(node: SDFNode, pVar: string, lines: string[]): string {
       return result;
     }
     case 'linearPattern': {
-      // Domain repetition with 3-neighbor check via helper function
-      const ax = node.axis;
-      const axLen = Math.sqrt(ax[0] * ax[0] + ax[1] * ax[1] + ax[2] * ax[2]);
-      const nax = axLen > 1e-8 ? [ax[0] / axLen, ax[1] / axLen, ax[2] / axLen] : [0, 1, 0];
+      // Domain repetition over a window sized from the child's own extent.
+      // The window width is a compile-time constant, which GLSL needs for the
+      // loop bound; SdfMesh keys its shader rebuild on the emitted source, so a
+      // parameter change that resizes the window recompiles rather than going
+      // stale through the uniform path.
+      const { axis: nax, hi, width } = linearWindow(node);
       const axVec = `vec3(${g(nax[0])}, ${g(nax[1])}, ${g(nax[2])})`;
       const fnName = emitAsFunction(node.child);
       lines.push(`float ldot_${result} = dot(${pVar}, ${axVec});`);
-      lines.push(`float lclamped_${result} = clamp(ldot_${result}, 0.0, ${up(node.spacing * (node.count - 1))});`);
-      lines.push(`float lidx_${result} = floor(lclamped_${result} / ${up(node.spacing)} + 0.5);`);
+      lines.push(`float lbase_${result} = clamp(floor((ldot_${result} - ${up(hi)}) / ${up(node.spacing)}) - 1.0, 0.0, ${g(node.count - width)});`);
       lines.push(`float ${result} = 1e10;`);
-      lines.push(`for (int li_${result} = -1; li_${result} <= 1; li_${result}++) {`);
-      lines.push(`  float lii_${result} = lidx_${result} + float(li_${result});`);
-      lines.push(`  if (lii_${result} >= 0.0 && lii_${result} < ${g(node.count)}) {`);
-      lines.push(`    ${result} = min(${result}, ${fnName}(${pVar} - ${axVec} * (lii_${result} * ${up(node.spacing)})));`);
-      lines.push(`  }`);
+      lines.push(`for (int lj_${result} = 0; lj_${result} < ${width}; lj_${result}++) {`);
+      lines.push(`  float lii_${result} = lbase_${result} + float(lj_${result});`);
+      lines.push(`  ${result} = min(${result}, ${fnName}(${pVar} - ${axVec} * (lii_${result} * ${up(node.spacing)})));`);
       lines.push(`}`);
       return result;
     }
     case 'circularPattern': {
-      // Angular domain repetition with 3-sector check via helper function
-      const ax = node.axis;
-      const isX = Math.abs(ax[0]) > Math.abs(ax[1]) && Math.abs(ax[0]) > Math.abs(ax[2]);
-      const isZ = !isX && Math.abs(ax[2]) > Math.abs(ax[1]);
+      // Angular domain repetition over a window sized from the child's angular
+      // extent.  Instances tile the full turn, so the index needs no clamping.
+      const { isX, isZ, hiAng, width } = circularWindow(node);
       const fnName = emitAsFunction(node.child);
       const sector = `${g(2 * Math.PI / node.count)}`;
       // Compute angle and radius in the rotation plane
@@ -223,10 +253,10 @@ function emitNode(node: SDFNode, pVar: string, lines: string[]): string {
         lines.push(`float cang_${result} = atan(${pVar}.z, ${pVar}.x);`);
         lines.push(`float crad_${result} = length(${pVar}.xz);`);
       }
-      lines.push(`float csect_${result} = floor(cang_${result} / ${sector} + 0.5);`);
+      lines.push(`float cbase_${result} = floor((cang_${result} - ${up(hiAng)}) / ${sector}) - 1.0;`);
       lines.push(`float ${result} = 1e10;`);
-      lines.push(`for (int ci_${result} = -1; ci_${result} <= 1; ci_${result}++) {`);
-      lines.push(`  float ca_${result} = cang_${result} - (csect_${result} + float(ci_${result})) * ${sector};`);
+      lines.push(`for (int ci_${result} = 0; ci_${result} < ${width}; ci_${result}++) {`);
+      lines.push(`  float ca_${result} = cang_${result} - (cbase_${result} + float(ci_${result})) * ${sector};`);
       if (isX) {
         lines.push(`  ${result} = min(${result}, ${fnName}(vec3(${pVar}.x, crad_${result} * cos(ca_${result}), crad_${result} * sin(ca_${result}))));`);
       } else if (isZ) {

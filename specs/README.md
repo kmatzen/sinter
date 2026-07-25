@@ -102,3 +102,32 @@ settling without deleting, breaks it.
   finishes first. The correlation-id fix applies unchanged.
 - **`worker.onerror`** (`:28`), which only logs. Under the fixed protocol it
   should reject every registered handler and clear the map.
+
+## UndoHistory — `src/store/modelerStore.ts`
+
+Models undo/redo. Every mutator in the store truncates `history` at the
+cursor, pushes a clone of the new tree, and moves the cursor to the end —
+except `toggleNode` (`:260`), which calls `set({ tree: newTree })` and records
+nothing.
+
+Two safety properties:
+
+- **`HistoryMatchesTree`** — the entry the cursor points at is the tree on
+  screen. `undo` and `redo` both assign `tree` straight from `history[idx]`, so
+  wherever this is false the next undo silently discards work.
+- **`NoSilentLoss`** — the tree on screen appears somewhere in the history. A
+  tree in no entry is work that undo cannot return to and redo cannot reach.
+
+Deliberately *not* asserted: that every state the user ever saw stays
+reachable. Linear undo discards the redo branch on the next edit, so that is
+false of any correct implementation. An earlier draft asserted it and TLC
+rejected the fixed spec — worth recording, since it is the easy mistake here.
+
+### `UndoHistory.tla` — current design. **`HistoryMatchesTree` fails.**
+
+TLC reaches the violation in three states: an `Edit`, then a `Toggle`, which
+moves `tree` while leaving `history` and `idx` behind.
+
+### `UndoHistoryFixed.tla` — `toggleNode` records like every other mutator.
+
+Both properties hold; 29 distinct states, no error.
