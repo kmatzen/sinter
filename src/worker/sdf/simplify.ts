@@ -12,6 +12,7 @@
  */
 
 import type { MeshResult } from './marchingCubes';
+import { solveSymmetric3Anchored } from './qef';
 
 /** Symmetric 4x4 matrix stored as 10 floats (upper triangle) */
 type Quadric = [number, number, number, number, number, number, number, number, number, number];
@@ -45,25 +46,26 @@ function evalQ(q: Quadric, x: number, y: number, z: number): number {
        + q[9];
 }
 
-/** Find the point minimizing the quadric error. Returns null if the 3x3 system is singular. */
-function optimalQ(q: Quadric): [number, number, number] | null {
-  // Solve the 3x3 linear system:
-  // [a00 a01 a02] [x]   [-a03]
-  // [a01 a11 a12] [y] = [-a13]
-  // [a02 a12 a22] [z]   [-a23]
-  const a = q[0], b = q[1], c = q[2], d = q[3];
-  const e = q[4], f = q[5], g = q[6];
-  const h = q[7], k = q[8];
-
-  const det = a*(e*h - f*f) - b*(b*h - f*c) + c*(b*f - e*c);
-  if (Math.abs(det) < 1e-12) return null;
-
-  const inv = 1 / det;
-  return [
-    ((e*h - f*f)*(-d) + (c*f - b*h)*(-g) + (b*f - c*e)*(-k)) * inv,
-    ((c*f - b*h)*(-d) + (a*h - c*c)*(-g) + (b*c - a*f)*(-k)) * inv,
-    ((b*f - c*e)*(-d) + (b*c - a*f)*(-g) + (a*e - b*b)*(-k)) * inv,
-  ];
+/**
+ * Find the point minimizing the quadric error, anchored at `anchor`.
+ *
+ * The 3x3 system is legitimately singular exactly at the features that
+ * matter most: a flat region is rank 1 and a straight crease is rank 2,
+ * where any point on the plane / crease line has identical cost.  A
+ * determinant solve there is ill-conditioned and lets the vertex slide
+ * arbitrarily far along the null direction — on a box this shuffled crease
+ * vertices out of order along the edge line and the triangulation chamfered
+ * across the corner.  The truncated eigen solve keeps null-direction
+ * coordinates at the anchor (the edge midpoint), which also preserves the
+ * ordering of vertices along a crease.
+ */
+function optimalQ(q: Quadric, anchor: [number, number, number]): [number, number, number] {
+  const [x, y, z] = solveSymmetric3Anchored(
+    q[0], q[1], q[2], q[4], q[5], q[7],
+    -q[3], -q[6], -q[8],
+    anchor,
+  );
+  return [x, y, z];
 }
 
 /** Binary min-heap keyed by cost */
@@ -204,19 +206,33 @@ export function simplifyMesh(mesh: MeshResult, target: number | SimplifyOptions,
   // Compute cost and optimal position for collapsing edge (ra, rb)
   function computeEdgeCost(ra: number, rb: number): { cost: number; pos: [number, number, number] } {
     const q = addQ(quadrics[ra], quadrics[rb]);
-    const opt = optimalQ(q);
-    if (opt) {
-      return { cost: evalQ(q, opt[0], opt[1], opt[2]), pos: opt };
-    }
     const mid: [number, number, number] = [
       (vx[ra] + vx[rb]) * 0.5, (vy[ra] + vy[rb]) * 0.5, (vz[ra] + vz[rb]) * 0.5,
     ];
-    const ea = evalQ(q, vx[ra], vy[ra], vz[ra]);
-    const eb = evalQ(q, vx[rb], vy[rb], vz[rb]);
-    const em = evalQ(q, mid[0], mid[1], mid[2]);
-    if (ea <= eb && ea <= em) return { cost: ea, pos: [vx[ra], vy[ra], vz[ra]] };
-    if (eb <= ea && eb <= em) return { cost: eb, pos: [vx[rb], vy[rb], vz[rb]] };
-    return { cost: em, pos: mid };
+    const opt = optimalQ(q, mid);
+
+    // Even the anchored solve can move a long way when the strong directions
+    // genuinely demand it; a collapse target far outside the edge's own
+    // neighborhood is never geometrically sensible, so fall back to the
+    // endpoint/midpoint candidates in that case.
+    const ex = vx[rb] - vx[ra], ey = vy[rb] - vy[ra], ez = vz[rb] - vz[ra];
+    const edgeLenSq = ex * ex + ey * ey + ez * ez;
+    const ox = opt[0] - mid[0], oy = opt[1] - mid[1], oz = opt[2] - mid[2];
+    const optDistSq = ox * ox + oy * oy + oz * oz;
+
+    let best: [number, number, number] = opt;
+    let bestCost = optDistSq <= Math.max(edgeLenSq * 4, 1e-12)
+      ? evalQ(q, opt[0], opt[1], opt[2])
+      : Infinity;
+    for (const cand of [
+      mid,
+      [vx[ra], vy[ra], vz[ra]] as [number, number, number],
+      [vx[rb], vy[rb], vz[rb]] as [number, number, number],
+    ]) {
+      const c = evalQ(q, cand[0], cand[1], cand[2]);
+      if (c < bestCost) { bestCost = c; best = cand; }
+    }
+    return { cost: bestCost, pos: best };
   }
 
   // Priority queue — entries carry the original vertex pair and a generation
