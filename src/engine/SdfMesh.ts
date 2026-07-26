@@ -45,7 +45,6 @@ uniform float u_clipEnabled;
 uniform float u_clipPos;
 uniform int u_clipAxis;
 uniform float u_clipFlip;
-uniform int u_xray;
 uniform mat4 u_projView;
 
 varying vec3 vWorldPos;
@@ -122,8 +121,6 @@ ${hasWarn ? `  float warnDist = abs(sdfWarn(p));
   float rim = 1.0 - abs(dot(viewDir, normal));
   rim = smoothstep(0.55, 0.8, rim);
   color += vec3(0.15, 0.2, 0.3) * rim;
-
-  if (u_xray == 1) { gl_FragColor = vec4(color, 0.3); return; }
 
   if (u_clipEnabled > 0.5) {
     float clipDist;
@@ -281,7 +278,6 @@ export class SdfMesh {
         u_clipPos: { value: clipPosition },
         u_clipAxis: { value: clipAxis === 'x' ? 0 : clipAxis === 'z' ? 2 : 1 },
         u_clipFlip: { value: useViewportStore.getState().clipFlip ? 1.0 : 0.0 },
-        u_xray: { value: 0 },
         u_projView: { value: new THREE.Matrix4() },
         ...texUniforms,
       },
@@ -321,7 +317,6 @@ export class SdfMesh {
     u.u_clipPos.value = vs.clipPosition;
     u.u_clipAxis.value = vs.clipAxis === 'x' ? 0 : vs.clipAxis === 'z' ? 2 : 1;
     u.u_clipFlip.value = vs.clipFlip ? 1.0 : 0.0;
-    u.u_xray.value = vs.xray ? 1 : 0;
 
     const sdf = useModelerStore.getState().sdfDisplay;
     if (sdf) {
