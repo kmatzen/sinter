@@ -101,26 +101,22 @@ function eigenSymmetric3(
 }
 
 /**
- * Solve the QEF for a set of Hermite samples (surface points + normals),
- * anchored at the mass point.
- *
- * Returns the position minimizing sum_i (n_i . (x - p_i))^2, where
- * rank-deficient directions of A^T A stay at the mass point.
+ * Solve the 3x3 symmetric system A x = b by truncated pseudo-inverse,
+ * anchored at `anchor`: directions of A whose eigenvalue falls below
+ * SINGULAR_TOLERANCE x the largest keep the anchor's coordinate instead
+ * of being dragged by noise.  This is the rank-safe replacement for a
+ * determinant solve wherever A can be legitimately singular — flat
+ * regions (rank 1) and straight creases (rank 2), where an unregularized
+ * solution slides arbitrarily far along the null direction.
  */
-export function solveQEF(points: Vec3[], normals: Vec3[], massPoint: Vec3): Vec3 {
-  let a00 = 0, a01 = 0, a02 = 0, a11 = 0, a12 = 0, a22 = 0;
-  let b0 = 0, b1 = 0, b2 = 0;
-
-  for (let i = 0; i < points.length; i++) {
-    const [nx, ny, nz] = normals[i];
-    const d = nx * points[i][0] + ny * points[i][1] + nz * points[i][2];
-    a00 += nx * nx; a01 += nx * ny; a02 += nx * nz;
-    a11 += ny * ny; a12 += ny * nz; a22 += nz * nz;
-    b0 += nx * d; b1 += ny * d; b2 += nz * d;
-  }
-
-  // Shift to mass-point-relative coordinates: solve ATA * dx = ATb - ATA * mp
-  const [mx, my, mz] = massPoint;
+export function solveSymmetric3Anchored(
+  a00: number, a01: number, a02: number,
+  a11: number, a12: number, a22: number,
+  b0: number, b1: number, b2: number,
+  anchor: Vec3,
+): Vec3 {
+  const [mx, my, mz] = anchor;
+  // Shift to anchor-relative coordinates: solve A * dx = b - A * anchor
   const r0 = b0 - (a00 * mx + a01 * my + a02 * mz);
   const r1 = b1 - (a01 * mx + a11 * my + a12 * mz);
   const r2 = b2 - (a02 * mx + a12 * my + a22 * mz);
@@ -140,4 +136,26 @@ export function solveQEF(points: Vec3[], normals: Vec3[], massPoint: Vec3): Vec3
   }
 
   return [mx + dx, my + dy, mz + dz];
+}
+
+/**
+ * Solve the QEF for a set of Hermite samples (surface points + normals),
+ * anchored at the mass point.
+ *
+ * Returns the position minimizing sum_i (n_i . (x - p_i))^2, where
+ * rank-deficient directions of A^T A stay at the mass point.
+ */
+export function solveQEF(points: Vec3[], normals: Vec3[], massPoint: Vec3): Vec3 {
+  let a00 = 0, a01 = 0, a02 = 0, a11 = 0, a12 = 0, a22 = 0;
+  let b0 = 0, b1 = 0, b2 = 0;
+
+  for (let i = 0; i < points.length; i++) {
+    const [nx, ny, nz] = normals[i];
+    const d = nx * points[i][0] + ny * points[i][1] + nz * points[i][2];
+    a00 += nx * nx; a01 += nx * ny; a02 += nx * nz;
+    a11 += ny * ny; a12 += ny * nz; a22 += nz * nz;
+    b0 += nx * d; b1 += ny * d; b2 += nz * d;
+  }
+
+  return solveSymmetric3Anchored(a00, a01, a02, a11, a12, a22, b0, b1, b2, massPoint);
 }

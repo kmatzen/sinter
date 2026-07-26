@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { simplifyMesh, splitCreaseEdges } from './simplify';
 import { marchingCubes } from './marchingCubes';
+import { dualContour } from './dualContour';
 import { evaluateSDF } from './evaluate';
 import type { SDFNode, BBox } from './types';
 import type { MeshResult } from './marchingCubes';
@@ -24,6 +25,51 @@ function makeGrid(node: SDFNode, resolution: number, bbox: BBox): Float32Array {
     }
   }
   return grid;
+}
+
+/** Exact point-to-triangle distance (Ericson, Real-Time Collision Detection) */
+function pointTriangleDistance(
+  p: [number, number, number], positions: Float32Array,
+  ia: number, ib: number, ic: number,
+): number {
+  const a = [positions[ia * 3], positions[ia * 3 + 1], positions[ia * 3 + 2]];
+  const b = [positions[ib * 3], positions[ib * 3 + 1], positions[ib * 3 + 2]];
+  const c = [positions[ic * 3], positions[ic * 3 + 1], positions[ic * 3 + 2]];
+  const sub = (u: number[], v: number[]) => [u[0] - v[0], u[1] - v[1], u[2] - v[2]];
+  const dot = (u: number[], v: number[]) => u[0] * v[0] + u[1] * v[1] + u[2] * v[2];
+  const len = (u: number[]) => Math.hypot(u[0], u[1], u[2]);
+
+  const ab = sub(b, a), ac = sub(c, a), ap = sub(p, a);
+  const d1 = dot(ab, ap), d2 = dot(ac, ap);
+  if (d1 <= 0 && d2 <= 0) return len(ap);
+  const bp = sub(p, b);
+  const d3 = dot(ab, bp), d4 = dot(ac, bp);
+  if (d3 >= 0 && d4 <= d3) return len(bp);
+  const vc = d1 * d4 - d3 * d2;
+  if (vc <= 0 && d1 >= 0 && d3 <= 0) {
+    const v = d1 / (d1 - d3);
+    return len(sub(p, [a[0] + v * ab[0], a[1] + v * ab[1], a[2] + v * ab[2]]));
+  }
+  const cp = sub(p, c);
+  const d5 = dot(ab, cp), d6 = dot(ac, cp);
+  if (d6 >= 0 && d5 <= d6) return len(cp);
+  const vb = d5 * d2 - d1 * d6;
+  if (vb <= 0 && d2 >= 0 && d6 <= 0) {
+    const w = d2 / (d2 - d6);
+    return len(sub(p, [a[0] + w * ac[0], a[1] + w * ac[1], a[2] + w * ac[2]]));
+  }
+  const va = d3 * d6 - d5 * d4;
+  if (va <= 0 && d4 - d3 >= 0 && d5 - d6 >= 0) {
+    const w = (d4 - d3) / (d4 - d3 + (d5 - d6));
+    return len(sub(p, [b[0] + w * (c[0] - b[0]), b[1] + w * (c[1] - b[1]), b[2] + w * (c[2] - b[2])]));
+  }
+  const denom = 1 / (va + vb + vc);
+  const v = vb * denom, w = vc * denom;
+  return len(sub(p, [
+    a[0] + ab[0] * v + ac[0] * w,
+    a[1] + ab[1] * v + ac[1] * w,
+    a[2] + ab[2] * v + ac[2] * w,
+  ]));
 }
 
 function meshFromSDF(node: SDFNode, res: number): ReturnType<typeof marchingCubes> {
@@ -169,6 +215,59 @@ describe('simplifyMesh error-bounded mode', () => {
     // Box faces are planar (zero quadric cost) so nearly everything
     // collapses; the sphere must retain triangles to hold its curvature.
     expect(boxKept).toBeLessThan(sphereKept * 0.5);
+  });
+
+  it('keeps the mesh covering sharp creases (no chamfered edges)', () => {
+    // Regression: the quadric cost along a straight crease is zero in the
+    // direction of the crease line, so an unregularized optimal-point solve
+    // let collapse targets slide arbitrarily far along the edge.  Vertices
+    // ended up out of order along the crease and triangles chamfered across
+    // the corner — vertices all exactly on the surface, mesh watertight,
+    // but the crisp edge visibly cut off.  Measure actual coverage: every
+    // point of the true crease line must be close to the simplified mesh.
+    const bbox: BBox = { min: [-8, -8, -8], max: [8, 8, 8] };
+    const res = 48;
+    const voxel = 16 / res;
+    const box: SDFNode = { kind: 'box', size: [10, 10, 10] };
+    const grid = makeGrid(box, res, bbox);
+    const mesh = dualContour(grid, res, bbox, box);
+    const simplified = simplifyMesh(mesh, { maxError: voxel * 0.05 });
+
+    // All 12 crease edges of the box
+    const creases: [number[], number[]][] = [];
+    for (const axis of [0, 1, 2]) {
+      for (const s1 of [-5, 5]) {
+        for (const s2 of [-5, 5]) {
+          const p0 = [0, 0, 0], p1 = [0, 0, 0];
+          p0[axis] = -5; p1[axis] = 5;
+          p0[(axis + 1) % 3] = p1[(axis + 1) % 3] = s1;
+          p0[(axis + 2) % 3] = p1[(axis + 2) % 3] = s2;
+          creases.push([p0, p1]);
+        }
+      }
+    }
+
+    let worst = 0;
+    for (const [p0, p1] of creases) {
+      for (let s = 0; s <= 40; s++) {
+        const t = s / 40;
+        const p: [number, number, number] = [
+          p0[0] + (p1[0] - p0[0]) * t,
+          p0[1] + (p1[1] - p0[1]) * t,
+          p0[2] + (p1[2] - p0[2]) * t,
+        ];
+        let best = Infinity;
+        const { positions, indices } = simplified;
+        for (let f = 0; f < indices.length; f += 3) {
+          best = Math.min(best, pointTriangleDistance(p,
+            positions, indices[f], indices[f + 1], indices[f + 2]));
+        }
+        worst = Math.max(worst, best);
+      }
+    }
+    // Before the anchored solve this was ~1.6 (half a face chamfered off);
+    // grid-accurate creases sit essentially at 0.
+    expect(worst).toBeLessThan(voxel * 0.5);
   });
 
   it('respects targetRatio as a floor when both constraints are given', () => {
