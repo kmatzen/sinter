@@ -3,7 +3,7 @@ import { isDirty, markClean } from '../../store/localPersist';
 import { useModelerStore } from '../../store/modelerStore';
 import { useAuthStore } from '../../store/authStore';
 import { useProjectStore } from '../../store/projectStore';
-import { workerBridge } from '../../engine/workerBridge';
+import { workerBridge, isCancelled } from '../../engine/workerBridge';
 import { triggerDownload } from '../../utils/download';
 import { useChatStore } from '../../store/chatStore';
 import { ProjectList } from '../projects/ProjectList';
@@ -60,6 +60,11 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
 
   const onProgress = (stage: string, percent: number) => setExportProgress({ stage, percent });
 
+  // Cancelling rejects the export promise, so the `catch` below runs on the
+  // normal path. A cancel is a user decision, not a failure — it must not be
+  // logged as one, and it must not raise the error toast.
+  const handleCancelExport = () => workerBridge.cancelExport();
+
   const handleExportSTL = async () => {
     if (!tree || exporting) return;
     setExporting('STL');
@@ -69,7 +74,7 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
       const triangles = new DataView(await blob.slice(80, 84).arrayBuffer()).getUint32(0, true);
       setExportPreview({ blob, name: `${projectName}.stl`, triangles, size: blob.size });
     } catch (err: any) {
-      console.error('Export STL failed:', err);
+      if (!isCancelled(err)) console.error('Export STL failed:', err);
     } finally {
       setExporting(null);
       setExportProgress(null);
@@ -87,7 +92,7 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
       const triangles = Math.round(blob.size / 120);
       setExportPreview({ blob, name: `${projectName}.3mf`, triangles, size: blob.size });
     } catch (err: any) {
-      console.error('Export 3MF failed:', err);
+      if (!isCancelled(err)) console.error('Export 3MF failed:', err);
     } finally {
       setExporting(null);
       setExportProgress(null);
@@ -248,6 +253,21 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
           className="h-full transition-all duration-200"
           style={{ width: `${Math.round(exportProgress.percent)}%`, background: 'var(--accent)' }}
         />
+      </div>
+    )}
+
+    {exporting && exportProgress && (
+      <div className="absolute top-12 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 px-4 py-2 rounded-lg shadow-lg text-sm"
+           style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-default)', color: 'var(--text-primary)' }}>
+        <span>{exporting} — {exportProgress.stage} {Math.round(exportProgress.percent)}%</span>
+        <button
+          onClick={handleCancelExport}
+          title="Cancel export"
+          className="px-2 py-0.5 rounded text-xs opacity-80 hover:opacity-100"
+          style={{ background: 'var(--bg-panel)', border: '1px solid var(--border-default)' }}
+        >
+          Cancel
+        </button>
       </div>
     )}
 

@@ -350,4 +350,49 @@ test.describe('Modeler: Worker concurrency', () => {
     // finished and the progress bar had already gone.
     await expect(progress).toBeVisible();
   });
+
+  // The other half of #51. A cooperative cancel flag could not stop this work:
+  // the worker never reads its message queue mid-job, so the flag would not be
+  // seen until the export it was meant to abort had already finished.
+  //
+  // The load-bearing assertion is the absence of a completed export, not the
+  // elapsed time — export duration varies by an order of magnitude across
+  // machines, and on a fast one a full export finishes inside any threshold
+  // loose enough to be safe on a slow one. Verified by mutation: no-oping
+  // cancelExport() leaves the Download preview on screen and fails this test.
+  test('cancelling an export stops it, and the next export still runs', async ({ page }) => {
+    test.slow();
+
+    await addShape(page, 'Box');
+    await page.waitForFunction(() => {
+      const s = (window as any).__MODELER_STORE__;
+      return s?.sdfDisplay && !s.evaluating;
+    }, null, { timeout: 15000 });
+
+    const progress = page.locator('[data-testid="export-progress"]');
+    const cancel = page.locator('[title="Cancel export"]');
+
+    await page.locator('[title="Export STL"]').click();
+    await expect(progress).toBeVisible({ timeout: 15000 });
+    await expect(cancel).toBeVisible();
+
+    await cancel.click();
+
+    // The rejection clears the progress UI.
+    await expect(progress).toBeHidden({ timeout: 10000 });
+
+    // A cancel is not a failure, and it must not yield a model: no preview
+    // dialog, no download offered. This is what a no-op cancel fails.
+    await expect(page.locator('text=Download')).toHaveCount(0);
+
+    // The export worker was terminated. If it were not respawned — or if the
+    // respawned one's `ready` handshake were not awaited before posting — this
+    // second export would never start.
+    await expect(page.locator('[title="Export STL"]')).toBeEnabled({ timeout: 15000 });
+    await page.locator('[title="Export STL"]').click();
+    await expect(progress).toBeVisible({ timeout: 15000 });
+
+    await cancel.click();
+    await expect(progress).toBeHidden({ timeout: 10000 });
+  });
 });

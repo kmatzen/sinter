@@ -88,15 +88,70 @@ and the one an implementation must preserve: an id is registered **iff** its
 promise has not settled. Deleting a map entry without settling it, or
 settling without deleting, breaks it.
 
+### `WorkerBridgeCancel.tla` — admission control and cancellation (#51). **All properties hold.**
+
+`WorkerBridgeFixed` makes every request settle, but every issued request goes
+straight into the worker's message queue, where it is beyond reach. Ten edits
+posted ten full evaluations and discarded nine results.
+
+**A `cancel` message cannot fix that, and this is the central finding.** A
+dedicated worker drains its message queue only *between* invocations of
+`self.onmessage`, and `sdfWorker` runs each message to completion
+(`sdfWorker.ts:203`). A `cancel` posted while a job is running is not read
+until that job is over; a `cancel` posted behind nine queued evaluates is not
+read until all nine have run. Keeping a cancelled-`rid` set in the worker and
+checking it inside `evaluateCPUWithProgress`'s recursion — the obvious
+design — cannot work, because the set can never have been updated by the time
+it is read. The mechanisms that *would* work are a `SharedArrayBuffer` flag
+polled with `Atomics.load`, which requires cross-origin isolation
+(COOP/COEP) and would break this app's OAuth popups; or making the mesher
+`async` and yielding periodically, which puts an `await` in the hot recursion.
+
+So cancellation is moved to the side of the boundary that can act on it:
+
+1. **Admission control.** A request is registered when *issued* but posted
+   only when its worker is idle. `held` is the bridge's own queue; `posted`
+   is the single request the worker has. Only work still in `held` can be
+   discarded — which is the entire reason for the split.
+2. **Supersession.** Issuing an evaluate settles and drops every evaluate
+   still `held`. The one already posted cannot be recalled, so at most one
+   stale evaluation ever runs. That is the floor for a worker that never
+   yields.
+3. **Cancel** settles every export, held and posted alike, and calls
+   `terminate()`. Safe only because exports have their own worker.
+
+The spec deliberately leaves `respQueue` untouched on cancel: `terminate()`
+cannot retract a response the worker already posted. That surviving message
+is the race the spec exists to check — it arrives for an id that is no longer
+registered, and `dispatch`'s "unknown id → drop" rule is what makes the
+request settle exactly once.
+
+Checked at `MaxReq = 4`: 9,385 distinct states, depth 17, no error. Carries
+`NoOrphan`, `NoCrossTalk` and `HandlerAgreesWithSettled` over unchanged, and
+adds:
+
+- **`NoStranded`** — an unsettled request is `held`, `posted`, or awaiting
+  delivery of a response. `HandlerAgreesWithSettled` does not catch a cancel
+  that clears `held`/`posted` without settling, nor a pump that drops an id
+  without posting it; this does, at the step where it happens rather than at
+  quiescence.
+- **`OneOutstandingPerChannel`** — at most one request per channel is with
+  its worker.
+- **`SettleIsFinal`** (action property) — once settled, a request's outcome
+  never changes. This is the property #51 asks for: the cancel racing an
+  in-flight completion neither settles twice nor strands.
+
+Both new properties were checked for teeth by mutation. Removing the settle
+from `Cancel` violates `NoStranded`; dropping a held request in `Pump` instead
+of posting it violates `NoStranded`; and settling in `BridgeDeliver` without
+checking registration — the double-settle bug — violates `SettleIsFinal`.
+
+Implemented in `src/engine/workerBridge.ts` (`held`/`posted` are
+`WorkerChannel.queue`/`.inFlight`), with regression tests in
+`src/engine/workerBridge.test.ts`.
+
 ### Not modelled
 
-- **Cancellation.** The worker processes its queue synchronously to
-  completion (`sdfWorker.ts:165`); there is no way to drop queued work. The
-  fixed spec makes every request settle, but a 256³ export still blocks
-  every evaluate behind it. Real cancellation needs either a `cancel`
-  message checked inside `evaluateCPUWithProgress`'s recursion
-  (`sdfWorker.ts:93`) or worker termination and respawn. Worth a follow-up
-  spec once the design is chosen.
 - **`progressHandler`**, which has the same single-slot problem
   (`workerBridge.ts:13`, `:54`, `:66`) and is cleared by whichever export
   finishes first. The correlation-id fix applies unchanged.

@@ -13,7 +13,7 @@ fi
 # WorkerBridge and UndoHistory model the current, known-broken designs:
 # their counterexamples are the point, so a TLC failure there is expected.
 declare -a SPECS
-if [ $# -gt 0 ]; then SPECS=("$@"); else SPECS=(WorkerBridge WorkerBridgeFixed UndoHistory UndoHistoryFixed); fi
+if [ $# -gt 0 ]; then SPECS=("$@"); else SPECS=(WorkerBridge WorkerBridgeFixed WorkerBridgeCancel UndoHistory UndoHistoryFixed); fi
 
 status=0
 for spec in "${SPECS[@]}"; do
