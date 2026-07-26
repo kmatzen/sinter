@@ -17,6 +17,8 @@ import { useAuthStore } from './store/authStore';
 import { startAutoSave } from './store/projectStore';
 import { startLocalAutoSave } from './store/localPersist';
 import { AppModals } from './components/ui/AppModals';
+import { OPENROUTER_CALLBACK_PATH, completeOpenRouterSignIn } from './llm/openrouter';
+import { useChatStore } from './store/chatStore';
 
 type Route =
   | { kind: 'landing' }
@@ -24,12 +26,14 @@ type Route =
   | { kind: 'login' }
   | { kind: 'shared' }
   | { kind: 'oauth-callback' }
+  | { kind: 'openrouter-callback' }
   | { kind: 'legacy-share-redirect'; token: string }
   | { kind: 'loading' }
   | { kind: 'error'; message: string };
 
 function detectRoute(): Route {
   const path = window.location.pathname;
+  if (path === OPENROUTER_CALLBACK_PATH) return { kind: 'openrouter-callback' };
   if (path === '/auth/callback') return { kind: 'oauth-callback' };
   if (path === '/shared') return { kind: 'shared' };
   const legacyShare = path.match(/^\/share\/([0-9a-f]{64})$/i);
@@ -76,6 +80,20 @@ function App() {
         .catch((err: unknown) => {
           setRoute({ kind: 'error', message: err instanceof Error ? err.message : 'Sign-in failed' });
         });
+    } else if (route.kind === 'openrouter-callback') {
+      // Distinct from the storage sign-in above: this exchanges a PKCE code
+      // for the user's own OpenRouter key and stores it as the chat
+      // credential. It does not touch the storage-provider session.
+      completeOpenRouterSignIn()
+        .then(({ apiKey, returnTo }) => {
+          useChatStore.getState().setApiConfig({ provider: 'openrouter', apiKey });
+          window.history.replaceState({}, '', returnTo);
+          setRoute({ kind: 'app' });
+          setShowLanding(false);
+        })
+        .catch((err: unknown) => {
+          setRoute({ kind: 'error', message: err instanceof Error ? err.message : 'OpenRouter sign-in failed' });
+        });
     } else if (route.kind === 'legacy-share-redirect') {
       void resolveLegacyShare(route.token).then(setRoute);
     }
@@ -101,7 +119,7 @@ function App() {
         </div>
       </div>
     );
-  } else if (route.kind === 'oauth-callback' || route.kind === 'legacy-share-redirect' || route.kind === 'loading') {
+  } else if (route.kind === 'oauth-callback' || route.kind === 'openrouter-callback' || route.kind === 'legacy-share-redirect' || route.kind === 'loading') {
     content = (
       <div className="h-full flex items-center justify-center bg-zinc-900">
         <div className="text-zinc-400 text-sm">Loading...</div>

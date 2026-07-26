@@ -3,6 +3,7 @@
 // resulting access token.
 
 import type { ProviderName } from '../storage/types';
+import { base64url, randomString, sha256 } from './pkce';
 
 const GOOGLE_AUTH = 'https://accounts.google.com/o/oauth2/v2/auth';
 const GITHUB_AUTH = 'https://github.com/login/oauth/authorize';
@@ -18,24 +19,6 @@ interface PendingState {
   codeVerifier?: string;
   redirectUri: string;
   startedAt: number;
-}
-
-function randomString(length = 64): string {
-  const bytes = new Uint8Array(length);
-  crypto.getRandomValues(bytes);
-  return base64url(bytes);
-}
-
-function base64url(bytes: Uint8Array): string {
-  let s = '';
-  for (const b of bytes) s += String.fromCharCode(b);
-  return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-}
-
-async function sha256(input: string): Promise<Uint8Array> {
-  const buf = new TextEncoder().encode(input);
-  const hash = await crypto.subtle.digest('SHA-256', buf);
-  return new Uint8Array(hash);
 }
 
 function callbackUrl(): string {
