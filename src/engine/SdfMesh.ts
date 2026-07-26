@@ -72,13 +72,24 @@ void main() {
   if (tStart >= tEnd) discard;
 
   float t = tStart;
-  float d;
   bool hit = false;
   vec3 p;
   float camDist = length(u_cameraPos);
   float minStep = camDist * 0.00005;
 
-  for (int i = 0; i < 256; i++) {
+  // Enhanced sphere tracing (Keinert et al. 2014): over-relax the marching
+  // step by omega, and back off if the over-relaxed step overshot the field's
+  // safe radius. The backtrack guarantees a surface is never skipped, so this
+  // is at least as robust as plain sphere tracing, but converges in far fewer
+  // steps through *conservative* fields. That matters because a non-uniform
+  // scale multiplies the field by min(sx,sy,sz) (a 1-Lipschitz correction), so
+  // a heavily-scaled axis under-reports distance and otherwise starved the
+  // fixed step budget — thin scaled geometry then vanished at grazing angles
+  // (issue #76).
+  float omega = 1.6;
+  float prevRadius = 0.0;
+  float stepLength = 0.0;
+  for (int i = 0; i < 1024; i++) {
     p = ro + rd * t;
     if (isClipped(p)) {
       float clipAdvance;
@@ -90,11 +101,23 @@ void main() {
         vec3 clipP = ro + rd * t;
         if (!isClipped(clipP) && sdf(clipP) < 0.0) { p = clipP; hit = true; break; }
       } else { t += minStep; }
+      // A clip-plane jump breaks the step continuity the relaxation relies on.
+      omega = 1.6; prevRadius = 0.0; stepLength = 0.0;
       continue;
     }
-    d = sdf(p);
-    if (abs(d) < minStep) { hit = true; break; }
-    t += abs(d) * 0.7;
+    float radius = abs(sdf(p));
+    bool sorFail = (omega > 1.0) && (radius + prevRadius < stepLength);
+    if (sorFail) {
+      // The over-relaxed step overshot: retreat it and fall back to plain
+      // (unrelaxed) sphere tracing for the rest of the ray.
+      stepLength -= omega * stepLength;
+      omega = 1.0;
+    } else {
+      stepLength = radius * omega;
+    }
+    prevRadius = radius;
+    if (!sorFail && radius < minStep) { hit = true; break; }
+    t += stepLength;
     if (t > tEnd) break;
   }
   if (!hit) discard;
