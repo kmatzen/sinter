@@ -39,6 +39,23 @@ export function useEvaluator() {
 
     const unsub1 = useModelerStore.subscribe(triggerEval);
 
+    // Evaluate whatever is already in the store, because subscribing only
+    // reacts to *future* mutations. A loaded project is hydrated into the store
+    // before this hook mounts, so without this the worker is never asked to
+    // evaluate: `sdfDisplay` stays null and the viewport renders nothing until
+    // the first node-tree edit happens to fire the subscription (#68). It also
+    // blanked shared project links, which always open a pre-populated tree.
+    //
+    // Guarded on a non-null tree: an empty editor has nothing to draw, and
+    // evaluating null would only round-trip the worker to set `sdfDisplay`
+    // back to null while flashing the evaluating indicator.
+    //
+    // `prevKeyRef` starts as '' and no tree serialises to that, so this always
+    // evaluates once; identical follow-up states are still de-duped by the key
+    // check, and under StrictMode's double-mount the first pass's pending timer
+    // is cleared by cleanup before it can run, leaving exactly one evaluation.
+    if (useModelerStore.getState().tree) triggerEval();
+
     return () => {
       unsub1();
       if (debounceRef.current) clearTimeout(debounceRef.current);
