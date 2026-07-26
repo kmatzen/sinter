@@ -18,13 +18,11 @@ interface ViewportState {
   clipAxis: 'x' | 'y' | 'z';
   clipFlip: boolean;
   clipPosition: number;
-  xray: boolean;
 
   toggleClip: () => void;
   setClipAxis: (axis: 'x' | 'y' | 'z') => void;
   setClipFlip: (flip: boolean) => void;
   setClipPosition: (pos: number) => void;
-  toggleXray: () => void;
 
   // Resolution
   resolution: number;
@@ -51,12 +49,10 @@ export const useViewportStore = create<ViewportState>((set) => ({
   clipAxis: 'y',
   clipFlip: false,
   clipPosition: 0,
-  xray: false,
   toggleClip: () => set((s) => ({ clipEnabled: !s.clipEnabled })),
   setClipAxis: (axis) => set({ clipAxis: axis }),
   setClipFlip: (flip) => set({ clipFlip: flip }),
   setClipPosition: (pos) => set({ clipPosition: pos }),
-  toggleXray: () => set((s) => ({ xray: !s.xray })),
 
   resolution: 192,
   setResolution: (res) => set({ resolution: res }),

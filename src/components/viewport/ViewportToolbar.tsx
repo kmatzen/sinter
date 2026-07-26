@@ -1,6 +1,6 @@
 import { useViewportStore } from '../../store/viewportStore';
 import { triggerDownload } from '../../utils/download';
-import { Move, RotateCcw, Magnet, Camera, Ruler, Eye, Scissors, Scaling } from 'lucide-react';
+import { Move, RotateCcw, Magnet, Camera, Ruler, Scissors, Scaling } from 'lucide-react';
 import type { ThreeEngine } from '../../engine/ThreeEngine';
 import type { ReactNode } from 'react';
 
@@ -69,8 +69,6 @@ export function ViewportToolbar({ engine }: { engine: ThreeEngine | null }) {
   const setClipFlip = useViewportStore((s) => s.setClipFlip);
   const clipPosition = useViewportStore((s) => s.clipPosition);
   const setClipPosition = useViewportStore((s) => s.setClipPosition);
-  const xray = useViewportStore((s) => s.xray);
-  const toggleXray = useViewportStore((s) => s.toggleXray);
   const gizmoMode = useViewportStore((s) => s.gizmoMode);
   const setGizmoMode = useViewportStore((s) => s.setGizmoMode);
   const snapEnabled = useViewportStore((s) => s.snapEnabled);
@@ -129,9 +127,6 @@ export function ViewportToolbar({ engine }: { engine: ThreeEngine | null }) {
 
       {/* Bottom left — tools + clip */}
       <div className="absolute bottom-3 left-3 flex items-center gap-1.5">
-        <VpBtn active={xray} onClick={toggleXray} title="X-Ray mode">
-          <Eye size={ICON} />
-        </VpBtn>
         <VpBtn active={clipEnabled} onClick={toggleClip} title="Clipping plane">
           <Scissors size={ICON} />
         </VpBtn>
