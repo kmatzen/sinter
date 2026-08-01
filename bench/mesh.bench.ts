@@ -26,12 +26,12 @@
 import { toSDFNode } from '../src/worker/sdf/convert';
 import { computeBounds } from '../src/worker/sdf/bounds';
 import { verifiedBounds } from '../src/worker/sdf/interval';
-import { evaluateSDF } from '../src/worker/sdf/evaluate';
+import { evaluateCPUWithProgress } from '../src/worker/sdf/gridEval';
 import { dualContour } from '../src/worker/sdf/dualContour';
 import { simplifyMesh } from '../src/worker/sdf/simplify';
 import { removeDegenerateTriangles, projectVerticesToSurface } from '../src/worker/sdf/meshRepair';
 import { PRESET_CATEGORIES } from '../src/components/tree/presets';
-import type { SDFNode, BBox } from '../src/worker/sdf/types';
+import type { BBox } from '../src/worker/sdf/types';
 import type { SDFNodeUI } from '../src/types/operations';
 
 const args = process.argv.slice(2);
@@ -51,6 +51,14 @@ const only = args.find((a) => a.startsWith('--only='))?.slice(7);
  * build as *slower*, which was entirely the machine.
  */
 const REPEAT = Number(args.find((a) => a.startsWith('--repeat='))?.slice(9) ?? 1);
+/**
+ * `--no-mask` runs dual contouring over the whole grid instead of over the
+ * octree's active blocks. Kept as a flag rather than deleted after measuring,
+ * because it is the only way to measure that stage against itself: the mask
+ * comes out of the grid pass, so there is no separate "before" build to
+ * compare with once it exists.
+ */
+const NO_MASK = args.includes('--no-mask');
 
 function preset(name: string): SDFNodeUI {
   for (const cat of PRESET_CATEGORIES) {
@@ -119,27 +127,6 @@ function ms(fn: () => unknown): number {
   return best;
 }
 
-/** The export's grid pass, transcribed without the progress plumbing. */
-function evaluateGrid(root: SDFNode, bbox: BBox, res: number): Float32Array {
-  const grid = new Float32Array(res * res * res);
-  const dx = (bbox.max[0] - bbox.min[0]) / res;
-  const dy = (bbox.max[1] - bbox.min[1]) / res;
-  const dz = (bbox.max[2] - bbox.min[2]) / res;
-  const r2 = res * res;
-  for (let z = 0; z < res; z++) {
-    for (let y = 0; y < res; y++) {
-      for (let x = 0; x < res; x++) {
-        grid[z * r2 + y * res + x] = evaluateSDF(root, [
-          bbox.min[0] + (x + 0.5) * dx,
-          bbox.min[1] + (y + 0.5) * dy,
-          bbox.min[2] + (z + 0.5) * dz,
-        ]);
-      }
-    }
-  }
-  return grid;
-}
-
 interface StageTimes {
   name: string;
   bounds: number;
@@ -164,11 +151,15 @@ function run(name: string, tree: SDFNodeUI): StageTimes {
     (bbox.max[2] - bbox.min[2]) / RES,
   );
 
-  let grid!: Float32Array;
-  const gridMs = ms(() => { grid = evaluateGrid(root, bbox, RES); });
+  // The worker's real grid pass, octree and all — not a dense transcription of
+  // it, so the active-block mask it produces is measured rather than assumed.
+  let evaluated!: ReturnType<typeof evaluateCPUWithProgress>;
+  const gridMs = ms(() => { evaluated = evaluateCPUWithProgress(root, bbox, RES, () => {}); });
 
   let raw!: ReturnType<typeof dualContour>;
-  const contour = ms(() => { raw = dualContour(grid, RES, bbox, root); });
+  const contour = ms(() => {
+    raw = dualContour(evaluated.grid, RES, bbox, root, undefined, NO_MASK ? undefined : evaluated.active);
+  });
 
   const cleaned = removeDegenerateTriangles(raw);
   const before = cleaned.indices.length / 3;
@@ -198,7 +189,7 @@ if (asJson) {
   console.log(JSON.stringify({ resolution: RES, results }, null, 2));
 } else {
   const pad = (s: string | number, w: number) => String(s).padStart(w);
-  console.log(`\nExport pipeline, resolution ${RES}, best of ${REPEAT}\n`);
+  console.log(`\nExport pipeline, resolution ${RES}, best of ${REPEAT}${NO_MASK ? ', dense contouring' : ''}\n`);
   console.log(
     `${'model'.padEnd(14)}${pad('bounds', 9)}${pad('grid', 9)}${pad('contour', 9)}` +
     `${pad('simplify', 10)}${pad('project', 9)}${pad('total', 10)}${pad('tris', 9)}`,
