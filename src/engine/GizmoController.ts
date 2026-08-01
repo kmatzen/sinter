@@ -105,7 +105,7 @@ export class GizmoController {
     this.ancestorGroup = new THREE.Group();
     this.transformObj = new THREE.Object3D();
     this.ancestorGroup.add(this.transformObj);
-    engine.scene.add(this.ancestorGroup);
+    engine.gizmoScene.add(this.ancestorGroup);
 
     this.controls = new (TransformControls as any)(engine.camera, engine.renderer.domElement);
     this.controls.attach(this.transformObj);
@@ -113,7 +113,7 @@ export class GizmoController {
     this.controls.setSpace('local');
     this.controls.visible = false;
     this.controls.enabled = false;
-    engine.scene.add(this.controls);
+    engine.gizmoScene.add(this.controls);
 
     this.controls.addEventListener('dragging-changed', (e: any) => {
       engine.controls.enabled = !e.value;
