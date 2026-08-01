@@ -45,6 +45,26 @@ void main() {
 }
 `;
 
+/**
+ * Copy the offscreen scene colour to the screen, alpha and all.
+ *
+ * This exists so the scene is marched once instead of twice. The pass that
+ * fills the depth texture used to be a *separate* full render — meaning the
+ * 256-iteration sphere trace plus its six-evaluation normal ran twice per
+ * frame at full device-pixel resolution, and the first run's colour was thrown
+ * away. Now one render fills colour and depth together, and getting it onto the
+ * screen costs a texture fetch per pixel.
+ */
+const BLIT_FRAG = `
+precision highp float;
+uniform sampler2D u_color;
+varying vec2 vUv;
+
+void main() {
+  gl_FragColor = texture2D(u_color, vUv);
+}
+`;
+
 const OUTLINE_FRAG = `
 precision highp float;
 uniform sampler2D u_depth;
@@ -86,6 +106,14 @@ void main() {
     }
   }
 
+  // Shape pixels never received an outline: the quad used to carry
+  // NotEqualStencilFunc against the stencil the SDF material wrote, so this
+  // branch's contribution was masked out. isShape is that same fact read from
+  // the depth texture, which is why the stencil on both materials could go.
+  // Dropping the branch would change the rendered image -- interior crease
+  // outlines would start appearing -- so it is a discard, not a deletion.
+  if (isShape) discard;
+
   outline = clamp(outline / total * 3.0, 0.0, 1.0);
   float alpha = smoothstep(0.0, 0.3, outline);
   if (alpha < 0.01) discard;
@@ -95,12 +123,15 @@ void main() {
 
 export class OutlinePass {
   private engine: OutlinePassEngine;
-  private depthTarget: THREE.WebGLRenderTarget;
+  /** Colour *and* depth from the one scene render. */
+  private sceneTarget: THREE.WebGLRenderTarget;
   private gizmoTarget: THREE.WebGLRenderTarget;
   private quadScene: THREE.Scene;
+  private blitScene: THREE.Scene;
   private gizmoQuadScene: THREE.Scene;
   private quadCamera: THREE.OrthographicCamera;
   private material: THREE.ShaderMaterial;
+  private blitMaterial: THREE.ShaderMaterial;
   private gizmoMaterial: THREE.ShaderMaterial;
   private gizmoScene: THREE.Scene;
 
@@ -115,11 +146,16 @@ export class OutlinePass {
     const w = Math.max(1, Math.floor(engine.container.clientWidth * dpr));
     const h = Math.max(1, Math.floor(engine.container.clientHeight * dpr));
 
-    this.depthTarget = new THREE.WebGLRenderTarget(w, h, {
+    // `samples` keeps the multisampling the default framebuffer used to
+    // provide. It buys nothing on the SDF itself — its silhouette comes from
+    // `discard`, which MSAA cannot smooth — but the gizmo's thin lines render
+    // through here too, and they did have it.
+    this.sceneTarget = new THREE.WebGLRenderTarget(w, h, {
       depthTexture: new THREE.DepthTexture(w, h),
       depthBuffer: true,
+      samples: 4,
     });
-    this.depthTarget.depthTexture!.type = THREE.FloatType;
+    this.sceneTarget.depthTexture!.type = THREE.FloatType;
 
     this.gizmoTarget = new THREE.WebGLRenderTarget(w, h);
     this.gizmoScene = new THREE.Scene();
@@ -128,7 +164,7 @@ export class OutlinePass {
       vertexShader: QUAD_VERT,
       fragmentShader: OUTLINE_FRAG,
       uniforms: {
-        u_depth: { value: this.depthTarget.depthTexture },
+        u_depth: { value: this.sceneTarget.depthTexture },
         u_resolution: { value: new THREE.Vector2(w, h) },
         u_near: { value: 0.01 },
         u_far: { value: 5000 },
@@ -137,12 +173,18 @@ export class OutlinePass {
       transparent: true,
       depthTest: false,
       depthWrite: false,
-      stencilWrite: true,
-      stencilRef: 1,
-      stencilFunc: THREE.NotEqualStencilFunc,
-      stencilFail: THREE.KeepStencilOp,
-      stencilZFail: THREE.KeepStencilOp,
-      stencilZPass: THREE.KeepStencilOp,
+    });
+
+    // NoBlending: this replaces the framebuffer rather than compositing over
+    // it, so the scene's own alpha reaches the canvas unchanged and a
+    // transparent background stays transparent.
+    this.blitMaterial = new THREE.ShaderMaterial({
+      vertexShader: QUAD_VERT,
+      fragmentShader: BLIT_FRAG,
+      uniforms: { u_color: { value: this.sceneTarget.texture } },
+      depthTest: false,
+      depthWrite: false,
+      blending: THREE.NoBlending,
     });
 
     this.gizmoMaterial = new THREE.ShaderMaterial({
@@ -158,9 +200,11 @@ export class OutlinePass {
     });
 
     this.quadScene = new THREE.Scene();
+    this.blitScene = new THREE.Scene();
     this.gizmoQuadScene = new THREE.Scene();
     this.quadCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
     this.quadScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.material));
+    this.blitScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.blitMaterial));
     this.gizmoQuadScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.gizmoMaterial));
   }
 
@@ -168,11 +212,11 @@ export class OutlinePass {
     const dpr = this.engine.renderer.getPixelRatio();
     const pw = Math.max(1, Math.floor(w * dpr));
     const ph = Math.max(1, Math.floor(h * dpr));
-    this.depthTarget.setSize(pw, ph);
+    this.sceneTarget.setSize(pw, ph);
     this.gizmoTarget.setSize(pw, ph);
-    if (this.depthTarget.depthTexture) {
-      this.depthTarget.depthTexture.image = { width: pw, height: ph };
-      this.depthTarget.depthTexture.needsUpdate = true;
+    if (this.sceneTarget.depthTexture) {
+      this.sceneTarget.depthTexture.image = { width: pw, height: ph };
+      this.sceneTarget.depthTexture.needsUpdate = true;
     }
     this.material.uniforms.u_resolution.value.set(pw, ph);
     this.gizmoMaterial.uniforms.u_resolution.value.set(pw, ph);
@@ -201,7 +245,7 @@ export class OutlinePass {
           }
         `,
         uniforms: {
-          u_depthTex: { value: this.depthTarget.depthTexture },
+          u_depthTex: { value: this.sceneTarget.depthTexture },
           u_sampleUV: { value: new THREE.Vector2() },
         },
       });
@@ -225,18 +269,18 @@ export class OutlinePass {
     this.material.uniforms.u_near.value = camera.near;
     this.material.uniforms.u_far.value = camera.far;
 
-    // 1. Capture depth
-    renderer.setRenderTarget(this.depthTarget);
+    // 1. The one scene render. Colour and depth come out of the same pass.
+    renderer.setRenderTarget(this.sceneTarget);
     renderer.clear();
     renderer.render(scene, camera);
     renderer.setRenderTarget(null);
 
-    // 2. Render scene to screen (color + stencil)
+    // 2. Put that colour on the screen.
     renderer.clear();
-    renderer.render(scene, camera);
-
-    // 3. Render outline quad (stencil blocks shape pixels)
     renderer.autoClear = false;
+    renderer.render(this.blitScene, this.quadCamera);
+
+    // 3. Outline quad, masked by depth rather than by a stencil.
     renderer.render(this.quadScene, this.quadCamera);
 
     // 4. Capture gizmo-only to offscreen target for edge detection
@@ -265,9 +309,10 @@ export class OutlinePass {
   }
 
   dispose() {
-    this.depthTarget.dispose();
+    this.sceneTarget.dispose();
     this.gizmoTarget.dispose();
     this.material.dispose();
+    this.blitMaterial.dispose();
     this.gizmoMaterial.dispose();
     this.pickTarget?.dispose();
     this.pickMaterial?.dispose();

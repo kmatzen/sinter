@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { useModelerStore } from '../store/modelerStore';
+import { useViewportStore } from '../store/viewportStore';
 import { SdfMesh } from './SdfMesh';
 import { OutlinePass } from './OutlinePass';
 import { GizmoController } from './GizmoController';
@@ -21,6 +22,41 @@ export class ThreeEngine {
   private resizeObserver: ResizeObserver;
   private disposed = false;
 
+  /**
+   * Device-pixel-ratio ceiling.
+   *
+   * A sphere tracer's cost is per fragment, so a Retina display's ratio of 2
+   * quadruples it for a difference the eye barely resolves on a shaded solid
+   * with no text or hairlines in it. 1.5 is the usual ceiling for ray marchers.
+   */
+  private static readonly MAX_DPR = 1.5;
+
+  /**
+   * Ratio used while the camera is moving. Dropping to ~0.44x the fragments
+   * for the duration of a drag is the largest perceived-latency win available
+   * here, and the full-resolution frame lands on idle — which is just another
+   * invalidation, so it needs no machinery of its own.
+   */
+  private static readonly INTERACTIVE_DPR = 1.0;
+
+  /** How long after the last camera change to re-render at full resolution. */
+  private static readonly SETTLE_MS = 180;
+
+  /**
+   * Frames are produced on demand.
+   *
+   * The loop used to call `outlinePass.render()` unconditionally forever, so a
+   * static model with an idle camera marched the SDF at 60fps indefinitely.
+   * The risk in the other direction is worse than the cost it removes — a
+   * missed invalidation is a stale viewport — so every source that can change
+   * a pixel calls `invalidate()`, and they are enumerated in `subscribe()`.
+   */
+  private dirty = true;
+  private interacting = false;
+  private settleTimer: ReturnType<typeof setTimeout> | null = null;
+  private unsubscribes: (() => void)[] = [];
+  private frameListeners = new Set<() => void>();
+
   constructor(container: HTMLDivElement) {
     this.container = container;
 
@@ -28,10 +64,17 @@ export class ThreeEngine {
     this.renderer = new THREE.WebGLRenderer({
       antialias: true,
       alpha: true,
-      stencil: true,
-      preserveDrawingBuffer: true,
+      // No stencil attachment: nothing writes stencil now that the outline
+      // masks itself from the depth texture.
+      stencil: false,
+      // `preserveDrawingBuffer` forces the driver to keep the back buffer
+      // around across frames rather than letting it swap, and every capture
+      // path here (takeScreenshot, captureMultiView, the e2e probes) renders
+      // immediately before reading, in the same task, so the buffer is still
+      // valid without it.
+      preserveDrawingBuffer: false,
     });
-    this.renderer.setPixelRatio(window.devicePixelRatio);
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, ThreeEngine.MAX_DPR));
     this.renderer.setSize(container.clientWidth, container.clientHeight);
     container.appendChild(this.renderer.domElement);
 
@@ -65,8 +108,86 @@ export class ThreeEngine {
     this.resizeObserver = new ResizeObserver(() => this.resize());
     this.resizeObserver.observe(container);
 
+    this.subscribe();
+
     // Start
     this.animate();
+  }
+
+  /**
+   * Every source that can change what the viewport shows.
+   *
+   * This list is the correctness argument for on-demand rendering: anything
+   * missing here is a stale frame. The damping tail is handled in `animate()`
+   * rather than here, because `controls.update()` is the only thing that knows
+   * whether inertia is still moving the camera.
+   */
+  private subscribe() {
+    const onControlsChange = () => {
+      this.beginInteraction();
+      this.invalidate();
+    };
+    this.controls.addEventListener('change', onControlsChange);
+    this.unsubscribes.push(() => this.controls.removeEventListener('change', onControlsChange));
+
+    // New evaluated field, selection, warn state — SdfMesh.update() reads all
+    // of them, and any of them can change a pixel.
+    this.unsubscribes.push(useModelerStore.subscribe(() => this.invalidate()));
+    // Clip plane, gizmo mode and space, dragging.
+    this.unsubscribes.push(useViewportStore.subscribe(() => this.invalidate()));
+  }
+
+  /** Mark the frame stale. Cheap enough to call from anywhere. */
+  invalidate = () => {
+    this.dirty = true;
+  };
+
+  /**
+   * Run `fn` after every frame this engine draws.
+   *
+   * Screen-space overlays (the dimension labels) used to keep their own
+   * `requestAnimationFrame` loop, recomputing and writing SVG attributes every
+   * frame whether or not the camera had moved — main-thread layout work
+   * competing with GL submission, and it would have kept running after the
+   * renderer went quiet. Driving them from here means they update exactly when
+   * there is something new to look at.
+   */
+  onFrame(fn: () => void): () => void {
+    this.frameListeners.add(fn);
+    this.invalidate();
+    return () => this.frameListeners.delete(fn);
+  }
+
+  /**
+   * Drop to the interactive pixel ratio, and arm the return to full.
+   *
+   * The settle timer restarts on every change, so a continuous drag stays at
+   * the lower ratio and only the pause at the end pays for the sharp frame.
+   */
+  private beginInteraction() {
+    if (!this.interacting) {
+      this.interacting = true;
+      this.applyPixelRatio();
+    }
+    if (this.settleTimer !== null) clearTimeout(this.settleTimer);
+    this.settleTimer = setTimeout(() => {
+      this.settleTimer = null;
+      this.interacting = false;
+      this.applyPixelRatio();
+      this.invalidate();
+    }, ThreeEngine.SETTLE_MS);
+  }
+
+  private applyPixelRatio() {
+    const full = Math.min(window.devicePixelRatio, ThreeEngine.MAX_DPR);
+    const ratio = this.interacting ? Math.min(full, ThreeEngine.INTERACTIVE_DPR) : full;
+    if (Math.abs(this.renderer.getPixelRatio() - ratio) < 1e-6) return;
+    this.renderer.setPixelRatio(ratio);
+    const w = this.container.clientWidth;
+    const h = this.container.clientHeight;
+    if (w === 0 || h === 0) return;
+    this.renderer.setSize(w, h);
+    this.outlinePass.resize(w, h);
   }
 
   private pointerStart: { x: number; y: number } = { x: 0, y: 0 };
@@ -88,6 +209,10 @@ export class ThreeEngine {
     const { tree } = store;
     const u = (ndcX + 1) / 2;
     const v = (ndcY + 1) / 2;
+    // The depth texture holds the last frame drawn. With on-demand rendering
+    // that can be one invalidation behind if the click lands before rAF fires,
+    // and picking against a stale depth buffer selects the wrong node.
+    if (this.dirty) { this.dirty = false; this.renderNow(); }
     const depth = this.outlinePass.readDepthAt(u, v);
 
     // depth ≈ 1 means far plane = no hit
@@ -118,17 +243,39 @@ export class ThreeEngine {
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(w, h);
     this.outlinePass.resize(w, h);
+    this.invalidate();
   }
 
+  /**
+   * Poll for work, draw only when there is some.
+   *
+   * The rAF loop still runs — it is the only place `controls.update()` can be
+   * called, and OrbitControls' damping tail moves the camera without emitting
+   * anything. `update()` returns whether it actually moved, so the tail keeps
+   * the frame dirty by itself and stops the moment it settles. Everything else
+   * arrives through `invalidate()`.
+   */
   private animate = () => {
     if (this.disposed) return;
     this.animId = requestAnimationFrame(this.animate);
 
-    this.controls.update();
+    if (this.controls.update()) this.dirty = true;
+    if (!this.dirty) return;
+    this.dirty = false;
+
     this.sdfMesh.update();
     this.gizmo.update();
     this.outlinePass.render();
+    for (const fn of this.frameListeners) fn();
   };
+
+  /** Draw one frame now, whatever the dirty flag says. */
+  renderNow() {
+    this.sdfMesh.update();
+    this.gizmo.update();
+    this.outlinePass.render();
+    for (const fn of this.frameListeners) fn();
+  }
 
   /** Frame the camera to fit the current model's bounding box */
   zoomToFit() {
@@ -366,6 +513,10 @@ export class ThreeEngine {
   dispose() {
     this.disposed = true;
     cancelAnimationFrame(this.animId);
+    if (this.settleTimer !== null) clearTimeout(this.settleTimer);
+    for (const off of this.unsubscribes) off();
+    this.unsubscribes = [];
+    this.frameListeners.clear();
     this.resizeObserver.disconnect();
     this.renderer.domElement.removeEventListener('pointerdown', this.onPointerDown);
     this.renderer.domElement.removeEventListener('pointerup', this.onPointerUp);

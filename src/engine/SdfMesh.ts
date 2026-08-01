@@ -306,12 +306,11 @@ export class SdfMesh {
       },
       side: THREE.BackSide,
       depthWrite: true,
-      stencilWrite: true,
-      stencilRef: 1,
-      stencilFunc: THREE.AlwaysStencilFunc,
-      stencilZPass: THREE.ReplaceStencilOp,
-      stencilFail: THREE.KeepStencilOp,
-      stencilZFail: THREE.KeepStencilOp,
+      // No stencil. It existed only so the outline quad could mask itself off
+      // shape pixels, and the outline shader already derives that from the
+      // depth texture it is sampling anyway (`isShape = !isBg`). Keeping it
+      // would also mean carrying a stencil attachment on the offscreen target
+      // the scene now renders into, for information nothing reads.
     });
 
     // Geometry: diagonal-expanded bbox
