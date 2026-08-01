@@ -14,7 +14,8 @@
     "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test",
     "test:all": "vitest run && playwright test",
-    "migrate": "tsx server/migrate-to-static.ts"
+    "migrate": "tsx server/migrate-to-static.ts",
+    "bench": "tsx bench/mesh.bench.ts"
   },
   "dependencies": {
     "immer": "^10.1.1",

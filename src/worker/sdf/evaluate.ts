@@ -2,12 +2,55 @@ import type { SDFNode, Vec3 } from './types';
 import { hasGlyphOutlines } from './types';
 import { linearWindow, circularWindow } from './patternWindow';
 
+/**
+ * Evaluate the field at a point.
+ *
+ * Kept as the public entry point — 140-odd call sites and every test use it —
+ * but it is a one-line adapter over `evalAt`, which takes loose scalars.
+ *
+ * The tuple was not free. Every `transform`, `mirror`, `linearPattern` and
+ * `circularPattern` built a fresh three-element array to hand to its child,
+ * once per node per sample. An export evaluates the field a few million times
+ * and each of those walks the whole tree, so the allocation count ran to tens
+ * of millions of short-lived arrays — and a pattern inside a pattern multiplies
+ * it by the product of the two window widths. `evalAt` passes x, y and z as
+ * arguments and allocates nothing.
+ */
 export function evaluateSDF(node: SDFNode, p: Vec3): number {
+  return evalAt(node, p[0], p[1], p[2]);
+}
+
+/**
+ * Cached rotation matrices for `transform`.
+ *
+ * The Euler angles are fixed for the life of a converted tree, but the field
+ * was recomputing three cosines and three sines of them on every sample.
+ * Keyed on the node itself, so a re-converted tree gets fresh entries and a
+ * discarded one is collected.
+ */
+const rotCache = new WeakMap<object, Float64Array>();
+
+function inverseRotation(node: Extract<SDFNode, { kind: 'transform' }>): Float64Array | null {
+  if (node.rx === 0 && node.ry === 0 && node.rz === 0) return null;
+  const hit = rotCache.get(node);
+  if (hit) return hit;
+  const az = (-node.rz * Math.PI) / 180;
+  const ay = (-node.ry * Math.PI) / 180;
+  const ax = (-node.rx * Math.PI) / 180;
+  const m = new Float64Array(6);
+  m[0] = Math.cos(az); m[1] = Math.sin(az);
+  m[2] = Math.cos(ay); m[3] = Math.sin(ay);
+  m[4] = Math.cos(ax); m[5] = Math.sin(ax);
+  rotCache.set(node, m);
+  return m;
+}
+
+export function evalAt(node: SDFNode, px: number, py: number, pz: number): number {
   switch (node.kind) {
     case 'box': {
-      const qx = Math.abs(p[0]) - node.size[0] / 2;
-      const qy = Math.abs(p[1]) - node.size[1] / 2;
-      const qz = Math.abs(p[2]) - node.size[2] / 2;
+      const qx = Math.abs(px) - node.size[0] / 2;
+      const qy = Math.abs(py) - node.size[1] / 2;
+      const qz = Math.abs(pz) - node.size[2] / 2;
       const outside = Math.sqrt(
         Math.max(qx, 0) ** 2 + Math.max(qy, 0) ** 2 + Math.max(qz, 0) ** 2,
       );
@@ -15,25 +58,25 @@ export function evaluateSDF(node: SDFNode, p: Vec3): number {
       return outside + inside;
     }
     case 'sphere':
-      return Math.sqrt(p[0] ** 2 + p[1] ** 2 + p[2] ** 2) - node.radius;
+      return Math.sqrt(px ** 2 + py ** 2 + pz ** 2) - node.radius;
     case 'cylinder': {
-      const dxz = Math.sqrt(p[0] ** 2 + p[2] ** 2) - node.radius;
-      const dy = Math.abs(p[1]) - node.height / 2;
+      const dxz = Math.sqrt(px ** 2 + pz ** 2) - node.radius;
+      const dy = Math.abs(py) - node.height / 2;
       return Math.min(Math.max(dxz, dy), 0) + Math.sqrt(Math.max(dxz, 0) ** 2 + Math.max(dy, 0) ** 2);
     }
     case 'torus': {
-      const qx = Math.sqrt(p[0] ** 2 + p[2] ** 2) - node.major;
-      return Math.sqrt(qx ** 2 + p[1] ** 2) - node.minor;
+      const qx = Math.sqrt(px ** 2 + pz ** 2) - node.major;
+      return Math.sqrt(qx ** 2 + py ** 2) - node.minor;
     }
     case 'cone': {
       // IQ sdCappedCone: base radius r at y=-h/2, apex at y=+h/2
       const r = node.radius, hh = node.height / 2;
-      const q = Math.sqrt(p[0] ** 2 + p[2] ** 2);
+      const q = Math.sqrt(px ** 2 + pz ** 2);
       // Cap distance
-      const cax = q - Math.min(q, p[1] < 0 ? r : 0);
-      const cay = Math.abs(p[1]) - hh;
+      const cax = q - Math.min(q, py < 0 ? r : 0);
+      const cay = Math.abs(py) - hh;
       // Surface distance: project onto line from base-edge (r,-hh) to apex (0,+hh)
-      const ax = q - r, ay = p[1] + hh;
+      const ax = q - r, ay = py + hh;
       const bx = -r, by = 2 * hh;
       const t = Math.max(0, Math.min(1, (ax * bx + ay * by) / (bx * bx + by * by)));
       const cbx = ax - bx * t, cby = ay - by * t;
@@ -45,8 +88,8 @@ export function evaluateSDF(node: SDFNode, p: Vec3): number {
       // to a point once height <= 2*radius; without the clamp the surrounding
       // min/max invert and yield a sphere displaced by radius - height/2.
       const halfH = Math.max(0, node.height / 2 - node.radius);
-      const py = Math.max(-halfH, Math.min(halfH, p[1]));
-      return Math.sqrt(p[0] ** 2 + (p[1] - py) ** 2 + p[2] ** 2) - node.radius;
+      const cy = Math.max(-halfH, Math.min(halfH, py));
+      return Math.sqrt(px * px + (py - cy) * (py - cy) + pz * pz) - node.radius;
     }
     case 'ellipsoid': {
       // An ellipsoid is a non-uniformly scaled sphere, and this reports it as
@@ -68,13 +111,13 @@ export function evaluateSDF(node: SDFNode, p: Vec3): number {
       // the true distance, so an elongated ellipsoid needs more ray-march
       // steps.  That is already what scaling a sphere costs here.
       const sx = node.size[0] / 2, sy = node.size[1] / 2, sz = node.size[2] / 2;
-      const npx = p[0] / sx, npy = p[1] / sy, npz = p[2] / sz;
+      const npx = px / sx, npy = py / sy, npz = pz / sz;
       const k0 = Math.sqrt(npx * npx + npy * npy + npz * npz);
       return (k0 - 1.0) * Math.min(sx, sy, sz);
     }
     case 'union': {
-      const a = evaluateSDF(node.a, p);
-      const b = evaluateSDF(node.b, p);
+      const a = evalAt(node.a, px, py, pz);
+      const b = evalAt(node.b, px, py, pz);
       if (node.k > 0) {
         const h = Math.max(0, Math.min(1, 0.5 + 0.5 * (b - a) / node.k));
         return b + (a - b) * h - node.k * h * (1 - h);
@@ -82,8 +125,8 @@ export function evaluateSDF(node: SDFNode, p: Vec3): number {
       return Math.min(a, b);
     }
     case 'subtract': {
-      const a = evaluateSDF(node.a, p);
-      const b = evaluateSDF(node.b, p);
+      const a = evalAt(node.a, px, py, pz);
+      const b = evalAt(node.b, px, py, pz);
       if (node.k > 0) {
         const h = Math.max(0, Math.min(1, 0.5 - 0.5 * (a + b) / node.k));
         return a + (-b - a) * h + node.k * h * (1 - h);
@@ -91,8 +134,8 @@ export function evaluateSDF(node: SDFNode, p: Vec3): number {
       return Math.max(a, -b);
     }
     case 'intersect': {
-      const a = evaluateSDF(node.a, p);
-      const b = evaluateSDF(node.b, p);
+      const a = evalAt(node.a, px, py, pz);
+      const b = evalAt(node.b, px, py, pz);
       if (node.k > 0) {
         const h = Math.max(0, Math.min(1, 0.5 - 0.5 * (b - a) / node.k));
         return b + (a - b) * h + node.k * h * (1 - h);
@@ -100,51 +143,45 @@ export function evaluateSDF(node: SDFNode, p: Vec3): number {
       return Math.max(a, b);
     }
     case 'shell':
-      return Math.abs(evaluateSDF(node.child, p)) - node.thickness / 2;
+      return Math.abs(evalAt(node.child, px, py, pz)) - node.thickness / 2;
     case 'offset':
-      return evaluateSDF(node.child, p) - node.distance;
+      return evalAt(node.child, px, py, pz) - node.distance;
     case 'round':
-      return evaluateSDF(node.child, p) - node.radius;
+      return evalAt(node.child, px, py, pz) - node.radius;
     case 'transform': {
-      // Inverse transform the point
-      let px = p[0] - node.tx;
-      let py = p[1] - node.ty;
-      let pz = p[2] - node.tz;
-      // Inverse scale
-      px /= node.sx; py /= node.sy; pz /= node.sz;
-      // Inverse rotation: Z then Y then X (inverse of XYZ Euler)
-      {
-        const a = -node.rz * Math.PI / 180;
-        const c = Math.cos(a), s = Math.sin(a);
-        [px, py] = [px * c - py * s, px * s + py * c];
+      // Inverse transform the point: R^-1((p - t) / s).
+      let qx = (px - node.tx) / node.sx;
+      let qy = (py - node.ty) / node.sy;
+      let qz = (pz - node.tz) / node.sz;
+      const m = inverseRotation(node);
+      if (m !== null) {
+        // Inverse rotation: Z then Y then X (inverse of XYZ Euler).
+        const cz = m[0], sz = m[1];
+        const nx = qx * cz - qy * sz, ny = qx * sz + qy * cz;
+        qx = nx; qy = ny;
+        const cy = m[2], sy = m[3];
+        const nx2 = qx * cy + qz * sy, nz2 = -qx * sy + qz * cy;
+        qx = nx2; qz = nz2;
+        const cx = m[4], sx = m[5];
+        const ny2 = qy * cx - qz * sx, nz3 = qy * sx + qz * cx;
+        qy = ny2; qz = nz3;
       }
-      {
-        const a = -node.ry * Math.PI / 180;
-        const c = Math.cos(a), s = Math.sin(a);
-        [px, pz] = [px * c + pz * s, -px * s + pz * c];
-      }
-      {
-        const a = -node.rx * Math.PI / 180;
-        const c = Math.cos(a), s = Math.sin(a);
-        [py, pz] = [py * c - pz * s, py * s + pz * c];
-      }
-      return evaluateSDF(node.child, [px, py, pz]) * Math.min(node.sx, node.sy, node.sz);
+      return evalAt(node.child, qx, qy, qz) * Math.min(node.sx, node.sy, node.sz);
     }
-    case 'mirror': {
-      const mp: Vec3 = [
-        node.axes[0] ? Math.abs(p[0]) : p[0],
-        node.axes[1] ? Math.abs(p[1]) : p[1],
-        node.axes[2] ? Math.abs(p[2]) : p[2],
-      ];
-      return evaluateSDF(node.child, mp);
-    }
+    case 'mirror':
+      return evalAt(
+        node.child,
+        node.axes[0] ? Math.abs(px) : px,
+        node.axes[1] ? Math.abs(py) : py,
+        node.axes[2] ? Math.abs(pz) : pz,
+      );
     case 'linearPattern': {
       // Domain repetition over a window sized from the child's own extent, so
       // an offset or wider-than-spacing child still finds its nearest copy.
       const axLen = Math.hypot(node.axis[0], node.axis[1], node.axis[2]);
-      if (axLen < 1e-8) return evaluateSDF(node.child, p);
+      if (axLen < 1e-8) return evalAt(node.child, px, py, pz);
       const { axis: nax, hi, width } = linearWindow(node);
-      const dot = p[0] * nax[0] + p[1] * nax[1] + p[2] * nax[2];
+      const dot = px * nax[0] + py * nax[1] + pz * nax[2];
       // First instance whose span can reach p, backed off by one.
       const base = Math.min(
         Math.max(Math.floor((dot - hi) / node.spacing) - 1, 0),
@@ -153,12 +190,13 @@ export function evaluateSDF(node: SDFNode, p: Vec3): number {
       let best = Infinity;
       for (let j = 0; j < width; j++) {
         const offset = (base + j) * node.spacing;
-        const lp: Vec3 = [
-          p[0] - nax[0] * offset,
-          p[1] - nax[1] * offset,
-          p[2] - nax[2] * offset,
-        ];
-        best = Math.min(best, evaluateSDF(node.child, lp));
+        const d = evalAt(
+          node.child,
+          px - nax[0] * offset,
+          py - nax[1] * offset,
+          pz - nax[2] * offset,
+        );
+        if (d < best) best = d;
       }
       return best;
     }
@@ -169,35 +207,30 @@ export function evaluateSDF(node: SDFNode, p: Vec3): number {
       const { isX, isZ, hiAng, sector, width } = circularWindow(node);
       let angle: number, radius: number;
       if (isX) {
-        angle = Math.atan2(p[2], p[1]);
-        radius = Math.sqrt(p[1] ** 2 + p[2] ** 2);
+        angle = Math.atan2(pz, py);
+        radius = Math.sqrt(py ** 2 + pz ** 2);
       } else if (isZ) {
-        angle = Math.atan2(p[1], p[0]);
-        radius = Math.sqrt(p[0] ** 2 + p[1] ** 2);
+        angle = Math.atan2(py, px);
+        radius = Math.sqrt(px ** 2 + py ** 2);
       } else {
-        angle = Math.atan2(p[2], p[0]);
-        radius = Math.sqrt(p[0] ** 2 + p[2] ** 2);
+        angle = Math.atan2(pz, px);
+        radius = Math.sqrt(px ** 2 + pz ** 2);
       }
       const base = Math.floor((angle - hiAng) / sector) - 1;
       let best = Infinity;
       for (let j = 0; j < width; j++) {
         const a = angle - (base + j) * sector;
         const c = Math.cos(a), s = Math.sin(a);
-        let cp: Vec3;
-        if (isX) {
-          cp = [p[0], radius * c, radius * s];
-        } else if (isZ) {
-          cp = [radius * c, radius * s, p[2]];
-        } else {
-          cp = [radius * c, p[1], radius * s];
-        }
-        best = Math.min(best, evaluateSDF(node.child, cp));
+        const d = isX ? evalAt(node.child, px, radius * c, radius * s)
+                : isZ ? evalAt(node.child, radius * c, radius * s, pz)
+                :       evalAt(node.child, radius * c, py, radius * s);
+        if (d < best) best = d;
       }
       return best;
     }
     case 'halfSpace': {
-      const idx = node.axis === 'x' ? 0 : node.axis === 'y' ? 1 : 2;
-      const d = p[idx] - node.position;
+      const v = node.axis === 'x' ? px : node.axis === 'y' ? py : pz;
+      const d = v - node.position;
       return node.flip ? -d : d;
     }
     case 'text': {
@@ -208,35 +241,36 @@ export function evaluateSDF(node: SDFNode, p: Vec3): number {
         const hh = (ga - gd) / 2;
 
         // Bounding box early-out
-        const bqx = Math.abs(p[0]) - gw / 2;
-        const bqy = Math.abs(p[1]) - hh;
-        const bqz = Math.abs(p[2]) - node.depth / 2;
+        const bqx = Math.abs(px) - gw / 2;
+        const bqy = Math.abs(py) - hh;
+        const bqz = Math.abs(pz) - node.depth / 2;
         const boxDist = Math.sqrt(Math.max(bqx, 0) ** 2 + Math.max(bqy, 0) ** 2 + Math.max(bqz, 0) ** 2) +
                         Math.min(Math.max(bqx, bqy, bqz), 0);
         if (boxDist > hh * 0.1) return boxDist;
 
-        const px = p[0] + gw / 2;
-        const py = -(p[1] - (ga + gd) / 2);
+        // Glyph space: origin at the left edge, y down.
+        const gx = px + gw / 2;
+        const gy = -(py - (ga + gd) / 2);
 
         let minDist = Infinity;
         let winding = 0;
 
         for (const seg of (node.glyphSegments || [])) {
-          const d = distToLine(px, py, seg.x0, seg.y0, seg.x1, seg.y1);
+          const d = distToLine(gx, gy, seg.x0, seg.y0, seg.x1, seg.y1);
           minDist = Math.min(minDist, d);
-          winding += windingLine(px, py, seg.x0, seg.y0, seg.x1, seg.y1);
+          winding += windingLine(gx, gy, seg.x0, seg.y0, seg.x1, seg.y1);
         }
         for (const bez of (node.glyphBeziers || [])) {
-          const d = distToQuadBezier(px, py, bez.x0, bez.y0, bez.x1, bez.y1, bez.x2, bez.y2);
+          const d = distToQuadBezier(gx, gy, bez.x0, bez.y0, bez.x1, bez.y1, bez.x2, bez.y2);
           minDist = Math.min(minDist, d);
-          winding += windingBezier(px, py, bez.x0, bez.y0, bez.x1, bez.y1, bez.x2, bez.y2);
+          winding += windingBezier(gx, gy, bez.x0, bez.y0, bez.x1, bez.y1, bez.x2, bez.y2);
         }
 
         const sign = winding !== 0 ? -1 : 1;
         const d2d = sign * minDist;
 
         // Extrude along Z
-        const dz = Math.abs(p[2]) - node.depth / 2;
+        const dz = Math.abs(pz) - node.depth / 2;
         const d2dc = Math.max(d2d, 0);
         const dzc = Math.max(dz, 0);
         if (d2d < 0 && dz < 0) return Math.max(d2d, dz);
@@ -246,9 +280,9 @@ export function evaluateSDF(node: SDFNode, p: Vec3): number {
       // Fallback: box
       const charWidth = node.size * 0.6;
       const totalWidth = node.text.length * charWidth;
-      const qx = Math.abs(p[0]) - totalWidth / 2;
-      const qy = Math.abs(p[1]) - node.size / 2;
-      const qz = Math.abs(p[2]) - node.depth / 2;
+      const qx = Math.abs(px) - totalWidth / 2;
+      const qy = Math.abs(py) - node.size / 2;
+      const qz = Math.abs(pz) - node.depth / 2;
       const outside = Math.sqrt(Math.max(qx, 0) ** 2 + Math.max(qy, 0) ** 2 + Math.max(qz, 0) ** 2);
       const inside = Math.min(Math.max(qx, qy, qz), 0);
       return outside + inside;
