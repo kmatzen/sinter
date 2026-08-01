@@ -11,6 +11,17 @@ import type { Vec3 } from '../worker/sdf/types';
 export class ThreeEngine {
   renderer: THREE.WebGLRenderer;
   scene: THREE.Scene;
+  /**
+   * The transform gizmo, kept out of the main scene.
+   *
+   * `OutlinePass` needs to render the gizmo alone to detect its edges, and it
+   * used to achieve that by moving the TransformControls object out of `scene`
+   * into a scratch scene and back again — every frame it was visible. That is
+   * scene-graph mutation, and therefore matrix and render-list invalidation,
+   * on the render path. Owning a second scene costs nothing and the pass just
+   * draws whichever one it wants.
+   */
+  gizmoScene: THREE.Scene;
   camera: THREE.PerspectiveCamera;
   controls: OrbitControls;
   container: HTMLDivElement;
@@ -80,6 +91,7 @@ export class ThreeEngine {
 
     // Scene
     this.scene = new THREE.Scene();
+    this.gizmoScene = new THREE.Scene();
     this.scene.add(new THREE.AmbientLight(0xffffff, 0.15));
     const key = new THREE.DirectionalLight(0xffffff, 1.2);
     key.position.set(50, 100, 50);
@@ -191,10 +203,16 @@ export class ThreeEngine {
   }
 
   private pointerStart: { x: number; y: number } = { x: 0, y: 0 };
+  /**
+   * Picking is asynchronous now, so two quick clicks are two in-flight reads
+   * that can resolve in either order. Without this, the second click's
+   * selection could be overwritten by the first click's late answer.
+   */
+  private pickSeq = 0;
   private onPointerDown = (e: PointerEvent) => {
     this.pointerStart = { x: e.clientX, y: e.clientY };
   };
-  private onPointerUp = (e: PointerEvent) => {
+  private onPointerUp = async (e: PointerEvent) => {
     // Ignore drags (> 4px movement)
     const dx = e.clientX - this.pointerStart.x;
     const dy = e.clientY - this.pointerStart.y;
@@ -203,6 +221,8 @@ export class ThreeEngine {
     const rect = this.renderer.domElement.getBoundingClientRect();
     const ndcX = ((e.clientX - rect.left) / rect.width) * 2 - 1;
     const ndcY = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+
+    const seq = ++this.pickSeq;
 
     // Read depth from GPU depth buffer at click location
     const store = useModelerStore.getState();
@@ -213,7 +233,8 @@ export class ThreeEngine {
     // that can be one invalidation behind if the click lands before rAF fires,
     // and picking against a stale depth buffer selects the wrong node.
     if (this.dirty) { this.dirty = false; this.renderNow(); }
-    const depth = this.outlinePass.readDepthAt(u, v);
+    const depth = await this.outlinePass.readDepthAt(u, v);
+    if (seq !== this.pickSeq || this.disposed) return;
 
     // depth ≈ 1 means far plane = no hit
     if (depth >= 1.0 - 1e-6 || !tree) {

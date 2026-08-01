@@ -228,3 +228,85 @@ test.describe('Viewport marches the SDF once per frame', () => {
     expect(draws.perFrame).toEqual([1, 1, 1]);
   });
 });
+
+/**
+ * Tap-to-select, which reads the depth buffer.
+ *
+ * That read is asynchronous now (#89 item 11): the synchronous form stalls the
+ * whole pipeline until everything queued ahead of it has drained, which never
+ * showed as a frame rate problem because it happens once per click — it showed
+ * as selection feeling heavy on a complex model, which is worse, since that is
+ * the interaction the user is watching.
+ *
+ * Nothing covered this path before, and "the click returns immediately" is only
+ * an improvement if the click still selects the right thing.
+ */
+test.describe('Viewport picking', () => {
+  test.slow();
+
+  async function boxInView(page: Page) {
+    await page.evaluate(() => {
+      (window as any).__MODELER_STORE__.setTree({
+        id: 'pick-box', kind: 'box', label: 'Box',
+        params: { width: 60, height: 60, depth: 60 }, children: [], enabled: true,
+      });
+    });
+    await page.waitForFunction(
+      () => !!(window as any).__MODELER_STORE__?.sdfDisplay && !(window as any).__MODELER_STORE__?.evaluating,
+      null,
+      { timeout: PRECONDITION_TIMEOUT },
+    );
+    await page.evaluate(() => (window as any).__ENGINE_REF__.zoomToFit());
+    await page.waitForTimeout(500);
+  }
+
+  test('selects the node under the pointer', async ({ page }) => {
+    await enterModeler(page);
+    await boxInView(page);
+    await page.evaluate(() => (window as any).__MODELER_STORE__.selectNode(null));
+
+    const canvas = page.locator('canvas').first();
+    const box = (await canvas.boundingBox())!;
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+
+    await expect
+      .poll(() => page.evaluate(() => (window as any).__MODELER_STORE__.selectedNodeId), { timeout: 15000 })
+      .toBe('pick-box');
+  });
+
+  test('clears the selection when the pointer misses', async ({ page }) => {
+    await enterModeler(page);
+    await boxInView(page);
+    await page.evaluate(() => (window as any).__MODELER_STORE__.selectNode('pick-box'));
+
+    const canvas = page.locator('canvas').first();
+    const box = (await canvas.boundingBox())!;
+    // Top-left corner: the model is framed centre, so this is background.
+    await page.mouse.click(box.x + 8, box.y + 8);
+
+    await expect
+      .poll(() => page.evaluate(() => (window as any).__MODELER_STORE__.selectedNodeId), { timeout: 15000 })
+      .toBeNull();
+  });
+
+  /**
+   * Two clicks in flight at once. The reads can resolve in either order, so
+   * without a sequence guard the first click's late answer overwrites the
+   * second click's selection — a click that silently does nothing.
+   */
+  test('honours the last click when two are in flight', async ({ page }) => {
+    await enterModeler(page);
+    await boxInView(page);
+    await page.evaluate(() => (window as any).__MODELER_STORE__.selectNode(null));
+
+    const canvas = page.locator('canvas').first();
+    const box = (await canvas.boundingBox())!;
+    // Miss, then immediately hit. The hit must win.
+    await page.mouse.click(box.x + 8, box.y + 8);
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+
+    await expect
+      .poll(() => page.evaluate(() => (window as any).__MODELER_STORE__.selectedNodeId), { timeout: 15000 })
+      .toBe('pick-box');
+  });
+});

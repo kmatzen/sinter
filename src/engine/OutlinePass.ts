@@ -2,6 +2,16 @@ import * as THREE from 'three';
 export interface OutlinePassEngine {
   renderer: THREE.WebGLRenderer;
   scene: THREE.Scene;
+  /**
+   * The gizmo, in its own scene so this pass never has to reparent it.
+   *
+   * Optional because not every consumer has a gizmo — the landing page's demo
+   * uses this pass with a bare scene and nothing to transform. Making it
+   * required compiled fine there (the call site is structurally typed and was
+   * simply missing the key) and then threw at runtime on the landing page,
+   * which is the first thing anyone sees.
+   */
+  gizmoScene?: THREE.Scene;
   camera: THREE.PerspectiveCamera;
   container: HTMLElement;
 }
@@ -139,7 +149,6 @@ export class OutlinePass {
   private material: THREE.ShaderMaterial;
   private blitMaterial: THREE.ShaderMaterial;
   private gizmoMaterial: THREE.ShaderMaterial;
-  private gizmoScene: THREE.Scene;
 
   // Picking: lazily-created resources for reading a single depth value
   private pickTarget: THREE.WebGLRenderTarget | null = null;
@@ -164,7 +173,6 @@ export class OutlinePass {
     this.sceneTarget.depthTexture!.type = THREE.FloatType;
 
     this.gizmoTarget = new THREE.WebGLRenderTarget(w, h);
-    this.gizmoScene = new THREE.Scene();
 
     this.material = new THREE.ShaderMaterial({
       vertexShader: QUAD_VERT,
@@ -230,8 +238,19 @@ export class OutlinePass {
   /**
    * Read the depth buffer value at a given UV coordinate (0-1 range).
    * Returns the raw depth (0 = near, 1 = far) from the last rendered frame.
+   *
+   * Asynchronous because the synchronous form is a full GPU pipeline stall:
+   * `readRenderTargetPixels` blocks the main thread until everything queued
+   * ahead of it has drained. It happens once per click rather than per frame,
+   * so it never showed up as a frame rate problem — it showed up as selection
+   * feeling heavier than it should on a complex model, which is worse, because
+   * that is the interaction the user is paying attention to.
+   *
+   * `readRenderTargetPixelsAsync` issues the same read against a pixel buffer
+   * object and resolves when the GPU is done, so the click returns immediately
+   * and the selection lands a frame or two later.
    */
-  readDepthAt(u: number, v: number): number {
+  async readDepthAt(u: number, v: number): Promise<number> {
     if (!this.pickTarget) {
       this.pickTarget = new THREE.WebGLRenderTarget(1, 1, {
         type: THREE.FloatType,
@@ -263,7 +282,7 @@ export class OutlinePass {
     renderer.setRenderTarget(this.pickTarget);
     renderer.render(this.pickScene!, this.quadCamera);
     const buf = new Float32Array(4);
-    renderer.readRenderTargetPixels(this.pickTarget, 0, 0, 1, 1, buf);
+    await renderer.readRenderTargetPixelsAsync(this.pickTarget!, 0, 0, 1, 1, buf);
     renderer.setRenderTarget(null);
     return buf[0];
   }
@@ -275,9 +294,19 @@ export class OutlinePass {
     this.material.uniforms.u_far.value = camera.far;
 
     // 1. The one scene render. Colour and depth come out of the same pass.
+    //    The gizmo goes into the same target immediately after, so it composites
+    //    exactly where it did when it lived in `scene` — it is only stored
+    //    separately, not drawn separately.
     renderer.setRenderTarget(this.sceneTarget);
     renderer.clear();
     renderer.render(scene, camera);
+    const gizmo = this.engine.gizmoScene;
+    const gizmoVisible = !!gizmo && gizmo.children.some((c) => c.visible);
+    if (gizmoVisible) {
+      renderer.autoClear = false;
+      renderer.render(gizmo!, camera);
+      renderer.autoClear = true;
+    }
     renderer.setRenderTarget(null);
 
     // 2. Put that colour on the screen.
@@ -288,23 +317,13 @@ export class OutlinePass {
     // 3. Outline quad, masked by depth rather than by a stencil.
     renderer.render(this.quadScene, this.quadCamera);
 
-    // 4. Capture gizmo-only to offscreen target for edge detection
-    // Find TransformControls in scene and render only those
-    const gizmoObjects: { obj: THREE.Object3D; parent: THREE.Object3D }[] = [];
-    for (const child of [...scene.children]) {
-      if ((child as any).isTransformControls) {
-        gizmoObjects.push({ obj: child, parent: scene });
-      }
-    }
-    if (gizmoObjects.length > 0 && gizmoObjects.some(g => g.obj.visible)) {
-      // Move gizmos to isolated scene
-      for (const g of gizmoObjects) this.gizmoScene.add(g.obj);
+    // 4. Capture the gizmo alone, for edge detection. No reparenting: it has
+    //    its own scene, so this is just a second render of a different scene.
+    if (gizmoVisible) {
       renderer.setRenderTarget(this.gizmoTarget);
       renderer.clear();
-      renderer.render(this.gizmoScene, camera);
+      renderer.render(gizmo!, camera);
       renderer.setRenderTarget(null);
-      // Move back
-      for (const g of gizmoObjects) g.parent.add(g.obj);
 
       // 5. Render gizmo outline quad
       renderer.render(this.gizmoQuadScene, this.quadCamera);
