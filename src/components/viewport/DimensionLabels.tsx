@@ -113,7 +113,6 @@ export function DimensionLabels({ engine }: { engine: ThreeEngine | null }) {
   const tree = useModelerStore((s) => s.tree);
   const selectedId = useModelerStore((s) => s.selectedNodeId);
   const showDimensions = useViewportStore((s) => s.showDimensions);
-  const rafRef = useRef<number>(0);
   const wireframeRef = useRef<THREE.LineSegments | null>(null);
   const svgRef = useRef<SVGSVGElement | null>(null);
   const dimGroupsRef = useRef<DimElements[]>([]);
@@ -235,12 +234,18 @@ export function DimensionLabels({ engine }: { engine: ThreeEngine | null }) {
         dg.text.textContent = ax.label;
       }
 
-      rafRef.current = requestAnimationFrame(update);
     };
 
-    rafRef.current = requestAnimationFrame(update);
+    // Driven by the engine rather than by an independent rAF loop. The loop
+    // that used to live here recomputed three projections and wrote ~15 SVG
+    // attributes plus textContent every frame, whether or not the camera had
+    // moved — main-thread style and layout work competing with GL submission —
+    // and with on-demand rendering it would have gone on doing that long after
+    // the renderer went quiet. `onFrame` fires exactly when a new frame was
+    // drawn, which is exactly when these labels can have moved.
+    const off = engine.onFrame(update);
     return () => {
-      cancelAnimationFrame(rafRef.current);
+      off();
       if (wireframeRef.current) wireframeRef.current.visible = false;
       for (const dg of dimGroupsRef.current) dg.group.style.display = 'none';
     };
