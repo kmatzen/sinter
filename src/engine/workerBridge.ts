@@ -1,4 +1,4 @@
-import type { WorkerRequest, WorkerResponse, ClipPlane } from '../types/geometry';
+import type { WorkerRequest, WorkerResponse, ClipPlane, MeshFitResult } from '../types/geometry';
 import type { SDFNodeUI } from '../types/operations';
 import type { SDFDisplayData } from '../store/modelerStore';
 
@@ -51,7 +51,7 @@ interface WorkerChannel {
  * settled without the worker ever hearing about it.
  */
 interface PendingRequest {
-  kind: 'evaluate' | 'export';
+  kind: 'evaluate' | 'export' | 'fit';
   /** For evaluates: the evalSeq at issue time, used to detect supersession. */
   seq: number;
   /** Blob MIME type for exports. */
@@ -201,6 +201,15 @@ class WorkerBridge {
       return;
     }
 
+    if (req.kind === 'fit') {
+      if (msg.type !== 'fitResult') {
+        req.reject(new Error(`Unexpected '${msg.type}' response for fit request`));
+        return;
+      }
+      req.resolve(msg.fit);
+      return;
+    }
+
     if (msg.type !== 'exportResult') {
       req.reject(new Error(`Unexpected '${msg.type}' response for export request`));
       return;
@@ -273,6 +282,22 @@ class WorkerBridge {
       this.exportChannel,
       (rid) => ({ type: 'export3MF', rid, tree, resolution }),
       { kind: 'export', seq: 0, mime: 'application/vnd.ms-package.3dmanufacturing-3dmodel+xml', onProgress },
+    );
+  }
+
+  /**
+   * Fit a primitive to an imported mesh (#87).
+   *
+   * On the export channel, not the evaluate one. It is a seconds-long compute
+   * like an export, and putting it there keeps the viewport responsive while it
+   * runs — and means `cancelExport` already covers it, rather than needing a
+   * second cancellation path.
+   */
+  async fitMesh(meshPositions: string, resolution?: number): Promise<MeshFitResult | null> {
+    return this.issue<MeshFitResult | null>(
+      this.exportChannel,
+      (rid) => ({ type: 'fitMesh', rid, meshPositions, resolution }),
+      { kind: 'fit', seq: 0, mime: '' },
     );
   }
 
