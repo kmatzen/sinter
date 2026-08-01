@@ -5,6 +5,8 @@ import { parseResponse } from '../llm/parseResponse';
 import { useModelerStore } from './modelerStore';
 import { getEngineRef } from '../engine/engineRef';
 import { ensureConsent, hasConsent } from './consent';
+import type { ProviderId } from '../llm/providers';
+import { getProvider, isProviderId, PROVIDER_IDS } from '../llm/providers';
 export interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
@@ -14,18 +16,39 @@ export interface ChatMessage {
   parseFailed?: boolean;
 }
 
+/** Per-provider settings, so switching providers does not discard credentials. */
+export interface ProviderSettings {
+  apiKey: string;
+  apiEndpoint: string;
+  model: string;
+  /** Capability of `model`, as advertised by the provider catalog. */
+  supportsThinking?: boolean;
+}
+
+export interface ApiConfigUpdate {
+  apiKey?: string;
+  apiEndpoint?: string;
+  model?: string;
+  provider?: ProviderId;
+  supportsThinking?: boolean;
+}
+
 interface ChatState {
   messages: ChatMessage[];
   isOpen: boolean;
   isLoading: boolean;
 
+  /** Active provider's settings, mirrored flat for convenience. */
   apiKey: string;
   apiEndpoint: string;
   model: string;
-  provider: 'openai' | 'anthropic';
+  supportsThinking?: boolean;
+  provider: ProviderId;
+  /** Every provider's saved settings, keyed by id. */
+  byProvider: Record<ProviderId, ProviderSettings>;
 
   toggleOpen: () => void;
-  setApiConfig: (config: { apiKey?: string; apiEndpoint?: string; model?: string; provider?: 'openai' | 'anthropic' }) => void;
+  setApiConfig: (config: ApiConfigUpdate) => void;
   sendMessage: (content: string) => Promise<void>;
   retryLast: () => Promise<void>;
   clearMessages: () => void;
@@ -50,23 +73,75 @@ function saveMessages(messages: ChatMessage[]) {
   } catch { /* */ }
 }
 
-function loadSettings(): { apiKey: string; apiEndpoint: string; model: string; provider: 'openai' | 'anthropic' } {
-  try {
-    const raw = localStorage.getItem(SETTINGS_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      return {
-        apiKey: parsed.apiKey || '',
-        apiEndpoint: parsed.apiEndpoint || '',
-        model: parsed.model || 'claude-opus-4-7',
-        provider: parsed.provider || 'anthropic',
-      };
-    }
-  } catch { /* */ }
-  return { apiKey: '', apiEndpoint: '', model: 'claude-opus-4-7', provider: 'anthropic' };
+interface PersistedSettings {
+  version: number;
+  provider: ProviderId;
+  byProvider: Record<ProviderId, ProviderSettings>;
 }
 
-async function saveSettings(s: { apiKey: string; apiEndpoint: string; model: string; provider: string }) {
+function defaultsFor(id: ProviderId): ProviderSettings {
+  return { apiKey: '', apiEndpoint: '', model: getProvider(id).defaultModel };
+}
+
+function emptyByProvider(): Record<ProviderId, ProviderSettings> {
+  return PROVIDER_IDS.reduce((acc, id) => {
+    acc[id] = defaultsFor(id);
+    return acc;
+  }, {} as Record<ProviderId, ProviderSettings>);
+}
+
+function readProviderSettings(raw: any, id: ProviderId): ProviderSettings {
+  const base = defaultsFor(id);
+  if (!raw || typeof raw !== 'object') return base;
+  return {
+    apiKey: typeof raw.apiKey === 'string' ? raw.apiKey : base.apiKey,
+    apiEndpoint: typeof raw.apiEndpoint === 'string' ? raw.apiEndpoint : base.apiEndpoint,
+    model: typeof raw.model === 'string' && raw.model ? raw.model : base.model,
+    supportsThinking: typeof raw.supportsThinking === 'boolean' ? raw.supportsThinking : undefined,
+  };
+}
+
+/**
+ * Read persisted settings, migrating the v1 shape.
+ *
+ * v1 stored a single flat {apiKey, apiEndpoint, model, provider}. Credentials
+ * are now per-provider, so a v1 record is folded into the slot for whichever
+ * provider it was configured against; an unrecognised provider value falls
+ * back to the default rather than leaving the store in a broken state.
+ */
+export function loadSettings(): PersistedSettings {
+  const fallback: PersistedSettings = {
+    version: 2,
+    provider: 'anthropic',
+    byProvider: emptyByProvider(),
+  };
+
+  let parsed: any;
+  try {
+    const raw = localStorage.getItem(SETTINGS_KEY);
+    if (!raw) return fallback;
+    parsed = JSON.parse(raw);
+  } catch {
+    return fallback;
+  }
+  if (!parsed || typeof parsed !== 'object') return fallback;
+
+  const provider: ProviderId = isProviderId(parsed.provider) ? parsed.provider : 'anthropic';
+  const byProvider = emptyByProvider();
+
+  if (parsed.byProvider && typeof parsed.byProvider === 'object') {
+    for (const id of PROVIDER_IDS) {
+      byProvider[id] = readProviderSettings(parsed.byProvider[id], id);
+    }
+  } else {
+    // v1: a single credential set belonging to the then-active provider.
+    byProvider[provider] = readProviderSettings(parsed, provider);
+  }
+
+  return { version: 2, provider, byProvider };
+}
+
+async function saveSettings(s: PersistedSettings) {
   if (!hasConsent()) {
     const granted = await ensureConsent('apikey');
     if (!granted) return;
@@ -77,30 +152,58 @@ async function saveSettings(s: { apiKey: string; apiEndpoint: string; model: str
 }
 
 const initialSettings = loadSettings();
+const initialActive = initialSettings.byProvider[initialSettings.provider];
 
 export const useChatStore = create<ChatState>((set, get) => ({
   messages: loadMessages(),
   isOpen: false,
   isLoading: false,
 
-  apiKey: initialSettings.apiKey,
-  apiEndpoint: initialSettings.apiEndpoint,
-  model: initialSettings.model,
+  apiKey: initialActive.apiKey,
+  apiEndpoint: initialActive.apiEndpoint,
+  model: initialActive.model,
+  supportsThinking: initialActive.supportsThinking,
   provider: initialSettings.provider,
+  byProvider: initialSettings.byProvider,
 
   toggleOpen: () => set((s) => ({ isOpen: !s.isOpen })),
   clearMessages: () => { set({ messages: [] }); saveMessages([]); },
 
   setApiConfig: (config) => {
     set((s) => {
-      const updated = {
-        apiKey: config.apiKey ?? s.apiKey,
-        apiEndpoint: config.apiEndpoint ?? s.apiEndpoint,
-        model: config.model ?? s.model,
-        provider: config.provider ?? s.provider,
+      // Defaults come from the *target* provider's saved settings, so a
+      // switch restores that provider's own credentials instead of carrying
+      // the previous provider's key across (which would only ever 401).
+      // Explicitly-passed fields still apply, letting a caller switch
+      // provider and set its key in one update.
+      const provider = config.provider ?? s.provider;
+      const current = s.byProvider[provider] ?? defaultsFor(provider);
+
+      const next: ProviderSettings = {
+        apiKey: config.apiKey ?? current.apiKey,
+        apiEndpoint: config.apiEndpoint ?? current.apiEndpoint,
+        model: config.model ?? current.model,
+        // A new model invalidates the old model's capability flag; only an
+        // explicit value (or an unchanged model) keeps it.
+        supportsThinking:
+          config.supportsThinking !== undefined
+            ? config.supportsThinking
+            : config.model !== undefined && config.model !== current.model
+              ? undefined
+              : current.supportsThinking,
       };
-      saveSettings(updated);
-      return updated;
+
+      const byProvider = { ...s.byProvider, [provider]: next };
+      saveSettings({ version: 2, provider, byProvider });
+
+      return {
+        provider,
+        byProvider,
+        apiKey: next.apiKey,
+        apiEndpoint: next.apiEndpoint,
+        model: next.model,
+        supportsThinking: next.supportsThinking,
+      };
     });
   },
 
@@ -108,8 +211,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const state = get();
 
     if (!state.apiKey) {
+      const def = getProvider(state.provider);
+      const hint = def.auth === 'oauth-pkce'
+        ? `Connect ${def.label} in the settings (gear icon) to use AI chat.`
+        : 'Please configure your API key in the settings (gear icon) to use AI chat.';
       set((s) => ({
-        messages: [...s.messages, { role: 'user', content }, { role: 'assistant', content: 'Please configure your API key in the settings (gear icon) to use AI chat.' }],
+        messages: [...s.messages, { role: 'user', content }, { role: 'assistant', content: hint }],
       }));
       return;
     }
@@ -147,6 +254,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
           apiEndpoint: state.apiEndpoint,
           model: state.model,
           provider: state.provider,
+          supportsThinking: state.supportsThinking,
         },
         (token) => {
           // Append each token to the last (assistant) message

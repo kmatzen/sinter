@@ -1,4 +1,6 @@
 import type { ChatMessage } from '../store/chatStore';
+import type { ProviderDef, ProviderId } from './providers';
+import { getProvider, resolveEndpoint } from './providers';
 
 interface LLMRequest {
   systemPrompt: string;
@@ -6,7 +8,13 @@ interface LLMRequest {
   apiKey?: string;
   apiEndpoint?: string;
   model?: string;
-  provider?: 'openai' | 'anthropic';
+  provider?: ProviderId;
+  /**
+   * Whether the selected model advertises extended thinking, taken from the
+   * provider catalog. Undefined means the catalog said nothing and we fall
+   * back to inferring from the model id.
+   */
+  supportsThinking?: boolean;
 }
 
 /** Convert a ChatMessage to Anthropic's content block format (text + images) */
@@ -49,10 +57,42 @@ function stripOldImages(messages: ChatMessage[]): ChatMessage[] {
   );
 }
 
-/** Check if a model supports extended thinking */
-function supportsExtendedThinking(model: string): boolean {
-  // Claude 4.5 and 4.6+ models support extended thinking
-  return /claude-(opus|sonnet)-4/i.test(model);
+/**
+ * Last-resort guess at extended thinking support, used only when the provider
+ * published no capability metadata. Aggregator ids are namespaced
+ * ("anthropic/claude-opus-5"), so the vendor prefix is stripped first —
+ * matching against the full id silently never fires.
+ */
+export function inferThinkingSupport(model: string): boolean {
+  const bare = model.includes('/') ? model.slice(model.lastIndexOf('/') + 1) : model;
+  return /^claude-(opus|sonnet)-(?:[4-9]|\d{2,})/i.test(bare);
+}
+
+function resolveThinking(req: LLMRequest, model: string): boolean {
+  return req.supportsThinking ?? inferThinkingSupport(model);
+}
+
+/**
+ * A provider rejected the credential. Surfaced distinctly so the UI can tell
+ * the user to reconnect rather than showing a bare 401.
+ */
+export class LLMAuthError extends Error {
+  constructor(readonly provider: ProviderDef, readonly status: number, detail: string) {
+    super(
+      provider.auth === 'oauth-pkce'
+        ? `${provider.label} rejected the connection (${status}). Reconnect ${provider.label} in settings.${detail ? ` ${detail}` : ''}`
+        : `${provider.label} rejected the API key (${status}). Check the key in settings.${detail ? ` ${detail}` : ''}`,
+    );
+    this.name = 'LLMAuthError';
+  }
+}
+
+async function raiseForStatus(res: Response, provider: ProviderDef): Promise<never> {
+  const detail = await res.text().catch(() => '');
+  if (res.status === 401 || res.status === 403) {
+    throw new LLMAuthError(provider, res.status, detail.slice(0, 200));
+  }
+  throw new Error(`${provider.label} API error (${res.status}): ${detail}`);
 }
 
 /**
@@ -64,12 +104,18 @@ export async function streamLLMMessage(
   onToken: (text: string) => void,
 ): Promise<string> {
   req = { ...req, messages: stripOldImages(req.messages) };
-  if (!req.apiKey) throw new Error('API key required. Configure it in the settings.');
-
-  if (req.provider === 'openai') {
-    return streamOpenAI(req, onToken);
+  const provider = getProvider(req.provider);
+  if (!req.apiKey) {
+    throw new Error(
+      provider.auth === 'oauth-pkce'
+        ? `Connect ${provider.label} in the settings to use AI chat.`
+        : 'API key required. Configure it in the settings.',
+    );
   }
-  return streamAnthropic(req, onToken);
+
+  return provider.wire === 'anthropic'
+    ? streamAnthropic(req, provider, onToken)
+    : streamOpenAI(req, provider, onToken);
 }
 
 /** Parse an SSE stream, yielding {event, data} for each complete event. */
@@ -109,10 +155,14 @@ async function* parseSSE(reader: ReadableStreamDefaultReader<Uint8Array>): Async
   }
 }
 
-async function streamAnthropic(req: LLMRequest, onToken: (text: string) => void): Promise<string> {
-  const endpoint = req.apiEndpoint || 'https://api.anthropic.com';
-  const model = req.model || 'claude-opus-4-7';
-  const useThinking = supportsExtendedThinking(model);
+async function streamAnthropic(
+  req: LLMRequest,
+  provider: ProviderDef,
+  onToken: (text: string) => void,
+): Promise<string> {
+  const endpoint = resolveEndpoint(provider, req.apiEndpoint);
+  const model = req.model || provider.defaultModel;
+  const useThinking = resolveThinking(req, model);
 
   const body: any = {
     model,
@@ -139,10 +189,7 @@ async function streamAnthropic(req: LLMRequest, onToken: (text: string) => void)
     body: JSON.stringify(body),
   });
 
-  if (!response.ok) {
-    const err = await response.text();
-    throw new Error(`Anthropic API error (${response.status}): ${err}`);
-  }
+  if (!response.ok) await raiseForStatus(response, provider);
 
   const reader = response.body!.getReader();
   let fullText = '';
@@ -151,7 +198,7 @@ async function streamAnthropic(req: LLMRequest, onToken: (text: string) => void)
     if (event === 'error') {
       let msg = data;
       try { msg = JSON.parse(data).error?.message || data; } catch {}
-      throw new Error(`Anthropic stream error: ${msg}`);
+      throw new Error(`${provider.label} stream error: ${msg}`);
     }
     if (data === '[DONE]') break;
 
@@ -169,16 +216,33 @@ async function streamAnthropic(req: LLMRequest, onToken: (text: string) => void)
   return fullText;
 }
 
-async function streamOpenAI(req: LLMRequest, onToken: (text: string) => void): Promise<string> {
-  const endpoint = req.apiEndpoint || 'https://api.openai.com';
+/**
+ * OpenAI-compatible streaming. Also serves OpenRouter, which normalises to
+ * this schema — the only differences are the endpoint and the optional
+ * attribution headers below.
+ */
+async function streamOpenAI(
+  req: LLMRequest,
+  provider: ProviderDef,
+  onToken: (text: string) => void,
+): Promise<string> {
+  const endpoint = resolveEndpoint(provider, req.apiEndpoint);
+
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${req.apiKey}`,
+  };
+  if (provider.id === 'openrouter' && typeof window !== 'undefined') {
+    // Optional attribution; OpenRouter uses these for its public rankings.
+    headers['HTTP-Referer'] = window.location.origin;
+    headers['X-Title'] = 'Sinter';
+  }
+
   const response = await fetch(`${endpoint}/v1/chat/completions`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${req.apiKey}`,
-    },
+    headers,
     body: JSON.stringify({
-      model: req.model || 'gpt-4o',
+      model: req.model || provider.defaultModel,
       stream: true,
       messages: [
         { role: 'system', content: req.systemPrompt },
@@ -187,10 +251,7 @@ async function streamOpenAI(req: LLMRequest, onToken: (text: string) => void): P
     }),
   });
 
-  if (!response.ok) {
-    const err = await response.text();
-    throw new Error(`OpenAI API error (${response.status}): ${err}`);
-  }
+  if (!response.ok) await raiseForStatus(response, provider);
 
   const reader = response.body!.getReader();
   let fullText = '';
@@ -200,6 +261,12 @@ async function streamOpenAI(req: LLMRequest, onToken: (text: string) => void): P
 
     let parsed: any;
     try { parsed = JSON.parse(data); } catch { continue; }
+
+    // An error can arrive in-band on a 200 stream (a mid-stream upstream
+    // failure at the aggregator), so it has to be caught here too.
+    if (parsed.error) {
+      throw new Error(`${provider.label} stream error: ${parsed.error.message || 'unknown error'}`);
+    }
 
     const text = parsed.choices?.[0]?.delta?.content;
     if (text) {

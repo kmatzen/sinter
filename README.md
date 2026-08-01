@@ -25,7 +25,7 @@ npm run dev
 
 Open `http://localhost:5173` and click "Start Modeling" to launch the app.
 
-To use AI chat, click the gear icon in the chat panel and enter your Anthropic or OpenAI API key (stored only in your browser).
+To use AI chat, click the gear icon in the chat panel and either **Connect OpenRouter** — a one-click sign-in, no API key to create — or paste an Anthropic or OpenAI key directly. Credentials are stored only in your browser.
 
 ## Features
 
@@ -52,7 +52,9 @@ To use AI chat, click the gear icon in the chat panel and enter your Anthropic o
 - **Streaming responses** — text appears token-by-token as the model generates
 - Iterative refinement ("make it bigger", "add ventilation holes")
 - Multi-view renders sent automatically (current view + front/right/top with rulers)
-- Supports Anthropic Claude and OpenAI GPT (bring your own API key)
+- **OpenRouter sign-on** — connect once and pick from hundreds of models across providers. OpenRouter bills your own account; Sinter never proxies your requests and never holds your payment details.
+- **Model picker** — browse the provider's live catalog with pricing and context length. Defaults to vision-capable models only, since Sinter sends viewport renders with every message.
+- Also supports Anthropic Claude and OpenAI GPT directly (bring your own API key)
 
 ### Storage
 - **Google Drive** — sign in with Google to save/load projects
