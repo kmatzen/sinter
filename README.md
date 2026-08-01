@@ -12,7 +12,7 @@ Sinter is a web-based parametric 3D modeler that uses **signed distance fields (
 - **Shell/hollow** — one click to make any solid hollow with uniform wall thickness.
 - **AI-powered** — describe what you want in natural language, the AI builds the model. Viewport renders are sent for visual context.
 - **Real-time preview** — GPU ray marching renders every parameter change instantly.
-- **3D print ready** — export watertight STL/3MF, dimension overlays for verification.
+- **3D print ready** — export watertight STL/3MF at your choice of resolution, dimension overlays for verification.
 
 ## Quick Start
 
@@ -35,14 +35,14 @@ To use AI chat, click the gear icon in the chat panel and either **Connect OpenR
 - **Modifiers**: Shell, Offset, Round, Mirror, Half-Space Cut (with flip)
 - **Patterns**: Linear Pattern, Circular Pattern
 - **Transforms**: Translate, Rotate, Scale
-- **Presets**: Pre-built parts (enclosures, standoffs, brackets, gears, etc.)
+- **Presets**: Pre-built parts (enclosures, standoffs, brackets, vents, clips). Every preset states a guaranteed outer envelope that a test checks against the geometry itself, so the size on the card is the size you get.
+- **STL import**: Bring outside geometry in as an editable node — subtract it, intersect it, pattern it. Stored as a signed-distance field, so detail finer than the field's grid is rounded off; the resolution is adjustable per node.
 - **Drag & drop**: Click or drag parts from the palette into the node tree
 
 ### Viewport
 - GPU ray marching with screen-space outline post-process
 - **Tap-to-select** — click/tap on a surface to select the contributing node
 - Clipping plane (+X/-X/+Y/-Y/+Z/-Z) with cross-section fill
-- X-ray mode
 - Per-node dimension labels with wireframe bounding box
 - Transform gizmo with snap-to-grid (1/5/10mm)
 - Screenshot export (gizmo auto-hidden)
@@ -103,6 +103,32 @@ Without OAuth configured, the app still works fully for local modeling and AI ch
 - **State**: Zustand
 - **Font**: Outfit + JetBrains Mono
 - **Tests**: Vitest (unit) + Playwright (E2E)
+
+## Development
+
+```bash
+npm run typecheck     # tsc --noEmit
+npm test              # unit tests
+npm run test:e2e      # Playwright, including CPU/GPU parity and golden images
+npm run bench         # export pipeline timings, per stage
+```
+
+A few of these are load-bearing rather than routine, and are worth knowing about
+before changing the geometry code:
+
+- **`e2e/sdf-parity.spec.ts`** renders the emitted GLSL to a float texture and
+  diffs it against the TypeScript evaluator. The viewport and the exporter are
+  two implementations of one field; drift between them is invisible until a
+  print comes out wrong.
+- **`e2e/viewport-golden.spec.ts`** compares the viewport against committed
+  reference images, rendered through SwiftShader on every machine so they are
+  not hostage to the local GPU. Shader changes are expected to alter these —
+  regenerate with `--update-snapshots`, and look at the diff.
+- **`npm run bench`** reports the minimum of `--repeat=N` runs rather than the
+  mean, because noise only ever adds time. It also runs in CI, non-gating, with
+  the numbers in the job summary.
+- **`specs/`** holds TLA+ models of the worker bridge, token refresh and undo
+  history. `specs/check.sh` runs them.
 
 ## License
 
