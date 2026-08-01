@@ -52,11 +52,44 @@ function g(n: number): string {
   return n.toFixed(6);
 }
 
-// Bbox early-out disabled: the SDF discontinuity at the threshold boundary
-// caused visible jagged artifacts on sharp features.
-// Bbox early-out disabled: the SDF discontinuity at the threshold boundary
-// caused visible jagged artifacts on sharp features. The performance cost of
-// evaluating all nodes every step is acceptable for correctness.
+/**
+ * Bounding-box early-out, deliberately disabled. Measured, not assumed.
+ *
+ * The comment here used to say the discontinuity caused jagged artifacts on
+ * sharp features, and to imply the cost of evaluating every node every step was the
+ * price of correctness. Both halves have now been tested (#89 item 7), and the
+ * conclusion is stronger: a correct version exists, and it is *slower*.
+ *
+ * **Returning the box distance is unsound as a field.** It is a valid lower
+ * bound, so marching is safe, but it is not 1-Lipschitz — and `round`, `offset`
+ * and `shell` all read a non-zero level set of their child, so a child that
+ * under-reports distance puts their offset surface in the wrong place. It also
+ * stops `union` being the pointwise minimum and stops the interval enclosure
+ * containing the field, which the mesher's octree prunes on. The property
+ * suites fail on all of those. That is very likely what the artifacts were.
+ *
+ * **An exact version is possible.** A boolean can skip an operand when it can
+ * prove the operand cannot change the answer — for `min(a,b)`, when
+ * `distToBox(b) / fieldScale(b) >= a` — and then return the answer it already
+ * had. The value is bit-identical, so nothing about the field changes. That
+ * version passes the property suites, all 19 parity cases, and the golden
+ * images.
+ *
+ * **And it is 10-14% slower on the GPU.** Measured at 700x700, minimum of 15
+ * renders, three interleaved passes in both orders, on a model built for it —
+ * eight spatially disjoint parts. A fragment shader executes divergent branches
+ * by masking, not by skipping: neighbouring pixels in a warp are at different
+ * distances from different parts, so both sides run anyway and only the results
+ * are masked. What is left is the guard's own arithmetic, paid unconditionally
+ * at every boolean on every march step.
+ *
+ * On the CPU it is a wash, because the export never marches — the octree in
+ * `gridEval.ts` already prunes empty space by interval enclosure, so by the
+ * time `evaluateSDF` is called we are near a surface and the guard never fires.
+ *
+ * So this stays stubbed, and the reason is the measurement rather than the
+ * artifacts.
+ */
 function emitBBoxEarlyOut(_node: SDFNode, _pVar: string, _result: string, _lines: string[]): boolean {
   return false;
 }
