@@ -60,18 +60,39 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
 
   const onProgress = (stage: string, percent: number) => setExportProgress({ stage, percent });
 
+  /**
+   * Bumped by every cancel. An export captures it at the start and compares
+   * before showing its preview, which is what makes the cancel button honest
+   * for the whole time it is on screen.
+   *
+   * `workerBridge.cancelExport()` alone is not enough. The button renders
+   * while `exporting && exportProgress` are set, and those are cleared in the
+   * `finally` below — so it is still on screen during the stretch between the
+   * worker returning the blob and React committing the preview. A cancel in
+   * that window finds nothing in flight, no-ops, and the user gets the
+   * download dialog they just declined. The gap is not hypothetical: reading
+   * the triangle count off the blob is itself an await, and this is what made
+   * the e2e cancel test fail on CI.
+   */
+  const exportEpoch = useRef(0);
+
   // Cancelling rejects the export promise, so the `catch` below runs on the
   // normal path. A cancel is a user decision, not a failure — it must not be
   // logged as one, and it must not raise the error toast.
-  const handleCancelExport = () => workerBridge.cancelExport();
+  const handleCancelExport = () => {
+    exportEpoch.current++;
+    workerBridge.cancelExport();
+  };
 
   const handleExportSTL = async () => {
     if (!tree || exporting) return;
+    const epoch = exportEpoch.current;
     setExporting('STL');
     setExportProgress({ stage: 'Starting', percent: 0 });
     try {
       const blob = await workerBridge.exportSTL(tree, onProgress);
       const triangles = new DataView(await blob.slice(80, 84).arrayBuffer()).getUint32(0, true);
+      if (exportEpoch.current !== epoch) return;
       setExportPreview({ blob, name: `${projectName}.stl`, triangles, size: blob.size });
     } catch (err: any) {
       if (!isCancelled(err)) console.error('Export STL failed:', err);
@@ -83,6 +104,7 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
 
   const handleExport3MF = async () => {
     if (!tree || exporting) return;
+    const epoch = exportEpoch.current;
     setExporting('3MF');
     setExportProgress({ stage: 'Starting', percent: 0 });
     try {
@@ -90,6 +112,7 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
       // 3MF is a zip — estimate triangles from the uncompressed mesh size
       // STL: 50 bytes/tri. 3MF XML is ~120 bytes/tri on average.
       const triangles = Math.round(blob.size / 120);
+      if (exportEpoch.current !== epoch) return;
       setExportPreview({ blob, name: `${projectName}.3mf`, triangles, size: blob.size });
     } catch (err: any) {
       if (!isCancelled(err)) console.error('Export 3MF failed:', err);
