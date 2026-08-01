@@ -187,13 +187,30 @@ describe('computeBounds', () => {
     expect(bb.max[1]).toBeCloseTo(expectedR);
   });
 
-  it('text with explicit glyph metrics', () => {
+  it('text with outlines uses its glyph metrics', () => {
     const bb = computeBounds({
       kind: 'text', text: 'A', size: 10, depth: 4, font: 'sans',
+      glyphSegments: [{ type: 'L', x0: 0, y0: 0, x1: 8, y1: 0 }],
       glyphWidth: 8, glyphAscent: 7, glyphDescent: -1,
     });
     expect(bb.min).toEqual([-4, -4, -2]);
     expect(bb.max).toEqual([4, 4, 2]);
+  });
+
+  /**
+   * Metrics alone do not make a glyph. Without outlines both evaluators draw
+   * the character-width box, so the bound has to describe that box — reading
+   * the metrics here would have the bound describe a different solid from the
+   * one rendered and exported. `hasGlyphOutlines` is the single predicate all
+   * three sides key off, precisely so this cannot drift.
+   */
+  it('text with metrics but no outlines uses the character-width box', () => {
+    const bb = computeBounds({
+      kind: 'text', text: 'A', size: 10, depth: 4, font: 'sans',
+      glyphWidth: 8, glyphAscent: 7, glyphDescent: -1,
+    });
+    expect(bb.min).toEqual([-3, -5, -2]);
+    expect(bb.max).toEqual([3, 5, 2]);
   });
 
   it('text falls back to a character-width estimate without glyph metrics', () => {

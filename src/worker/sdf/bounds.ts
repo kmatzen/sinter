@@ -1,4 +1,5 @@
 import type { SDFNode, BBox, Vec3 } from './types';
+import { hasGlyphOutlines } from './types';
 
 export function computeBounds(node: SDFNode): BBox {
   switch (node.kind) {
@@ -123,7 +124,9 @@ export function computeBounds(node: SDFNode): BBox {
       return { min: [-maxR, cb.min[1], -maxR], max: [maxR, cb.max[1], maxR] };
     }
     case 'text': {
-      if (node.glyphWidth) {
+      // Must agree with evaluate.ts and codegen.ts about which shape this is,
+      // or the bound describes a different solid from the one rendered.
+      if (hasGlyphOutlines(node) && node.glyphWidth) {
         const hw = node.glyphWidth / 2;
         const ga = node.glyphAscent || node.size;
         const gd = node.glyphDescent || 0;

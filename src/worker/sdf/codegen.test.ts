@@ -182,3 +182,80 @@ describe('generateGLSL', () => {
     expect(result.paramValues).toContain(5);
   });
 });
+
+/**
+ * The shader used to draw a box for every text node while the CPU evaluator
+ * walked real outlines (#85), so a text node with glyph data previewed as a
+ * slab and exported as letterforms. `e2e/sdf-parity.spec.ts` is what proves
+ * the two now compute the same function — it can execute the GLSL, which a
+ * unit test cannot. These cover the structural properties that do not need a
+ * GPU, and the fallback boundary the parity suite would have to be told about.
+ */
+describe('text glyph codegen', () => {
+  const OUTLINE_TEXT: SDFNode = {
+    kind: 'text', text: 'L', size: 20, depth: 6, font: 'sans-serif',
+    glyphSegments: [
+      { type: 'L', x0: 2, y0: 0, x1: 2, y1: 18 },
+      { type: 'L', x0: 2, y0: 18, x1: 6, y1: 18 },
+      { type: 'L', x0: 6, y0: 18, x1: 6, y1: 0 },
+    ],
+    glyphBeziers: [{ type: 'Q', x0: 6, y0: 0, x1: 4, y1: -2, x2: 2, y2: 0 }],
+    glyphWidth: 16, glyphAscent: 18, glyphDescent: 0,
+  };
+
+  it('walks every outline primitive exactly once', () => {
+    const { glsl } = generateSDFFunction(OUTLINE_TEXT);
+    expect(glsl.match(/glyph_accLine\(q,/g)).toHaveLength(3);
+    expect(glsl.match(/glyph_accBez\(q,/g)).toHaveLength(1);
+  });
+
+  it('emits the glyph helpers once however many text nodes there are', () => {
+    const two: SDFNode = { kind: 'union', k: 0, a: OUTLINE_TEXT, b: OUTLINE_TEXT };
+    const { glsl } = generateSDFFunction(two);
+    expect(glsl.match(/float glyph_distBez\(/g)).toHaveLength(1);
+    // ...but each node still gets its own body.
+    expect(glsl.match(/float sdf_glyph_\d+\(/g)).toHaveLength(2);
+  });
+
+  /**
+   * Outlines are literals, not uniforms. A glyph run of any real length would
+   * otherwise need hundreds of uniform slots — well past the budget — and
+   * changing the text forces a rebuild regardless. Only `depth` stays a
+   * uniform, so extruding deeper does not recompile.
+   */
+  it('bakes outlines as literals rather than uniform slots', () => {
+    const { paramCount, paramValues, glsl } = generateSDFFunction(OUTLINE_TEXT);
+    expect(paramCount).toBe(1);
+    expect(paramValues).toEqual([3]);
+    expect(glsl).toContain('vec2(2.000000, 18.000000)');
+  });
+
+  it('draws the character-width box when there are no outlines', () => {
+    const { glsl } = generateSDFFunction({
+      kind: 'text', text: 'AB', size: 20, depth: 6, font: 'sans-serif',
+    });
+    expect(glsl).not.toContain('glyph_');
+    expect(glsl).toContain('qt_');
+  });
+
+  /**
+   * `[]` is truthy, and the CPU path used to test presence rather than length:
+   * an empty array sent it walking no outlines at all, leaving the minimum
+   * distance at Infinity, while the shader drew a box. Both sides now key off
+   * `hasGlyphOutlines`.
+   */
+  it('treats empty outline arrays as no outlines', () => {
+    const { glsl } = generateSDFFunction({
+      kind: 'text', text: 'AB', size: 20, depth: 6, font: 'sans-serif',
+      glyphSegments: [], glyphBeziers: [],
+      glyphWidth: 16, glyphAscent: 18, glyphDescent: 0,
+    });
+    expect(glsl).not.toContain('glyph_');
+  });
+
+  it('emits no non-finite literals', () => {
+    const glsl = generateGLSL(OUTLINE_TEXT);
+    expect(glsl).not.toContain('NaN');
+    expect(glsl).not.toContain('Infinity');
+  });
+});

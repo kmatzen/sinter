@@ -1,4 +1,5 @@
 import type { SDFNode } from './types';
+import { hasGlyphOutlines } from './types';
 import { linearWindow, circularWindow } from './patternWindow';
 
 let varCounter = 0;
@@ -68,6 +69,151 @@ function emitAsFunction(node: SDFNode): string {
   helperFunctions.push(
     `float ${fnName}(vec3 hp) {\n  ${fnLines.join('\n  ')}\n  return ${childResult};\n}`
   );
+  return fnName;
+}
+
+/**
+ * 2D glyph-outline primitives, transcribed from `evaluate.ts` line for line.
+ *
+ * The point of this block is that it is a *transcription* and not a second
+ * design. `sdf-parity` holds the two evaluators to agreement within
+ * `scale * 2e-3`, and every constant here — the 9 samples, the 4 Newton steps,
+ * the 1e-10 derivative floor, the 4-segment winding subdivision — exists
+ * because the CPU side chose it. Changing one without changing the other
+ * reopens exactly the divergence this replaces.
+ *
+ * Emitted once, and only when a text node actually carries outlines.
+ */
+const GLYPH_HELPERS = `float glyph_bez1(float t, float a, float b, float c) {
+  float u = 1.0 - t;
+  return u * u * a + 2.0 * u * t * b + t * t * c;
+}
+
+vec2 glyph_bez(float t, vec2 a, vec2 b, vec2 c) {
+  return vec2(glyph_bez1(t, a.x, b.x, c.x), glyph_bez1(t, a.y, b.y, c.y));
+}
+
+float glyph_distLine(vec2 p, vec2 a, vec2 b) {
+  vec2 d = b - a;
+  float t = clamp(dot(p - a, d) / dot(d, d), 0.0, 1.0);
+  return length(a + t * d - p);
+}
+
+// Non-zero winding, counting only upward/downward crossings of the ray to the
+// right of p. Matches windingLine() in evaluate.ts including its tie-breaking:
+// the <= on one side and > on the other are what stop a vertex on the ray
+// being counted twice.
+float glyph_windLine(vec2 p, vec2 a, vec2 b) {
+  float cr = (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x);
+  if (a.y <= p.y) {
+    if (b.y > p.y && cr > 0.0) return 1.0;
+  } else {
+    if (b.y <= p.y && cr < 0.0) return -1.0;
+  }
+  return 0.0;
+}
+
+// Sample-then-Newton, because a quadratic's closest-point equation is a cubic
+// and the sampling pass is what picks the right root to converge to.
+float glyph_distBez(vec2 p, vec2 a, vec2 b, vec2 c) {
+  float minD = 1.0e30;
+  float bestT = 0.0;
+  for (int i = 0; i <= 8; i++) {
+    float t = float(i) / 8.0;
+    vec2 q = glyph_bez(t, a, b, c) - p;
+    float d = dot(q, q);
+    if (d < minD) { minD = d; bestT = t; }
+  }
+  for (int it = 0; it < 4; it++) {
+    float t = bestT;
+    vec2 f = glyph_bez(t, a, b, c) - p;
+    vec2 df = 2.0 * ((1.0 - t) * (b - a) + t * (c - b));
+    vec2 ddf = 2.0 * (c - 2.0 * b + a);
+    float fv = dot(f, df);
+    float dfv = dot(df, df) + dot(f, ddf);
+    if (abs(dfv) < 1.0e-10) break;
+    bestT = clamp(t - fv / dfv, 0.0, 1.0);
+  }
+  return length(glyph_bez(bestT, a, b, c) - p);
+}
+
+float glyph_windBez(vec2 p, vec2 a, vec2 b, vec2 c) {
+  float w = 0.0;
+  vec2 prev = a;
+  for (int i = 1; i <= 4; i++) {
+    vec2 nx = glyph_bez(float(i) / 4.0, a, b, c);
+    w += glyph_windLine(p, prev, nx);
+    prev = nx;
+  }
+  return w;
+}
+
+void glyph_accLine(vec2 p, vec2 a, vec2 b, inout float minD, inout float w) {
+  minD = min(minD, glyph_distLine(p, a, b));
+  w += glyph_windLine(p, a, b);
+}
+
+void glyph_accBez(vec2 p, vec2 a, vec2 b, vec2 c, inout float minD, inout float w) {
+  minD = min(minD, glyph_distBez(p, a, b, c));
+  w += glyph_windBez(p, a, b, c);
+}`;
+
+let glyphHelpersEmitted = false;
+
+type GlyphSeg = { x0: number; y0: number; x1: number; y1: number };
+type GlyphBez = { x0: number; y0: number; x1: number; y1: number; x2: number; y2: number };
+
+/**
+ * Emit a per-node function evaluating one text node's outlines.
+ *
+ * Outlines are baked as literals rather than uniforms. They are not a
+ * parameter the user drags — changing the text or the font changes how many
+ * there are, which forces a shader rebuild regardless — and a glyph run of any
+ * length would otherwise need hundreds of uniform slots, well past what the
+ * uniform budget allows. `depth` stays a uniform, so extrusion depth is still
+ * editable without a recompile.
+ */
+function emitGlyphHelper(
+  node: Extract<SDFNode, { kind: 'text' }>,
+  segs: GlyphSeg[],
+  bezs: GlyphBez[],
+): string {
+  if (!glyphHelpersEmitted) {
+    helperFunctions.push(GLYPH_HELPERS);
+    glyphHelpersEmitted = true;
+  }
+
+  const gw = node.glyphWidth || 1;
+  const ga = node.glyphAscent || node.size;
+  const gd = node.glyphDescent || 0;
+  const hh = (ga - gd) / 2;
+
+  const body: string[] = [];
+  // Same bbox early-out the CPU takes. It reports the distance to the glyph
+  // bounding box, which never exceeds the distance to the glyphs inside it, so
+  // it stays a safe under-estimate for sphere tracing.
+  body.push(`vec3 bq = abs(gp) - vec3(${g(gw / 2)}, ${g(hh)}, halfDepth);`);
+  body.push(`float boxDist = length(max(bq, 0.0)) + min(max(bq.x, max(bq.y, bq.z)), 0.0);`);
+  body.push(`if (boxDist > ${g(hh * 0.1)}) return boxDist;`);
+  // Glyph space: origin at the left edge, y down.
+  body.push(`vec2 q = vec2(gp.x + ${g(gw / 2)}, -(gp.y - ${g((ga + gd) / 2)}));`);
+  body.push(`float minD = 1.0e30;`);
+  body.push(`float w = 0.0;`);
+  for (const s of segs) {
+    body.push(`glyph_accLine(q, vec2(${g(s.x0)}, ${g(s.y0)}), vec2(${g(s.x1)}, ${g(s.y1)}), minD, w);`);
+  }
+  for (const b of bezs) {
+    body.push(
+      `glyph_accBez(q, vec2(${g(b.x0)}, ${g(b.y0)}), vec2(${g(b.x1)}, ${g(b.y1)}), vec2(${g(b.x2)}, ${g(b.y2)}), minD, w);`,
+    );
+  }
+  body.push(`float d2d = (w != 0.0 ? -1.0 : 1.0) * minD;`);
+  body.push(`float dz = abs(gp.z) - halfDepth;`);
+  body.push(`if (d2d < 0.0 && dz < 0.0) return max(d2d, dz);`);
+  body.push(`return length(vec2(max(d2d, 0.0), max(dz, 0.0)));`);
+
+  const fnName = `sdf_glyph_${helperCounter++}`;
+  helperFunctions.push(`float ${fnName}(vec3 gp, float halfDepth) {\n  ${body.join('\n  ')}\n}`);
   return fnName;
 }
 
@@ -277,7 +423,14 @@ function emitNode(node: SDFNode, pVar: string, lines: string[]): string {
       return result;
     }
     case 'text': {
-      // GPU: box approximation (fast). CPU evaluator uses full glyph paths for export.
+      if (hasGlyphOutlines(node)) {
+        const segs = node.glyphSegments || [];
+        const bezs = node.glyphBeziers || [];
+        const fn = emitGlyphHelper(node, segs, bezs);
+        lines.push(`float ${result} = ${fn}(${pVar}, ${up(node.depth / 2)});`);
+        return result;
+      }
+      // No outlines: both evaluators fall back to the same box.
       const charW = node.size * 0.6;
       const totalW = node.text.length * charW;
       lines.push(`vec3 qt_${result} = abs(${pVar}) - vec3(${up(totalW / 2)}, ${up(node.size / 2)}, ${up(node.depth / 2)});`);
@@ -354,6 +507,7 @@ export function generateSDFFunction(root: SDFNode): SDFCompileResult {
   textures = [];
   helperFunctions = [];
   helperCounter = 0;
+  glyphHelpersEmitted = false;
   const lines: string[] = [];
   const finalVar = emitNode(root, 'p', lines);
 

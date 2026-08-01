@@ -29,3 +29,17 @@ export interface BBox {
   min: Vec3;
   max: Vec3;
 }
+
+/**
+ * Does this text node carry real outlines, or is it a box?
+ *
+ * The one predicate all three implementations key off — `evaluate.ts`,
+ * `codegen.ts` and `bounds.ts` — because they have to agree about it or the
+ * viewport, the export and the bounding box describe different solids. The
+ * empty-array case is the reason it is a function: `[]` is truthy, so a
+ * presence check sends the CPU down the outline path with nothing to walk
+ * (min distance stays at Infinity) while the shader draws a box.
+ */
+export function hasGlyphOutlines(node: Extract<SDFNode, { kind: 'text' }>): boolean {
+  return (node.glyphSegments?.length ?? 0) + (node.glyphBeziers?.length ?? 0) > 0;
+}
