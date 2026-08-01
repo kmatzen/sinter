@@ -1,9 +1,18 @@
 import { useEffect, useRef } from 'react';
+import type { SDFNodeUI } from '../types/operations';
 import { useModelerStore } from '../store/modelerStore';
 import { workerBridge } from './workerBridge';
 
+/**
+ * Sentinel for "nothing evaluated yet".
+ *
+ * Distinct from `null`, which is a real tree value meaning an empty document,
+ * so the first evaluate still happens for a project that loads empty.
+ */
+const NOT_EVALUATED = Symbol('not-evaluated');
+
 export function useEvaluator() {
-  const prevKeyRef = useRef<string>('');
+  const prevTreeRef = useRef<SDFNodeUI | null | typeof NOT_EVALUATED>(NOT_EVALUATED);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const evalSeqRef = useRef(0);
 
@@ -15,9 +24,23 @@ export function useEvaluator() {
       // Evaluate immediately — codegen is <1ms, no need for debounce
       debounceRef.current = setTimeout(() => {
         const tree = useModelerStore.getState().tree;
-        const key = JSON.stringify(tree);
-        if (key === prevKeyRef.current) return;
-        prevKeyRef.current = key;
+        // Object identity, not a serialisation.
+        //
+        // This subscribes to the whole store, and `setEvaluating` and
+        // `setSDFDisplay` are themselves `set()` calls — so one user edit fired
+        // this three times, and each time serialised the entire tree just to
+        // decide it had already seen it. On a large model that is the most
+        // expensive thing in the interactive path after the evaluation itself,
+        // and it also meant `verifiedBounds` was proved three times per edit
+        // rather than once (#88 B1, B2).
+        //
+        // Every mutation goes through `commit()`, which builds a new tree, and
+        // undo/redo restore clones — so a changed tree is always a different
+        // object. The converse (a new object with identical content) costs one
+        // extra evaluation that the bridge supersedes anyway, which is a much
+        // better trade than stringifying a megabyte on every store event.
+        if (tree === prevTreeRef.current) return;
+        prevTreeRef.current = tree;
 
         const seq = ++evalSeqRef.current;
         useModelerStore.getState().setEvaluating(true);
@@ -50,10 +73,11 @@ export function useEvaluator() {
     // evaluating null would only round-trip the worker to set `sdfDisplay`
     // back to null while flashing the evaluating indicator.
     //
-    // `prevKeyRef` starts as '' and no tree serialises to that, so this always
-    // evaluates once; identical follow-up states are still de-duped by the key
-    // check, and under StrictMode's double-mount the first pass's pending timer
-    // is cleared by cleanup before it can run, leaving exactly one evaluation.
+    // `prevTreeRef` starts at the NOT_EVALUATED sentinel, which no tree can
+    // equal, so this always evaluates once; identical follow-up states are
+    // still de-duped by the identity check, and under StrictMode's
+    // double-mount the first pass's pending timer is cleared by cleanup before
+    // it can run, leaving exactly one evaluation.
     if (useModelerStore.getState().tree) triggerEval();
 
     return () => {

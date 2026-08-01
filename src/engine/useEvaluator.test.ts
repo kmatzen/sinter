@@ -141,3 +141,62 @@ describe('useEvaluator', () => {
     expect(evaluate).toHaveBeenCalledTimes(1);
   });
 });
+
+/**
+ * The dedup key used to be `JSON.stringify(tree)`.
+ *
+ * The hook subscribes to the whole store, and `setEvaluating`/`setSDFDisplay`
+ * are themselves `set()` calls — so one user edit fired the subscription three
+ * times and serialised the entire tree three times to conclude twice that it
+ * had already seen it (#88 B1, B2). Identity is both cheaper and enough, since
+ * every mutation builds a new tree.
+ */
+describe('useEvaluator dedup', () => {
+  beforeEach(() => {
+    evaluate.mockReset();
+    evaluate.mockResolvedValue(null);
+    useModelerStore.setState({ tree: null, sdfDisplay: null, evaluating: false, error: null });
+  });
+
+  afterEach(cleanup);
+
+  it('does not re-evaluate when only the evaluation status changes', async () => {
+    useModelerStore.setState({ tree: box() });
+    renderHook(() => useEvaluator());
+    await flush();
+    expect(evaluate).toHaveBeenCalledTimes(1);
+
+    // Exactly what the hook's own success path does to the store.
+    useModelerStore.getState().setEvaluating(true);
+    useModelerStore.getState().setSDFDisplay(null);
+    useModelerStore.getState().setEvaluating(false);
+    await flush();
+
+    expect(evaluate).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not re-evaluate when only the selection changes', async () => {
+    useModelerStore.setState({ tree: box() });
+    renderHook(() => useEvaluator());
+    await flush();
+    evaluate.mockClear();
+
+    useModelerStore.getState().selectNode('box-1');
+    useModelerStore.getState().selectNode(null);
+    await flush();
+
+    expect(evaluate).not.toHaveBeenCalled();
+  });
+
+  it('evaluates once per real edit, not once per store event', async () => {
+    useModelerStore.setState({ tree: box() });
+    renderHook(() => useEvaluator());
+    await flush();
+    evaluate.mockClear();
+
+    useModelerStore.getState().updateNodeParams('box-1', { width: 120 });
+    await flush();
+
+    expect(evaluate).toHaveBeenCalledTimes(1);
+  });
+});
