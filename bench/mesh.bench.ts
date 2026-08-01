@@ -98,6 +98,23 @@ const CORPUS: { name: string; why: string; tree: SDFNodeUI }[] = [
     ]),
   },
   {
+    name: 'assembly',
+    why: 'Eight separate parts unioned together — the shape a boolean short-circuit is for, since a ray far from one part should not pay for it.',
+    tree: (() => {
+      const part = (x: number, z: number) =>
+        n('translate', { x, y: 0, z }, [
+          n('union', { smooth: 0 }, [
+            n('cylinder', { radius: 5, height: 20 }),
+            n('translate', { x: 0, y: 10, z: 0 }, [n('sphere', { radius: 6 })]),
+          ]),
+        ]);
+      let t = part(-30, -30);
+      const spots: [number, number][] = [[-10, -30], [10, -30], [30, -30], [-30, 30], [-10, 30], [10, 30], [30, 30]];
+      for (const [x, z] of spots) t = n('union', { smooth: 0 }, [t, part(x, z)]);
+      return t;
+    })(),
+  },
+  {
     name: 'deep-boolean',
     why: 'Twelve nested booleans: measures dispatch depth rather than geometry, since the surface stays simple.',
     tree: (() => {
