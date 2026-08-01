@@ -71,8 +71,14 @@ uniform sampler2D u_depth;
 uniform vec2 u_resolution;
 uniform float u_near;
 uniform float u_far;
-uniform float u_radius;
 varying vec2 vUv;
+
+// Kernel radius, and the loop bound that matches it. It used to sweep -4..4 —
+// 81 taps — and cull everything past r = 3.0, so 32 of them did a sqrt and two
+// depth linearisations only to be thrown away. -3..3 is the smallest box that
+// contains the disc, so the culled set is now just the four corners.
+const float u_radius = 3.0;
+const int R = 3;
 
 void main() {
   float px = 1.0 / u_resolution.x;
@@ -86,8 +92,8 @@ void main() {
   float outline = 0.0;
   float total = 0.0;
 
-  for (int x = -4; x <= 4; x++) {
-    for (int y = -4; y <= 4; y++) {
+  for (int x = -R; x <= R; x++) {
+    for (int y = -R; y <= R; y++) {
       if (x == 0 && y == 0) continue;
       float r = sqrt(float(x*x + y*y));
       if (r > u_radius) continue;
@@ -168,7 +174,6 @@ export class OutlinePass {
         u_resolution: { value: new THREE.Vector2(w, h) },
         u_near: { value: 0.01 },
         u_far: { value: 5000 },
-        u_radius: { value: 3.0 },
       },
       transparent: true,
       depthTest: false,
