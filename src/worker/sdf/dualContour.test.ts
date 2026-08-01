@@ -304,3 +304,71 @@ describe('dualContour active-block mask', () => {
       .toEqual(Array.from(dualContour(grid, res, bbox, node).indices));
   });
 });
+
+/**
+ * The accuracy contract for the edge root-finder.
+ *
+ * `findCrossing` was eight blind bisections plus a six-tap central-difference
+ * gradient: fourteen field evaluations per crossing, and measuring #88's A2
+ * showed that this — not the scan that finds active cells — is where dual
+ * contouring's time goes. It is now four Illinois false-position steps and a
+ * four-tap tetrahedron gradient, eight evaluations.
+ *
+ * Halving the work is only worth having if the surface does not move, so the
+ * accuracy is stated here as a number rather than left implicit in the choice
+ * of iteration count. Measured worst error at the time of the change:
+ * 0.022 voxel on a sphere, 0.053 on a torus, 0.184 on a box-minus-sphere,
+ * where the crease makes the field non-smooth across the edge.
+ */
+describe('dualContour crossing accuracy', () => {
+  const ACCURACY_VOXELS = 0.25;
+
+  const CASES: [string, SDFNode][] = [
+    ['sphere', { kind: 'sphere', radius: 6 }],
+    ['torus', { kind: 'torus', major: 6, minor: 2 }],
+    ['box minus sphere', {
+      kind: 'subtract', k: 0,
+      a: { kind: 'box', size: [10, 10, 10] },
+      b: { kind: 'sphere', radius: 6 },
+    }],
+    ['thin shell', { kind: 'shell', thickness: 1, child: { kind: 'box', size: [10, 8, 10] } }],
+  ];
+
+  it.each(CASES)('%s places every vertex on the surface', (_name, node) => {
+    const res = 48;
+    const bbox: BBox = { min: [-10, -10, -10], max: [10, 10, 10] };
+    const voxel = (bbox.max[0] - bbox.min[0]) / res;
+    const mesh = dualContour(makeGrid(node, res, bbox), res, bbox, node);
+
+    expect(mesh.positions.length).toBeGreaterThan(0);
+    let worst = 0;
+    for (let i = 0; i < mesh.positions.length; i += 3) {
+      const d = Math.abs(evaluateSDF(node, [mesh.positions[i], mesh.positions[i + 1], mesh.positions[i + 2]]));
+      if (d > worst) worst = d;
+    }
+    expect(worst / voxel).toBeLessThan(ACCURACY_VOXELS);
+  });
+
+  /**
+   * False position without the Illinois correction stalls when one endpoint
+   * never moves — which is the common case for an asymmetric bracket, exactly
+   * what a crease produces. The bracket must actually close.
+   */
+  it('converges on an asymmetric bracket, where plain false position stalls', () => {
+    const res = 48;
+    const bbox: BBox = { min: [-10, -10, -10], max: [10, 10, 10] };
+    const voxel = (bbox.max[0] - bbox.min[0]) / res;
+    // A sphere offset so most edges cross it far from their midpoint.
+    const node: SDFNode = {
+      kind: 'transform', child: { kind: 'sphere', radius: 7.3 },
+      tx: 1.7, ty: -2.3, tz: 0.9, rx: 0, ry: 0, rz: 0, sx: 1, sy: 1, sz: 1,
+    };
+    const mesh = dualContour(makeGrid(node, res, bbox), res, bbox, node);
+    let worst = 0;
+    for (let i = 0; i < mesh.positions.length; i += 3) {
+      const d = Math.abs(evaluateSDF(node, [mesh.positions[i], mesh.positions[i + 1], mesh.positions[i + 2]]));
+      if (d > worst) worst = d;
+    }
+    expect(worst / voxel).toBeLessThan(ACCURACY_VOXELS);
+  });
+});

@@ -21,15 +21,36 @@ import { solveQEF } from './qef';
 import { TRI_TABLE } from './tables';
 import type { MeshResult } from './marchingCubes';
 
-const BISECT_ITERS = 8;
+/**
+ * Root-finding iterations per edge crossing.
+ *
+ * Four, not the eight this used to bisect. Bisection ignores the two endpoint
+ * values the grid already holds and halves the bracket blindly; false position
+ * uses them, and an SDF along a single grid edge is very nearly linear, so it
+ * lands close on the first step. The Illinois modification below keeps the
+ * bracket guaranteed while restoring the superlinear convergence plain false
+ * position loses when one endpoint sticks.
+ *
+ * This is the inner loop of dual contouring — measuring A2 showed the cost is
+ * concentrated in the evaluations per crossing, not in the scan that finds
+ * them (see #88).
+ */
+const ROOT_ITERS = 4;
 
-/** Compute SDF gradient via central differences */
+/**
+ * SDF gradient by the tetrahedron technique: four samples, not the six a
+ * central difference on three axes needs.
+ *
+ * Only the direction is used — every caller normalises — so the factor-of-two
+ * scale a central difference carries is irrelevant, and so is the fact that
+ * this returns a different scale again.
+ */
 function sdfGradient(sdf: SDFNode, p: Vec3, eps: number): Vec3 {
-  return [
-    evaluateSDF(sdf, [p[0] + eps, p[1], p[2]]) - evaluateSDF(sdf, [p[0] - eps, p[1], p[2]]),
-    evaluateSDF(sdf, [p[0], p[1] + eps, p[2]]) - evaluateSDF(sdf, [p[0], p[1] - eps, p[2]]),
-    evaluateSDF(sdf, [p[0], p[1], p[2] + eps]) - evaluateSDF(sdf, [p[0], p[1], p[2] - eps]),
-  ];
+  const a = evaluateSDF(sdf, [p[0] + eps, p[1] - eps, p[2] - eps]);
+  const b = evaluateSDF(sdf, [p[0] - eps, p[1] - eps, p[2] + eps]);
+  const c = evaluateSDF(sdf, [p[0] - eps, p[1] + eps, p[2] - eps]);
+  const d = evaluateSDF(sdf, [p[0] + eps, p[1] + eps, p[2] + eps]);
+  return [a - b - c + d, -a - b + c + d, -a + b - c + d];
 }
 
 // Cell edge connectivity and corner offsets (matches tables.ts layout)
@@ -152,9 +173,15 @@ export function dualContour(grid: Float32Array, res: number, bbox: BBox, sdf: SD
   }
 
   /**
-   * Find the zero crossing on a grid edge: bisection to bracket tightly,
-   * then one secant step for sub-bisection accuracy. Endpoint values come
-   * from the grid, which holds exact SDF samples at those points.
+   * Find the zero crossing on a grid edge by Illinois false position, then one
+   * final interpolation inside the surviving bracket.
+   *
+   * Endpoint values come from the grid, which holds exact SDF samples at those
+   * points — so the first estimate is already informed rather than a blind
+   * midpoint. The bracket is maintained throughout, so this cannot leave the
+   * edge or converge to the wrong side; Illinois' halving of the stale
+   * endpoint is what stops the classic false-position stall where one end
+   * never moves and convergence degrades to linear.
    */
   function findCrossing(
     x1: number, y1: number, z1: number, v1: number,
@@ -169,13 +196,26 @@ export function dualContour(grid: Float32Array, res: number, bbox: BBox, sdf: SD
       lx = ox + x2 * dx; ly = oy + y2 * dy; lz = oz + z2 * dz; vl = v2;
       hx = ox + x1 * dx; hy = oy + y1 * dy; hz = oz + z1 * dz; vh = v1;
     }
-    for (let i = 0; i < BISECT_ITERS; i++) {
-      const mx = (lx + hx) * 0.5, my = (ly + hy) * 0.5, mz = (lz + hz) * 0.5;
+    let lastSide = 0;
+    for (let i = 0; i < ROOT_ITERS; i++) {
+      const denom = vl - vh;
+      // Clamped away from the ends: an interpolation landing exactly on an
+      // endpoint would stop the bracket shrinking at all.
+      let t = Math.abs(denom) > 1e-20 ? vl / denom : 0.5;
+      if (!(t > 0.02 && t < 0.98)) t = 0.5;
+      const mx = lx + (hx - lx) * t, my = ly + (hy - ly) * t, mz = lz + (hz - lz) * t;
       const vm = evaluateSDF(sdf, [mx, my, mz]);
-      if (vm < 0) { lx = mx; ly = my; lz = mz; vl = vm; }
-      else { hx = mx; hy = my; hz = mz; vh = vm; }
+      if (vm < 0) {
+        lx = mx; ly = my; lz = mz; vl = vm;
+        if (lastSide === -1) vh *= 0.5;
+        lastSide = -1;
+      } else {
+        hx = mx; hy = my; hz = mz; vh = vm;
+        if (lastSide === 1) vl *= 0.5;
+        lastSide = 1;
+      }
     }
-    // Secant step inside the final bracket
+    // Final interpolation inside the surviving bracket.
     const t = vh - vl > 1e-20 ? vl / (vl - vh) : 0.5;
     const pos: Vec3 = [lx + (hx - lx) * t, ly + (hy - ly) * t, lz + (hz - lz) * t];
     const g = sdfGradient(sdf, pos, eps);
