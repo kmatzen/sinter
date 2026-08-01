@@ -18,8 +18,11 @@ export interface ClipPlane {
 // specs/WorkerBridgeFixed.tla.
 export type WorkerRequest =
   | { type: 'evaluate'; rid: number; tree: SDFNodeUI | null; resolution?: number; clip?: ClipPlane }
-  | { type: 'exportSTL'; rid: number; tree: SDFNodeUI | null }
-  | { type: 'export3MF'; rid: number; tree: SDFNodeUI | null };
+  // `resolution` is the export grid's samples per axis. Optional so an older
+  // persisted request, or a caller that does not care, still means "the
+  // default" rather than "zero".
+  | { type: 'exportSTL'; rid: number; tree: SDFNodeUI | null; resolution?: number }
+  | { type: 'export3MF'; rid: number; tree: SDFNodeUI | null; resolution?: number };
 
 export type WorkerResponse =
   | { type: 'mesh'; rid: number; positions: ArrayBuffer; normals: ArrayBuffer; indices: ArrayBuffer; thickness?: ArrayBuffer }

@@ -19,6 +19,29 @@ self.postMessage({ type: 'ready' });
 
 type ProgressFn = (stage: string, percent: number) => void;
 
+/**
+ * Export grid resolution, clamped.
+ *
+ * The ceiling is memory, not patience. The grid alone is `res^3` floats:
+ *
+ *   128 -> 8 MB     256 -> 67 MB     384 -> 226 MB     512 -> 537 MB
+ *
+ * and the mesher's buffers sit on top of that. 384 is already a large
+ * allocation for a worker; 512 is most of a browser tab's budget before any
+ * geometry exists, and running out there loses the export rather than slowing
+ * it. So the ceiling matches the highest setting the UI offers, instead of
+ * leaving a programmatic caller a way to reach a resolution nobody has run.
+ *
+ * The floor keeps a mis-set value producing a coarse part rather than an
+ * unusable one.
+ */
+const DEFAULT_EXPORT_RESOLUTION = 256;
+const MAX_EXPORT_RESOLUTION = 384;
+function exportResolution(requested: number | undefined): number {
+  if (!requested || !Number.isFinite(requested)) return DEFAULT_EXPORT_RESOLUTION;
+  return Math.max(32, Math.min(MAX_EXPORT_RESOLUTION, Math.round(requested)));
+}
+
 function prepareBBox(root: SDFNode): BBox {
   // `computeBounds` is only the starting hint.  The grid the mesh is built on
   // comes from `verifiedBounds`, which asks the field itself where it can be
@@ -110,7 +133,7 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
         const progress: ProgressFn = (stage, percent) => {
           self.postMessage({ type: 'progress', rid, stage, percent: Math.round(percent) });
         };
-        const mesh = evaluateAndMeshWithProgress(req.tree, 256, progress);
+        const mesh = evaluateAndMeshWithProgress(req.tree, exportResolution(req.resolution), progress);
         if (!mesh) { self.postMessage({ type: 'error', rid, message: 'No geometry to export' }); return; }
         progress('Encoding STL', 95);
         const data = exportBinarySTL(mesh);
@@ -122,7 +145,7 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
         const progress: ProgressFn = (stage, percent) => {
           self.postMessage({ type: 'progress', rid, stage, percent: Math.round(percent) });
         };
-        const mesh = evaluateAndMeshWithProgress(req.tree, 256, progress);
+        const mesh = evaluateAndMeshWithProgress(req.tree, exportResolution(req.resolution), progress);
         if (!mesh) { self.postMessage({ type: 'error', rid, message: 'No geometry to export' }); return; }
         progress('Encoding 3MF', 95);
         const data = export3MF(mesh);

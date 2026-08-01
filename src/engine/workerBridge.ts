@@ -260,18 +260,18 @@ class WorkerBridge {
     });
   }
 
-  async exportSTL(tree: SDFNodeUI | null, onProgress?: ProgressHandler): Promise<Blob> {
+  async exportSTL(tree: SDFNodeUI | null, onProgress?: ProgressHandler, resolution?: number): Promise<Blob> {
     return this.issue<Blob>(
       this.exportChannel,
-      (rid) => ({ type: 'exportSTL', rid, tree }),
+      (rid) => ({ type: 'exportSTL', rid, tree, resolution }),
       { kind: 'export', seq: 0, mime: 'application/octet-stream', onProgress },
     );
   }
 
-  async export3MF(tree: SDFNodeUI | null, onProgress?: ProgressHandler): Promise<Blob> {
+  async export3MF(tree: SDFNodeUI | null, onProgress?: ProgressHandler, resolution?: number): Promise<Blob> {
     return this.issue<Blob>(
       this.exportChannel,
-      (rid) => ({ type: 'export3MF', rid, tree }),
+      (rid) => ({ type: 'export3MF', rid, tree, resolution }),
       { kind: 'export', seq: 0, mime: 'application/vnd.ms-package.3dmanufacturing-3dmodel+xml', onProgress },
     );
   }

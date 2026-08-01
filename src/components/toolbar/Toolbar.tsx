@@ -6,6 +6,7 @@ import { useProjectStore } from '../../store/projectStore';
 import { workerBridge, isCancelled } from '../../engine/workerBridge';
 import { triggerDownload } from '../../utils/download';
 import { useChatStore } from '../../store/chatStore';
+import { useViewportStore } from '../../store/viewportStore';
 import { ProjectList } from '../projects/ProjectList';
 import { ImportProject } from '../projects/ImportProject';
 import { ImportMesh } from '../projects/ImportMesh';
@@ -77,6 +78,8 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
    * the e2e cancel test fail on CI.
    */
   const exportEpoch = useRef(0);
+  const exportResolution = useViewportStore((s) => s.resolution);
+  const setExportResolution = useViewportStore((s) => s.setResolution);
 
   // Cancelling rejects the export promise, so the `catch` below runs on the
   // normal path. A cancel is a user decision, not a failure — it must not be
@@ -92,7 +95,7 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
     setExporting('STL');
     setExportProgress({ stage: 'Starting', percent: 0 });
     try {
-      const blob = await workerBridge.exportSTL(tree, onProgress);
+      const blob = await workerBridge.exportSTL(tree, onProgress, exportResolution);
       const triangles = new DataView(await blob.slice(80, 84).arrayBuffer()).getUint32(0, true);
       if (exportEpoch.current !== epoch) return;
       setExportPreview({ blob, name: `${projectName}.stl`, triangles, size: blob.size });
@@ -110,7 +113,7 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
     setExporting('3MF');
     setExportProgress({ stage: 'Starting', percent: 0 });
     try {
-      const blob = await workerBridge.export3MF(tree, onProgress);
+      const blob = await workerBridge.export3MF(tree, onProgress, exportResolution);
       // 3MF is a zip — estimate triangles from the uncompressed mesh size
       // STL: 50 bytes/tri. 3MF XML is ~120 bytes/tri on average.
       const triangles = Math.round(blob.size / 120);
@@ -182,6 +185,24 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
 
       {/* Desktop-only: export buttons */}
       <div className="hidden md:contents">
+        {/*
+          Export grid resolution. Cost is cubic, so this is the single biggest
+          lever over a 20s export — and a draft pass is usually what you want
+          when checking a shape fits before committing to the real one.
+        */}
+        <select
+          value={exportResolution}
+          onChange={(e) => setExportResolution(Number(e.target.value))}
+          aria-label="Export resolution"
+          title="Export resolution — cost is cubic in this"
+          disabled={!!exporting}
+          className="h-6 rounded text-[11px] px-1 focus:outline-none"
+          style={{ background: 'var(--bg-elevated)', color: 'var(--text-secondary)', border: '1px solid var(--border-subtle)' }}
+        >
+          <option value={128}>Draft</option>
+          <option value={256}>Standard</option>
+          <option value={384}>Fine</option>
+        </select>
         <IconBtn icon={<FileDown size={14} />} label={exporting === 'STL' && exportProgress ? `${Math.round(exportProgress.percent)}%` : 'STL'} title="Export STL" onClick={handleExportSTL} disabled={evaluating || !tree || !!exporting} />
         <IconBtn icon={<FileDown size={14} />} label={exporting === '3MF' && exportProgress ? `${Math.round(exportProgress.percent)}%` : '3MF'} title="Export 3MF" onClick={handleExport3MF} disabled={evaluating || !tree || !!exporting} />
         <div className="w-px h-4 mx-1" style={{ background: 'var(--border-default)' }} />

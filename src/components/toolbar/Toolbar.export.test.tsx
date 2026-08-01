@@ -32,6 +32,7 @@ vi.mock('../../engine/workerBridge', () => {
 
 import { Toolbar } from './Toolbar';
 import { useModelerStore } from '../../store/modelerStore';
+import { useViewportStore } from '../../store/viewportStore';
 
 function deferred<T>() {
   let resolve!: (v: T) => void;
@@ -155,6 +156,41 @@ describe('Toolbar export cancellation', () => {
 
     second.resolve(pendingBlob(2048, Promise.resolve(triangleHeader(40))));
     await waitFor(() => expect(screen.getByText('Download')).toBeInTheDocument());
+  });
+
+  /**
+   * Export cost is cubic in the grid resolution, so this selector is the
+   * largest lever a user has over a twenty-second export. The setting existed
+   * in the viewport store before this and nothing read it — the worker was
+   * hardcoded to 256 — so what is worth testing is that the choice actually
+   * reaches the bridge.
+   */
+  it('exports at the resolution the user picked', async () => {
+    useViewportStore.getState().setResolution(128);
+    const job = deferred<Blob>();
+    exportSTL.mockReturnValue(job.promise);
+    await startExport();
+
+    expect(exportSTL).toHaveBeenCalledWith(BOX, expect.any(Function), 128);
+
+    job.resolve(pendingBlob(1024, Promise.resolve(triangleHeader(12))));
+    await flush();
+    useViewportStore.getState().setResolution(256);
+  });
+
+  it('exports 3MF at the resolution the user picked', async () => {
+    useViewportStore.getState().setResolution(384);
+    const job = deferred<Blob>();
+    export3MF.mockReturnValue(job.promise);
+    render(<Toolbar />);
+    fireEvent.click(screen.getByTitle('Export 3MF'));
+    await waitFor(() => expect(screen.getByTitle('Cancel export')).toBeInTheDocument());
+
+    expect(export3MF).toHaveBeenCalledWith(BOX, expect.any(Function), 384);
+
+    job.resolve({ size: 2048 } as Blob);
+    await flush();
+    useViewportStore.getState().setResolution(256);
   });
 
   it('suppresses the 3MF preview when cancelled after the worker replied', async () => {
