@@ -11,8 +11,16 @@ import type { SDFNode, BBox } from './types';
  */
 export function evaluateCPUWithProgress(
   root: SDFNode, bbox: BBox, res: number, onProgress: (pct: number) => void,
+  slab?: { z0: number; z1: number },
 ): { grid: Float32Array; active: ActiveBlocks } {
   const grid = new Float32Array(res * res * res);
+  // Restricting to a z-slab is what lets this be sharded across workers
+  // (#88 A4). The octree still descends the whole cube's block structure —
+  // only the writes and the evaluations are confined — so a slab's result is
+  // bit-identical to the same z range of a full run, which is what the
+  // equality test relies on.
+  const zLo = slab ? Math.max(0, slab.z0) : 0;
+  const zHi = slab ? Math.min(res, slab.z1) : res;
 
   /**
    * Which blocks the octree had to descend into.
@@ -53,19 +61,22 @@ export function evaluateCPUWithProgress(
   function fillBlock(x0: number, y0: number, z0: number, size: number, val: number) {
     const x1 = Math.min(x0 + size, res);
     const y1 = Math.min(y0 + size, res);
-    const z1 = Math.min(z0 + size, res);
-    for (let z = z0; z < z1; z++) {
+    const z1 = Math.min(z0 + size, zHi);
+    const zStart = Math.max(z0, zLo);
+    for (let z = zStart; z < z1; z++) {
       for (let y = y0; y < y1; y++) {
         for (let x = x0; x < x1; x++) {
           grid[z * r2 + y * res + x] = val;
         }
       }
     }
-    evaluated += (x1 - x0) * (y1 - y0) * (z1 - z0);
+    evaluated += (x1 - x0) * (y1 - y0) * Math.max(0, z1 - zStart);
   }
 
   function subdivide(x0: number, y0: number, z0: number, size: number) {
     if (x0 >= res || y0 >= res || z0 >= res) return;
+    // Wholly outside this shard's z range: nothing to write, nothing to prove.
+    if (z0 + size <= zLo || z0 >= zHi) return;
 
     if (size <= 1) {
       // Single voxel — evaluate directly
@@ -109,8 +120,8 @@ export function evaluateCPUWithProgress(
       // Can't subdivide further — evaluate remaining voxels directly
       const x1 = Math.min(x0 + size, res);
       const y1 = Math.min(y0 + size, res);
-      const z1 = Math.min(z0 + size, res);
-      for (let z = z0; z < z1; z++) {
+      const z1 = Math.min(z0 + size, zHi);
+      for (let z = Math.max(z0, zLo); z < z1; z++) {
         for (let y = y0; y < y1; y++) {
           for (let x = x0; x < x1; x++) {
             grid[z * r2 + y * res + x] = evaluateSDF(root, [
@@ -147,7 +158,7 @@ export function evaluateCPUWithProgress(
 }
 
 /** Block size, in voxels, of the active-cell mask. */
-const ACTIVE_BLOCK = 8;
+export const ACTIVE_BLOCK = 8;
 
 export interface ActiveBlocks {
   /** Blocks per axis. */
