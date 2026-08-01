@@ -21,13 +21,6 @@ type Quadric = [number, number, number, number, number, number, number, number, 
 
 function emptyQ(): Quadric { return [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]; }
 
-function addQ(a: Quadric, b: Quadric): Quadric {
-  return [
-    a[0]+b[0], a[1]+b[1], a[2]+b[2], a[3]+b[3], a[4]+b[4],
-    a[5]+b[5], a[6]+b[6], a[7]+b[7], a[8]+b[8], a[9]+b[9],
-  ];
-}
-
 /** Build a quadric from a plane equation ax + by + cz + d = 0 */
 function planeQ(a: number, b: number, c: number, d: number): Quadric {
   return [
@@ -113,8 +106,24 @@ class MinHeap {
   }
 }
 
-function edgeKey(a: number, b: number): string {
-  return a < b ? `${a},${b}` : `${b},${a}`;
+/**
+ * Edge identity as a number, not a string.
+ *
+ * This is built for every edge on every heap seed, every staleness check and
+ * every neighbour re-insert — millions of times on a real export — and each
+ * one allocated a string and hashed it. Packing the ordered pair into a single
+ * float64 is exact for meshes under 2^21 vertices, and lets the maps behind it
+ * be keyed on numbers.
+ *
+ * 2^21 = 2,097,152, and the product with the low index stays under 2^53, so
+ * the key is an exact integer. `MAX_PACKED_VERTS` is checked at entry rather
+ * than assumed: silently colliding two edges would collapse the wrong one.
+ */
+const EDGE_SHIFT = 2097152;
+export const MAX_PACKED_VERTS = EDGE_SHIFT;
+
+function edgeKey(a: number, b: number): number {
+  return a < b ? a * EDGE_SHIFT + b : b * EDGE_SHIFT + a;
 }
 
 export interface SimplifyOptions {
@@ -143,6 +152,12 @@ export function simplifyMesh(mesh: MeshResult, target: number | SimplifyOptions,
 
   const { positions, normals, indices } = mesh;
   const numVerts = positions.length / 3;
+  if (numVerts >= MAX_PACKED_VERTS) {
+    // Edge identity is a packed pair of vertex indices. Past this the packing
+    // is no longer injective and two different edges would collapse as one, so
+    // refuse rather than corrupt the mesh.
+    throw new Error(`simplifyMesh: ${numVerts} vertices exceeds the ${MAX_PACKED_VERTS} edge-key limit`);
+  }
   const numTris = indices.length / 3;
   const ratio = opts.targetRatio !== undefined ? Math.max(0.01, Math.min(1, opts.targetRatio)) : 0;
   const targetTris = Math.max(4, Math.floor(numTris * ratio));
@@ -182,9 +197,16 @@ export function simplifyMesh(mesh: MeshResult, target: number | SimplifyOptions,
     return v;
   }
 
-  // Compute per-vertex quadrics from face planes
-  const quadrics: Quadric[] = new Array(numVerts);
-  for (let i = 0; i < numVerts; i++) quadrics[i] = emptyQ();
+  /**
+   * All quadrics in one buffer, ten doubles each, accumulated in place.
+   *
+   * These used to be `numVerts` separate 10-element JS arrays, with `addQ`
+   * allocating a fresh one per call — three times per triangle while building
+   * them, and again inside `computeEdgeCost`, which runs for every heap seed
+   * and every neighbour re-insert. The additions happen in the same order as
+   * before, so the arithmetic is unchanged.
+   */
+  const quadrics = new Float64Array(numVerts * 10);
 
   for (let t = 0; t < numTris; t++) {
     const i0 = triV[t * 3], i1 = triV[t * 3 + 1], i2 = triV[t * 3 + 2];
@@ -198,14 +220,25 @@ export function simplifyMesh(mesh: MeshResult, target: number | SimplifyOptions,
     nx /= len; ny /= len; nz /= len;
     const d = -(nx * vx[i0] + ny * vy[i0] + nz * vz[i0]);
     const fq = planeQ(nx, ny, nz, d);
-    quadrics[i0] = addQ(quadrics[i0], fq);
-    quadrics[i1] = addQ(quadrics[i1], fq);
-    quadrics[i2] = addQ(quadrics[i2], fq);
+    for (let k = 0; k < 10; k++) {
+      const v = fq[k];
+      quadrics[i0 * 10 + k] += v;
+      quadrics[i1 * 10 + k] += v;
+      quadrics[i2 * 10 + k] += v;
+    }
+  }
+
+  /** Scratch for the summed quadric of an edge, reused across calls. */
+  const edgeQ: Quadric = emptyQ();
+  function sumQuadrics(ra: number, rb: number): Quadric {
+    const oa = ra * 10, ob = rb * 10;
+    for (let k = 0; k < 10; k++) edgeQ[k] = quadrics[oa + k] + quadrics[ob + k];
+    return edgeQ;
   }
 
   // Compute cost and optimal position for collapsing edge (ra, rb)
   function computeEdgeCost(ra: number, rb: number): { cost: number; pos: [number, number, number] } {
-    const q = addQ(quadrics[ra], quadrics[rb]);
+    const q = sumQuadrics(ra, rb);
     const mid: [number, number, number] = [
       (vx[ra] + vx[rb]) * 0.5, (vy[ra] + vy[rb]) * 0.5, (vz[ra] + vz[rb]) * 0.5,
     ];
@@ -240,10 +273,10 @@ export function simplifyMesh(mesh: MeshResult, target: number | SimplifyOptions,
   const heap = new MinHeap();
   let gen = 0;
   // Per-edge generation: only the latest generation is valid
-  const edgeGen = new Map<string, number>();
+  const edgeGen = new Map<number, number>();
 
   // Seed the heap with all edges
-  const seenEdges = new Set<string>();
+  const seenEdges = new Set<number>();
   for (let t = 0; t < numTris; t++) {
     const a = triV[t * 3], b = triV[t * 3 + 1], c = triV[t * 3 + 2];
     for (const [u, v] of [[a,b],[a,c],[b,c]] as [number,number][]) {
@@ -350,7 +383,7 @@ export function simplifyMesh(mesh: MeshResult, target: number | SimplifyOptions,
     // Perform collapse: merge rb into ra
     rep[rb] = ra;
     vx[ra] = pos[0]; vy[ra] = pos[1]; vz[ra] = pos[2];
-    quadrics[ra] = addQ(quadrics[ra], quadrics[rb]);
+    for (let k = 0; k < 10; k++) quadrics[ra * 10 + k] += quadrics[rb * 10 + k];
 
     // Merge triangle lists
     for (const t of vertTris[rb]) {

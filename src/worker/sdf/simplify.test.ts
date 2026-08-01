@@ -79,6 +79,25 @@ function meshFromSDF(node: SDFNode, res: number): ReturnType<typeof marchingCube
 }
 
 describe('simplifyMesh', () => {
+  /**
+   * The quadrics live in one flat Float64Array and the per-edge sum is written
+   * into a single reused scratch buffer, so a stale value surviving from one
+   * edge into the next would corrupt a collapse decision — silently, and only
+   * on some meshes. Two runs over the same input must agree exactly, and a run
+   * after an unrelated mesh must agree with a run on its own.
+   */
+  it('gives identical output across runs, and is not affected by a previous call', () => {
+    const mesh = meshFromSDF({ kind: 'sphere', radius: 5 }, 24);
+    const a = simplifyMesh(mesh, { maxError: 0.05 });
+
+    // Interleave an unrelated, differently-sized mesh between the two runs.
+    simplifyMesh(meshFromSDF({ kind: 'box', size: [6, 4, 8] }, 16), { maxError: 0.2 });
+
+    const b = simplifyMesh(mesh, { maxError: 0.05 });
+    expect(Array.from(b.indices)).toEqual(Array.from(a.indices));
+    expect(Array.from(b.positions)).toEqual(Array.from(a.positions));
+  });
+
   it('reduces triangle count to target ratio', () => {
     const mesh = meshFromSDF({ kind: 'sphere', radius: 5 }, 24);
     const origTris = mesh.indices.length / 3;
