@@ -100,3 +100,41 @@ describe('fitPrimitive', () => {
     expect(JSON.stringify(b.node)).toBe(JSON.stringify(a.node));
   });
 });
+
+/**
+ * Most things people export are not axis-aligned. The fitter estimates an
+ * orientation from the principal axes of the surface points rather than
+ * searching for one, so a rod at an arbitrary angle is recognised as a rod.
+ */
+describe('fitPrimitive orientation', () => {
+  const tilted = (deg: [number, number, number]): SDFNode => ({
+    kind: 'transform',
+    child: { kind: 'cylinder', radius: 6, height: 30 },
+    tx: 0, ty: 0, tz: 0, rx: deg[0], ry: deg[1], rz: deg[2], sx: 1, sy: 1, sz: 1,
+  });
+
+  it.each([
+    ['tilted 30 deg about X', [30, 0, 0] as [number, number, number]],
+    ['tilted 40/25 deg', [40, 25, 0] as [number, number, number]],
+  ])('recovers a cylinder %s', (_name, deg) => {
+    const field = bakeMeshField(soupFor(tilted(deg)), 44);
+    const fit = fitPrimitive(field)!;
+    expect(fit.kind).toMatch(/^(Cylinder|Capsule)/);
+    // A tilted rod through a 44^3 grid is a coarse thing to fit; the claim is
+    // that it is recognised as a rod and the error is stated, not that it is
+    // exact. An axis-aligned-only fitter reports a box or a badly-sized
+    // capsule here, several times worse.
+    expect(fit.relativeError).toBeLessThan(0.12);
+  });
+
+  /**
+   * The axis-aligned answer must not regress: a cylinder already on Y should
+   * still come back as the simple Y candidate rather than as a fitted-axis one
+   * that happens to point the same way, because the simple one has cleaner
+   * numbers in the tree.
+   */
+  it('still prefers the plain axis for an axis-aligned cylinder', () => {
+    const field = bakeMeshField(soupFor({ kind: 'cylinder', radius: 9, height: 30 }), 40);
+    expect(fitPrimitive(field)!.kind).toMatch(/\(Y\)$/);
+  });
+});

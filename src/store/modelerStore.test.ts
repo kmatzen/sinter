@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { useModelerStore } from './modelerStore';
 import { isTreeValid } from '../types/operations';
+import type { SDFNodeUI } from '../types/operations';
 
 // Reset store between tests
 function reset() {
