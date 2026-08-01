@@ -22,15 +22,24 @@ type ProgressFn = (stage: string, percent: number) => void;
 /**
  * Export grid resolution, clamped.
  *
- * Cost is cubic in this, so the ceiling is not politeness — 512 is eight times
- * the work of 256, and 256 already dominates the export. The floor keeps a
- * mis-set value from producing a mesh too coarse to be a part rather than
- * merely a fast one.
+ * The ceiling is memory, not patience. The grid alone is `res^3` floats:
+ *
+ *   128 -> 8 MB     256 -> 67 MB     384 -> 226 MB     512 -> 537 MB
+ *
+ * and the mesher's buffers sit on top of that. 384 is already a large
+ * allocation for a worker; 512 is most of a browser tab's budget before any
+ * geometry exists, and running out there loses the export rather than slowing
+ * it. So the ceiling matches the highest setting the UI offers, instead of
+ * leaving a programmatic caller a way to reach a resolution nobody has run.
+ *
+ * The floor keeps a mis-set value producing a coarse part rather than an
+ * unusable one.
  */
 const DEFAULT_EXPORT_RESOLUTION = 256;
+const MAX_EXPORT_RESOLUTION = 384;
 function exportResolution(requested: number | undefined): number {
   if (!requested || !Number.isFinite(requested)) return DEFAULT_EXPORT_RESOLUTION;
-  return Math.max(32, Math.min(512, Math.round(requested)));
+  return Math.max(32, Math.min(MAX_EXPORT_RESOLUTION, Math.round(requested)));
 }
 
 function prepareBBox(root: SDFNode): BBox {
