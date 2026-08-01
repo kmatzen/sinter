@@ -7,6 +7,10 @@ import type { SDFNode, BBox } from './sdf/types';
 import { computeBounds } from './sdf/bounds';
 import { verifiedBounds } from './sdf/interval';
 import { evaluateCPUWithProgress } from './sdf/gridEval';
+import { fitPrimitive } from './sdf/fitPrimitive';
+import { bakeMeshField } from './sdf/meshField';
+import { decodeMeshPositions, DEFAULT_MESH_RESOLUTION } from './sdf/convert';
+import type { MeshFitResult } from '../types/geometry';
 import { generateSDFFunction } from './sdf/codegen';
 import { dualContour } from './sdf/dualContour';
 import { exportBinarySTL } from './stlExporter';
@@ -105,6 +109,39 @@ function evaluateAndMeshWithProgress(tree: SDFNodeUI | null, resolution: number,
   return projectVerticesToSurface(simplified, root, voxel * 0.5);
 }
 
+/**
+ * Turn the fitter's output back into a document node.
+ *
+ * Only handles what `fitPrimitive` emits — a primitive, optionally inside one
+ * transform — rather than being a general inverse of `toSDFNode`. A general one
+ * would be a second source of truth for the conversion and would rot.
+ */
+function toUINode(node: SDFNode): SDFNodeUI {
+  const id = () => Math.random().toString(36).slice(2) + Date.now().toString(36);
+  switch (node.kind) {
+    case 'box':
+      return { id: id(), kind: 'box', label: 'Box', params: { width: node.size[0], height: node.size[1], depth: node.size[2] }, children: [], enabled: true };
+    case 'sphere':
+      return { id: id(), kind: 'sphere', label: 'Sphere', params: { radius: node.radius }, children: [], enabled: true };
+    case 'cylinder':
+      return { id: id(), kind: 'cylinder', label: 'Cylinder', params: { radius: node.radius, height: node.height }, children: [], enabled: true };
+    case 'capsule':
+      return { id: id(), kind: 'capsule', label: 'Capsule', params: { radius: node.radius, height: node.height }, children: [], enabled: true };
+    case 'transform': {
+      let out = toUINode(node.child);
+      if (node.rx || node.ry || node.rz) {
+        out = { id: id(), kind: 'rotate', label: 'Rotate', params: { x: node.rx, y: node.ry, z: node.rz }, children: [out], enabled: true };
+      }
+      if (node.tx || node.ty || node.tz) {
+        out = { id: id(), kind: 'translate', label: 'Translate', params: { x: node.tx, y: node.ty, z: node.tz }, children: [out], enabled: true };
+      }
+      return out;
+    }
+    default:
+      throw new Error(`fit produced an unexpected node kind: ${node.kind}`);
+  }
+}
+
 self.onmessage = (event: MessageEvent<WorkerRequest>) => {
   const req = event.data;
   const rid = req.rid;
@@ -126,6 +163,22 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
         const bbMax: [number, number, number] = [...bbox.max];
         const compiled = generateSDFFunction(root);
         self.postMessage({ type: 'sdf', rid, glsl: compiled.glsl, paramCount: compiled.paramCount, paramValues: compiled.paramValues, textures: compiled.textures, bbMin, bbMax, hasWarn: compiled.hasWarn });
+        break;
+      }
+
+      case 'fitMesh': {
+        const positions = decodeMeshPositions(req.meshPositions);
+        const res = Math.max(8, Math.min(96, Math.round(req.resolution || DEFAULT_MESH_RESOLUTION)));
+        const fit = fitPrimitive(bakeMeshField(positions, res));
+        const out: MeshFitResult | null = fit === null ? null : {
+          kind: fit.kind,
+          surfaceMax: fit.surfaceMax,
+          surfaceRms: fit.surfaceRms,
+          relativeError: fit.relativeError,
+          acceptable: fit.acceptable,
+          node: toUINode(fit.node),
+        };
+        self.postMessage({ type: 'fitResult', rid, fit: out });
         break;
       }
 

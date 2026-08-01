@@ -24,6 +24,12 @@ function hashString(s: string): string {
   return (h >>> 0).toString(36) + ':' + s.length;
 }
 
+export function decodeMeshPositions(b64: string): Float32Array {
+  const floats = decodeBase64Floats(b64);
+  // Whole triangles only.
+  return floats.subarray(0, Math.floor(floats.length / 9) * 9);
+}
+
 function decodeBase64Floats(b64: string): Float32Array {
   const bin = atob(b64);
   const bytes = new Uint8Array(bin.length);

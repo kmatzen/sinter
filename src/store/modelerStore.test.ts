@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { useModelerStore } from './modelerStore';
 import { isTreeValid } from '../types/operations';
+import type { SDFNodeUI } from '../types/operations';
 
 // Reset store between tests
 function reset() {
@@ -800,5 +801,47 @@ describe('Modeler editing scenarios', () => {
       expect(getState().tree!.children[0].params.width).toBe(100);
       expect(isTreeValid(getState().tree)).toBe(true);
     });
+  });
+});
+
+/**
+ * Swapping an imported mesh for the primitive fitted to it (#87) has to be one
+ * history entry. As an insert plus a remove it was two, so undoing a fit took
+ * two presses and the state in between had the mesh gone and the primitive not
+ * yet back — a visibly broken tree the user did not ask for.
+ */
+describe('replaceNode', () => {
+  const leaf = (id: string, kind = 'box'): SDFNodeUI => ({
+    id, kind, label: kind, params: { width: 10, height: 10, depth: 10 }, children: [], enabled: true,
+  });
+
+  beforeEach(() => {
+    useModelerStore.setState({ tree: null, history: [null], historyIndex: 0, selectedNodeId: null });
+  });
+
+  it('swaps a nested node and takes one undo to put back', () => {
+    const tree: SDFNodeUI = {
+      id: 'u', kind: 'union', label: 'Union', params: { smooth: 0 },
+      children: [leaf('a'), leaf('b')], enabled: true,
+    };
+    useModelerStore.setState({ tree, history: [tree], historyIndex: 0 });
+
+    useModelerStore.getState().replaceNode('b', leaf('c', 'sphere'));
+
+    const after = useModelerStore.getState().tree!;
+    expect(after.children.map((n) => n.id)).toEqual(['a', 'c']);
+    expect(useModelerStore.getState().selectedNodeId).toBe('c');
+
+    useModelerStore.getState().undo();
+    expect(useModelerStore.getState().tree!.children.map((n) => n.id)).toEqual(['a', 'b']);
+  });
+
+  it('swaps the root', () => {
+    const tree = leaf('root');
+    useModelerStore.setState({ tree, history: [tree], historyIndex: 0 });
+    useModelerStore.getState().replaceNode('root', leaf('new', 'sphere'));
+    expect(useModelerStore.getState().tree!.id).toBe('new');
+    useModelerStore.getState().undo();
+    expect(useModelerStore.getState().tree!.id).toBe('root');
   });
 });

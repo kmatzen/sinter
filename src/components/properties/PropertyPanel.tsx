@@ -1,4 +1,7 @@
+import { useState } from 'react';
 import { useModelerStore } from '../../store/modelerStore';
+import { workerBridge } from '../../engine/workerBridge';
+import type { MeshFitResult } from '../../types/geometry';
 import { NODE_LABELS, NODE_KINDS, type SDFNodeUI } from '../../types/operations';
 import { NumberInput } from './NumberInput';
 
@@ -186,6 +189,100 @@ export function PropertyPanel() {
   );
 }
 
+/**
+ * Offer to replace an imported mesh with the primitive that best matches it
+ * (#87 layer 2).
+ *
+ * The residual is shown in millimetres whether the fit is good or not, and the
+ * Replace button only appears when it is good. That is the honest shape for
+ * this: accepting a bad fit costs the user their original geometry, so the
+ * failure has to be a *stated number* rather than a silent no-op or, worse, a
+ * confident wrong tree.
+ */
+function FitPrimitive({ node }: { node: SDFNodeUI }) {
+  const replaceNode = useModelerStore((s) => s.replaceNode);
+  const [busy, setBusy] = useState(false);
+  const [fit, setFit] = useState<MeshFitResult | null | undefined>(undefined);
+  const [error, setError] = useState<string | null>(null);
+
+  const run = async () => {
+    const mesh = node.data?.meshPositions;
+    if (!mesh) return;
+    setBusy(true);
+    setError(null);
+    try {
+      setFit(await workerBridge.fitMesh(mesh, node.params.resolution));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const apply = () => {
+    if (!fit?.node) return;
+    // One history entry, so undoing the fit is one press and never leaves the
+    // tree with the mesh gone and the primitive not yet in.
+    replaceNode(node.id, fit.node);
+  };
+
+  const mm = (v: number) => `${v.toFixed(2)} mm`;
+
+  return (
+    <>
+      <SectionLabel>Fit a primitive</SectionLabel>
+      <div className="px-2">
+        <button
+          onClick={run}
+          disabled={busy}
+          className="w-full h-7 rounded text-[11px] font-medium"
+          style={{ background: 'var(--bg-elevated)', color: 'var(--text-secondary)', border: '1px solid var(--border-default)', opacity: busy ? 0.6 : 1 }}
+        >
+          {busy ? 'Fitting…' : 'Find best primitive'}
+        </button>
+
+        {error && (
+          <div role="alert" className="text-[10px] mt-2" style={{ color: 'var(--accent-red, #e06c6c)' }}>{error}</div>
+        )}
+
+        {fit === null && (
+          <div className="text-[10px] mt-2" style={{ color: 'var(--text-muted)' }}>
+            There is no solid in this mesh to fit.
+          </div>
+        )}
+
+        {fit && (
+          <div className="mt-2 text-[10px] leading-snug" style={{ color: 'var(--text-muted)' }}>
+            <div style={{ color: 'var(--text-secondary)' }}>
+              {fit.kind} — worst {mm(fit.surfaceMax)}, rms {mm(fit.surfaceRms)}
+            </div>
+            {fit.acceptable ? (
+              <>
+                <div className="mt-0.5">
+                  {(fit.relativeError * 100).toFixed(1)}% of the part's size. Replacing loses the
+                  original mesh.
+                </div>
+                <button
+                  onClick={apply}
+                  className="w-full h-7 rounded text-[11px] font-medium mt-2"
+                  style={{ background: 'var(--accent)', color: 'var(--bg-deep)' }}
+                >
+                  Replace with {fit.kind}
+                </button>
+              </>
+            ) : (
+              <div className="mt-0.5">
+                No single primitive matches this shape — off by {(fit.relativeError * 100).toFixed(1)}%
+                of its size. Keeping the mesh.
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
+
 function NodeEditor({ node, onUpdate, onUpdateStr }: { node: SDFNodeUI; onUpdate: (p: Record<string, number>) => void; onUpdateStr: (d: Record<string, string>) => void }) {
   const p = node.params;
 
@@ -320,6 +417,7 @@ function NodeEditor({ node, onUpdate, onUpdateStr }: { node: SDFNodeUI; onUpdate
             min={8}
             max={96}
             step={8}
+            unit=""
             onChange={(v) => onUpdate({ resolution: Math.round(v) })}
           />
           {/*
@@ -333,6 +431,7 @@ function NodeEditor({ node, onUpdate, onUpdateStr }: { node: SDFNodeUI; onUpdate
             Samples per axis. Detail finer than one cell is rounded off; higher
             costs bake time and memory cubically.
           </div>
+          <FitPrimitive node={node} />
         </>
       );
     case 'text':
