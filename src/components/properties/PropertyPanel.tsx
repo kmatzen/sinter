@@ -419,6 +419,7 @@ function NodeEditor({ node, onUpdate, onUpdateStr }: { node: SDFNodeUI; onUpdate
             min={8}
             max={96}
             step={8}
+            unit=""
             onChange={(v) => onUpdate({ resolution: Math.round(v) })}
           />
           {/*
