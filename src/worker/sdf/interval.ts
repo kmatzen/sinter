@@ -1,3 +1,4 @@
+import { sampleMeshField } from './meshField';
 import type { SDFNode, BBox, Vec3 } from './types';
 
 /**
@@ -240,6 +241,20 @@ export function evaluateInterval(node: SDFNode, box: BBox): Interval {
       const outside = lengthI(q.map((c) => maxK(c, 0)));
       const inside = minK(maxI(maxI(q[0], q[1]), q[2]), 0);
       return I(add(outside, inside).lo, Infinity);
+    }
+    case 'mesh': {
+      // The baked field is at worst sqrt(3)-Lipschitz: trilinear interpolation
+      // of samples of a 1-Lipschitz function has each partial derivative
+      // bounded by the neighbouring grid difference over the spacing, which is
+      // at most 1, so the gradient magnitude is at most sqrt(3). Evaluating at
+      // the box centre and widening by sqrt(3) times the half-diagonal is
+      // therefore a sound enclosure — which is what the mesher's octree needs
+      // it to be, since it prunes on this excluding zero.
+      const cx = (x.lo + x.hi) / 2, cy = (y.lo + y.hi) / 2, cz = (z.lo + z.hi) / 2;
+      const hx = (x.hi - x.lo) / 2, hy = (y.hi - y.lo) / 2, hz = (z.hi - z.lo) / 2;
+      const reach = Math.sqrt(3) * Math.sqrt(hx * hx + hy * hy + hz * hz);
+      const c = sampleMeshField(node.field, cx, cy, cz);
+      return I(c - reach, c + reach);
     }
     case '_far':
       return I(1e10, 1e10);

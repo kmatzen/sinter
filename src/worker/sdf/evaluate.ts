@@ -1,5 +1,6 @@
 import type { SDFNode, Vec3 } from './types';
 import { hasGlyphOutlines } from './types';
+import { sampleMeshField } from './meshField';
 import { linearWindow, circularWindow } from './patternWindow';
 
 /**
@@ -287,6 +288,8 @@ export function evalAt(node: SDFNode, px: number, py: number, pz: number): numbe
       const inside = Math.min(Math.max(qx, qy, qz), 0);
       return outside + inside;
     }
+    case 'mesh':
+      return sampleMeshField(node.field, px, py, pz);
     case '_far':
       return 1e10;
   }

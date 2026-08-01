@@ -377,13 +377,21 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
         kind: data.kind,
         label: data.label || NODE_LABELS[data.kind] || data.kind,
         params: data.params || NODE_DEFAULTS[data.kind] || {},
+        // `data` carries what params cannot: a text node's glyph outlines, an
+        // imported mesh's geometry. Dropping it here turned an imported STL
+        // into an empty node — and had been doing the same to text.
+        ...(data.data ? { data: { ...data.data } } : {}),
         children: (data.children || []).map(hydrate),
         enabled: data.enabled !== false,
       };
     }
     const newNode = hydrate(nodeData);
     const { tree } = get();
-    const isPrim = NODE_KINDS.primitives.includes(newNode.kind as any);
+    // "Takes no children", not "is in the primitives palette". `text` and
+    // `mesh` are leaves that the palette does not offer — a mesh only exists
+    // once a file has been imported — and treating them as operators made them
+    // land as wrappers with nothing to wrap, or not land at all.
+    const isPrim = expectedChildren(newNode.kind) === 0;
     const isOp = !isPrim; // boolean, modifier, transform, pattern
 
     // Commit plus the expansion bookkeeping this action shares across branches.

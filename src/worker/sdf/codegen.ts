@@ -160,6 +160,120 @@ void glyph_accBez(vec2 p, vec2 a, vec2 b, vec2 c, inout float minD, inout float 
 
 let glyphHelpersEmitted = false;
 
+/**
+ * GPU side of the imported-mesh field (#87).
+ *
+ * The field is a 3D grid and WebGL1 has no 3D textures, so the z-slices are
+ * laid out as tiles in one 2D texture and the shader addresses them
+ * arithmetically. Filtering is `NEAREST` and the trilinear blend is written out
+ * by hand, because hardware bilinear would happily interpolate across a tile
+ * boundary — mixing the edge of one z-slice with the start of the next, which
+ * is geometry from the other side of the model.
+ *
+ * Values are 16-bit fixed point across the red and green channels rather than
+ * 8-bit in one. Eight bits over a 25mm field is a 0.1mm quantisation step,
+ * visible as terracing on a shaded surface; sixteen puts it at 0.0004mm.
+ *
+ * The texture is RGBA even though only two channels carry data. RG8 exists in
+ * WebGL2, which is what the app renders with, but not in WebGL1, which is what
+ * the parity harness uses — and a format that needs `.rg` on one and `.ra` on
+ * the other would mean two shaders, which is the thing this whole design
+ * exists to avoid. Two wasted bytes per texel is the price of one shader.
+ *
+ * The arithmetic below is the same as `sampleMeshField`, including the
+ * out-of-box fallback, because `sdf-parity` compares the two and a mesh node
+ * has no meaning if they disagree.
+ */
+const MESH_HELPERS = `float mesh_decode(vec2 rg, float lo, float hi) {
+  float u16 = rg.r * 255.0 * 256.0 + rg.g * 255.0;
+  return lo + (u16 / 65535.0) * (hi - lo);
+}`;
+
+let meshHelpersEmitted = false;
+
+/** Tiles per row in the atlas, and the atlas size that implies. */
+export function meshAtlasLayout(res: number) {
+  const tilesPerRow = Math.ceil(Math.sqrt(res));
+  const rows = Math.ceil(res / tilesPerRow);
+  return { tilesPerRow, rows, width: tilesPerRow * res, height: rows * res };
+}
+
+/**
+ * Pack a baked field into an RG8 atlas, and emit the function that samples it.
+ */
+function registerMeshTexture(node: Extract<SDFNode, { kind: 'mesh' }>): { fn: string } {
+  if (!meshHelpersEmitted) {
+    helperFunctions.push(MESH_HELPERS);
+    meshHelpersEmitted = true;
+  }
+
+  const { field } = node;
+  const { res, data, bbox } = field;
+  const { tilesPerRow, width, height } = meshAtlasLayout(res);
+
+  let lo = Infinity, hi = -Infinity;
+  for (let i = 0; i < data.length; i++) {
+    if (data[i] < lo) lo = data[i];
+    if (data[i] > hi) hi = data[i];
+  }
+  // A constant field would divide by zero on decode.
+  if (!(hi > lo)) hi = lo + 1;
+
+  const bytes = new Array<number>(width * height * 4).fill(0);
+  for (let k = 0; k < res; k++) {
+    const tx = (k % tilesPerRow) * res;
+    const ty = Math.floor(k / tilesPerRow) * res;
+    for (let j = 0; j < res; j++) {
+      for (let i = 0; i < res; i++) {
+        const u = (data[k * res * res + j * res + i] - lo) / (hi - lo);
+        const q = Math.max(0, Math.min(65535, Math.round(u * 65535)));
+        const o = ((ty + j) * width + (tx + i)) * 4;
+        bytes[o] = q >> 8;
+        bytes[o + 1] = q & 0xff;
+        bytes[o + 3] = 255;
+      }
+    }
+  }
+
+  const name = `u_mesh_${textures.length}`;
+  textures.push({ name, width, height, data: bytes, channels: 4 });
+
+  const fn = `sdf_mesh_${helperCounter++}`;
+  const R = g(res), TPR = g(tilesPerRow), W = g(width), H = g(height);
+  helperFunctions.push(`float ${fn}(vec3 mp) {
+  vec3 lo = vec3(${g(bbox.min[0])}, ${g(bbox.min[1])}, ${g(bbox.min[2])});
+  vec3 hi = vec3(${g(bbox.max[0])}, ${g(bbox.max[1])}, ${g(bbox.max[2])});
+  vec3 scale = vec3(${R} - 1.0) / (hi - lo);
+  vec3 gp = (mp - lo) * scale;
+  // Distance travelled to reach the box, kept so the out-of-box branch below
+  // can bound the result the same way the CPU does.
+  vec3 over = (max(vec3(0.0) - gp, 0.0) + max(gp - (${R} - 1.0), 0.0)) / scale;
+  float outside = length(over);
+  gp = clamp(gp, 0.0, ${R} - 1.0);
+  vec3 base = min(floor(gp), ${R} - 2.0);
+  vec3 f = gp - base;
+
+  float v[8];
+  for (int c = 0; c < 8; c++) {
+    vec3 off = vec3(float(c - (c / 2) * 2), float((c / 2) - (c / 4) * 2), float(c / 4));
+    vec3 idx = base + off;
+    float tileX = mod(idx.z, ${TPR});
+    float tileY = floor(idx.z / ${TPR});
+    vec2 uv = (vec2(tileX * ${R} + idx.x, tileY * ${R} + idx.y) + 0.5) / vec2(${W}, ${H});
+    v[c] = mesh_decode(texture2D(${name}, uv).rg, ${g(lo)}, ${g(hi)});
+  }
+
+  float c00 = mix(v[0], v[1], f.x);
+  float c10 = mix(v[2], v[3], f.x);
+  float c01 = mix(v[4], v[5], f.x);
+  float c11 = mix(v[6], v[7], f.x);
+  float value = mix(mix(c00, c10, f.y), mix(c01, c11, f.y), f.z);
+  if (outside > 0.0) return max(outside, value - outside);
+  return value;
+}`);
+  return { fn };
+}
+
 type GlyphSeg = { x0: number; y0: number; x1: number; y1: number };
 type GlyphBez = { x0: number; y0: number; x1: number; y1: number; x2: number; y2: number };
 
@@ -437,6 +551,11 @@ function emitNode(node: SDFNode, pVar: string, lines: string[]): string {
       lines.push(`float ${result} = length(max(qt_${result}, 0.0)) + min(max(qt_${result}.x, max(qt_${result}.y, qt_${result}.z)), 0.0);`);
       return result;
     }
+    case 'mesh': {
+      const tex = registerMeshTexture(node);
+      lines.push(`float ${result} = ${tex.fn}(${pVar});`);
+      return result;
+    }
     case '_far':
       lines.push(`float ${result} = 1e10;`);
       return result;
@@ -448,6 +567,8 @@ export interface TextureData {
   width: number;
   height: number;
   data: number[];
+  /** Bytes per texel: 1 for a single-channel map, 4 for RGBA. */
+  channels: number;
 }
 
 export interface SDFCompileResult {
@@ -508,6 +629,7 @@ export function generateSDFFunction(root: SDFNode): SDFCompileResult {
   helperFunctions = [];
   helperCounter = 0;
   glyphHelpersEmitted = false;
+  meshHelpersEmitted = false;
   const lines: string[] = [];
   const finalVar = emitNode(root, 'p', lines);
 

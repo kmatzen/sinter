@@ -1,5 +1,43 @@
 import type { SDFNodeUI } from '../../types/operations';
-import type { SDFNode } from './types';
+import type { SDFNode, MeshFieldData } from './types';
+import { bakeMeshField } from './meshField';
+
+/**
+ * Baked mesh fields, keyed by the mesh data and the resolution asked for.
+ *
+ * Baking is `res^3` closest-point queries against a BVH — seconds for a real
+ * part — and `toSDFNode` runs on every evaluate. Without this, dragging any
+ * unrelated slider would re-bake every imported mesh in the tree.
+ *
+ * Unbounded on purpose: the key includes the mesh, so the only way to grow it
+ * is to import more meshes, and a tree holds its own meshes alive anyway.
+ */
+const fieldCache = new Map<string, MeshFieldData>();
+
+/** FNV-1a, so the cache key is not the whole megabyte of base64. */
+function hashString(s: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i) & 0xff;
+    h = Math.imul(h, 0x01000193);
+  }
+  return (h >>> 0).toString(36) + ':' + s.length;
+}
+
+function decodeBase64Floats(b64: string): Float32Array {
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  // Copy rather than view: the byte offset of a Uint8Array from `atob` is 0,
+  // but its buffer length need not be a multiple of 4 if the data is corrupt,
+  // and a misaligned view throws where a truncating copy degrades.
+  const floats = new Float32Array(Math.floor(bytes.length / 4));
+  new Uint8Array(floats.buffer).set(bytes.subarray(0, floats.length * 4));
+  return floats;
+}
+
+/** Resolution of the baked grid, unless the node overrides it. */
+export const DEFAULT_MESH_RESOLUTION = 48;
 
 /** Recursively mark an entire subtree with warn=true */
 function markWarn(node: SDFNode): SDFNode {
@@ -21,6 +59,22 @@ export function toSDFNode(ui: SDFNodeUI): SDFNode | null {
     case 'cone': return { kind: 'cone', radius: p.radius, height: p.height };
     case 'capsule': return { kind: 'capsule', radius: p.radius, height: p.height };
     case 'ellipsoid': return { kind: 'ellipsoid', size: [p.width, p.height, p.depth] };
+
+    case 'mesh': {
+      const b64 = ui.data?.meshPositions;
+      if (!b64) return null;
+      const res = Math.max(8, Math.min(96, Math.round(p.resolution || DEFAULT_MESH_RESOLUTION)));
+      const key = `${hashString(b64)}@${res}`;
+      let field = fieldCache.get(key);
+      if (!field) {
+        const positions = decodeBase64Floats(b64);
+        // Whole triangles only. A truncated file is the importer's problem to
+        // report, not something to bake half of.
+        field = bakeMeshField(positions.subarray(0, Math.floor(positions.length / 9) * 9), res);
+        fieldCache.set(key, field);
+      }
+      return { kind: 'mesh', field, name: ui.data?.meshName };
+    }
 
     case 'text': {
       const glyphData = ui.data?.glyphPaths ? JSON.parse(ui.data.glyphPaths) : null;

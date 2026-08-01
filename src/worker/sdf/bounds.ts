@@ -197,6 +197,12 @@ export function computeBounds(node: SDFNode): BBox {
 
       return { min: rMin, max: rMax };
     }
+    // The baked grid's box, not the triangles' box. Outside the grid the
+    // field is a loose under-estimate rather than a distance, so the grid is
+    // where the surface can actually be resolved — and it already contains the
+    // mesh with padding to spare.
+    case 'mesh':
+      return { min: [...node.field.bbox.min], max: [...node.field.bbox.max] };
     case '_far':
       return { min: [0, 0, 0], max: [0, 0, 0] };
   }
