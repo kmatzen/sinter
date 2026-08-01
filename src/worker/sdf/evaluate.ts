@@ -1,4 +1,5 @@
 import type { SDFNode, Vec3 } from './types';
+import { hasGlyphOutlines } from './types';
 import { linearWindow, circularWindow } from './patternWindow';
 
 export function evaluateSDF(node: SDFNode, p: Vec3): number {
@@ -200,7 +201,7 @@ export function evaluateSDF(node: SDFNode, p: Vec3): number {
       return node.flip ? -d : d;
     }
     case 'text': {
-      if (node.glyphSegments || node.glyphBeziers) {
+      if (hasGlyphOutlines(node)) {
         const gw = node.glyphWidth || 1;
         const ga = node.glyphAscent || node.size;
         const gd = node.glyphDescent || 0;

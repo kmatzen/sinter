@@ -43,19 +43,15 @@ void main() {
 }`;
 
 /**
- * Text is the one node where the two evaluators are written to disagree:
- * `codegen.ts` emits a box approximation ("GPU: box approximation (fast)"),
- * while `evaluate.ts` walks real glyph outlines when it has them.
+ * Text used to be the one node where the two evaluators computed different
+ * functions: `codegen.ts` emitted a box approximation while `evaluate.ts`
+ * walked real glyph outlines whenever it had them (#85).  A text node with
+ * outlines rendered as a rectangular slab and exported as letterforms.
  *
- * Today that costs nothing, because nothing populates the glyph data —
- * `ui.data.glyphPaths` has no producer in the repo, so `convert.ts` always
- * passes undefined and the CPU takes the same box fallback.  The divergence
- * is latent, and becomes real the moment someone wires glyph outlines up.
- *
- * This case supplies glyph data directly, so it fails now and will keep
- * failing until the shader grows a matching glyph path.  It is marked as an
- * expected failure rather than deleted: a green suite should not imply the two
- * agree about text when they do not.
+ * The shader now walks the same outlines, so this is an ordinary assertion
+ * rather than the `test.fail` it was.  It is the *only* check on that
+ * transcription — the glyph helpers in codegen exist nowhere else — so it
+ * carries both a straight-edged glyph and a curved one.
  */
 const TEXT_WITH_GLYPHS: SDFNode = {
   kind: 'text', text: 'L', size: 20, depth: 6, font: 'sans-serif',
@@ -71,7 +67,34 @@ const TEXT_WITH_GLYPHS: SDFNode = {
   glyphWidth: 16, glyphAscent: 18, glyphDescent: 0,
 };
 
-const CASES: [string, SDFNode, boolean?][] = [
+/**
+ * A glyph made of quadratic beziers, because the straight 'L' above exercises
+ * none of `glyph_distBez`'s sample-then-Newton search or `glyph_windBez`'s
+ * subdivided crossing count — the parts of the transcription most likely to
+ * drift, since both carry iteration counts that have to match exactly.
+ *
+ * An 'O': an outer ring wound one way and an inner ring wound the other, so a
+ * winding rule that merely counts crossings without their sign reports the
+ * counter solid, not a hole.
+ */
+const TEXT_WITH_CURVES: SDFNode = {
+  kind: 'text', text: 'O', size: 20, depth: 6, font: 'sans-serif',
+  glyphBeziers: [
+    // Outer ring, counter-clockwise in glyph space (y down).
+    { type: 'Q', x0: 9, y0: 1, x1: 16, y1: 1, x2: 16, y2: 9 },
+    { type: 'Q', x0: 16, y0: 9, x1: 16, y1: 17, x2: 9, y2: 17 },
+    { type: 'Q', x0: 9, y0: 17, x1: 2, y1: 17, x2: 2, y2: 9 },
+    { type: 'Q', x0: 2, y0: 9, x1: 2, y1: 1, x2: 9, y2: 1 },
+    // Inner ring, wound the other way, so it subtracts.
+    { type: 'Q', x0: 9, y0: 5, x1: 6, y1: 5, x2: 6, y2: 9 },
+    { type: 'Q', x0: 6, y0: 9, x1: 6, y1: 13, x2: 9, y2: 13 },
+    { type: 'Q', x0: 9, y0: 13, x1: 12, y1: 13, x2: 12, y2: 9 },
+    { type: 'Q', x0: 12, y0: 9, x1: 12, y1: 5, x2: 9, y2: 5 },
+  ],
+  glyphWidth: 18, glyphAscent: 18, glyphDescent: 0,
+};
+
+const CASES: [string, SDFNode][] = [
   ['box', { kind: 'box', size: [30, 20, 40] }],
   ['sphere', { kind: 'sphere', radius: 14 }],
   ['cylinder', { kind: 'cylinder', radius: 10, height: 25 }],
@@ -102,7 +125,8 @@ const CASES: [string, SDFNode, boolean?][] = [
       tx: 37.5, ty: 0, tz: 0, rx: 0, ry: 0, rz: 0, sx: 1, sy: 1, sz: 1,
     },
   }],
-  ['text with glyph outlines (known divergence)', TEXT_WITH_GLYPHS, true],
+  ['text with straight glyph outlines', TEXT_WITH_GLYPHS],
+  ['text with curved glyph outlines', TEXT_WITH_CURVES],
   ['text without glyph data (the reachable case)', {
     kind: 'text', text: 'AB', size: 20, depth: 6, font: 'sans-serif',
   }],
@@ -120,9 +144,8 @@ const RES = 32;
 const SLICES = [0.2, 0.5, 0.8];
 
 test.describe('CPU and GPU evaluators agree', () => {
-  for (const [name, tree, expectFail] of CASES) {
+  for (const [name, tree] of CASES) {
     test(name, async ({ page }) => {
-      test.fail(!!expectFail, 'shader draws a box for text — see TEXT_WITH_GLYPHS');
       await page.goto('/');
       const bb = computeBounds(tree);
       const src = FRAG(bakedShader(tree));
