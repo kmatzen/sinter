@@ -11,7 +11,7 @@ import { ProjectList } from '../projects/ProjectList';
 import { ImportProject } from '../projects/ImportProject';
 import { ImportMesh } from '../projects/ImportMesh';
 import { SettingsPage } from '../settings/SettingsPage';
-import { FolderOpen, Save, Undo2, Redo2, MessageSquare, FileDown, FilePlus, Share2, Link, List, SlidersHorizontal, MoreHorizontal, Upload } from 'lucide-react';
+import { FolderOpen, Save, Undo2, Redo2, MessageSquare, FileDown, FilePlus, Share2, Link, List, SlidersHorizontal, MoreHorizontal, Upload, Settings } from 'lucide-react';
 
 export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => void; onMobileProps?: () => void } = {}) {
   const projectName = useModelerStore((s) => s.projectName);
@@ -254,18 +254,25 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
               </>
             )}
             <OverflowDivider />
-            {!user ? (
+            <OverflowItem label="Settings" onClick={() => { setShowSettings(true); setShowOverflow(false); }} />
+            {!user && (
               <OverflowItem label="Sign In" onClick={() => { localStorage.removeItem('sinter_launched'); window.location.href = '/app'; }} />
-            ) : (
-              <OverflowItem label="Settings" onClick={() => { setShowSettings(true); setShowOverflow(false); }} />
             )}
           </div>
         )}
       </div>
 
-      {/* Desktop-only: sign in / avatar */}
+      {/* Desktop-only: settings / sign in / avatar */}
       <div className="hidden md:contents">
         <div className="w-px h-4 mx-1" style={{ background: 'var(--border-default)' }} />
+        {/*
+          Not gated on `user`. Settings is where the AI provider is configured,
+          and OpenRouter sign-on exists precisely so you do not need a Sinter
+          account to use the chat — putting it behind one made the whole
+          bring-your-own-key path unreachable for anyone who chose "Continue
+          without account".
+        */}
+        <IconBtn icon={<Settings size={14} />} title="Settings" onClick={() => setShowSettings(true)} />
         {!user && (
           <a href="/app"
              onClick={() => localStorage.removeItem('sinter_launched')}

@@ -25,7 +25,9 @@ npm run dev
 
 Open `http://localhost:5173` and click "Start Modeling" to launch the app.
 
-To use AI chat, click the gear icon in the chat panel and either **Connect OpenRouter** — a one-click sign-in, no API key to create — or paste an Anthropic or OpenAI key directly. Credentials are stored only in your browser.
+To use AI chat, open **Settings** (the gear in the toolbar, top right), pick a provider, then either **Connect OpenRouter** — a one-click sign-in, no API key to create — or paste an Anthropic or OpenAI key directly. Credentials are stored only in your browser.
+
+No Sinter account is needed for any of that: OpenRouter bills your own OpenRouter credits, and Sinter never proxies your requests.
 
 ## Features
 
