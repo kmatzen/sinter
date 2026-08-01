@@ -19,6 +19,20 @@ self.postMessage({ type: 'ready' });
 
 type ProgressFn = (stage: string, percent: number) => void;
 
+/**
+ * Export grid resolution, clamped.
+ *
+ * Cost is cubic in this, so the ceiling is not politeness — 512 is eight times
+ * the work of 256, and 256 already dominates the export. The floor keeps a
+ * mis-set value from producing a mesh too coarse to be a part rather than
+ * merely a fast one.
+ */
+const DEFAULT_EXPORT_RESOLUTION = 256;
+function exportResolution(requested: number | undefined): number {
+  if (!requested || !Number.isFinite(requested)) return DEFAULT_EXPORT_RESOLUTION;
+  return Math.max(32, Math.min(512, Math.round(requested)));
+}
+
 function prepareBBox(root: SDFNode): BBox {
   // `computeBounds` is only the starting hint.  The grid the mesh is built on
   // comes from `verifiedBounds`, which asks the field itself where it can be
@@ -110,7 +124,7 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
         const progress: ProgressFn = (stage, percent) => {
           self.postMessage({ type: 'progress', rid, stage, percent: Math.round(percent) });
         };
-        const mesh = evaluateAndMeshWithProgress(req.tree, 256, progress);
+        const mesh = evaluateAndMeshWithProgress(req.tree, exportResolution(req.resolution), progress);
         if (!mesh) { self.postMessage({ type: 'error', rid, message: 'No geometry to export' }); return; }
         progress('Encoding STL', 95);
         const data = exportBinarySTL(mesh);
@@ -122,7 +136,7 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
         const progress: ProgressFn = (stage, percent) => {
           self.postMessage({ type: 'progress', rid, stage, percent: Math.round(percent) });
         };
-        const mesh = evaluateAndMeshWithProgress(req.tree, 256, progress);
+        const mesh = evaluateAndMeshWithProgress(req.tree, exportResolution(req.resolution), progress);
         if (!mesh) { self.postMessage({ type: 'error', rid, message: 'No geometry to export' }); return; }
         progress('Encoding 3MF', 95);
         const data = export3MF(mesh);

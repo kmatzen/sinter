@@ -25,6 +25,14 @@ interface ViewportState {
   setClipPosition: (pos: number) => void;
 
   // Resolution
+  /**
+   * Export grid resolution, samples per axis.
+   *
+   * This existed but nothing read it — the worker was hardcoded to 256. Cost
+   * is cubic, so this is the single biggest lever a user has over export time,
+   * and 128 is a perfectly good draft for checking a shape fits before paying
+   * for the real one.
+   */
   resolution: number;
   setResolution: (res: number) => void;
 
@@ -54,7 +62,7 @@ export const useViewportStore = create<ViewportState>((set) => ({
   setClipFlip: (flip) => set({ clipFlip: flip }),
   setClipPosition: (pos) => set({ clipPosition: pos }),
 
-  resolution: 192,
+  resolution: 256,
   setResolution: (res) => set({ resolution: res }),
   showDimensions: false,
   toggleDimensions: () => set((s) => ({ showDimensions: !s.showDimensions })),
