@@ -305,6 +305,36 @@ function NodeEditor({ node, onUpdate, onUpdateStr }: { node: SDFNodeUI; onUpdate
           <NumberInput label="Z" value={p.z} min={0.01} step={0.1} unit="x" onChange={(v) => onUpdate({ z: v })} />
         </>
       );
+    case 'mesh':
+      return (
+        <>
+          <SectionLabel>Source</SectionLabel>
+          <div className="px-2 mb-2 text-[11px] truncate" style={{ color: 'var(--text-secondary)' }}
+               title={node.data?.meshName || 'Imported mesh'}>
+            {node.data?.meshName || 'Imported mesh'}
+          </div>
+          <SectionLabel>Field Resolution</SectionLabel>
+          <NumberInput
+            label="Grid"
+            value={(p.resolution as number) ?? 48}
+            min={8}
+            max={96}
+            step={8}
+            onChange={(v) => onUpdate({ resolution: Math.round(v) })}
+          />
+          {/*
+            The one knob that matters for an imported mesh, and the reason it is
+            exposed rather than hidden: the mesh is stored as a baked distance
+            grid, so this is exactly how much detail survives. Raising it costs
+            bake time and texture memory cubically, which is why it is stepped
+            and capped rather than free-form.
+          */}
+          <div className="px-2 pt-1 text-[10px] leading-snug" style={{ color: 'var(--text-muted)' }}>
+            Samples per axis. Detail finer than one cell is rounded off; higher
+            costs bake time and memory cubically.
+          </div>
+        </>
+      );
     case 'text':
       return (
         <>
