@@ -46,19 +46,42 @@ uniform float u_clipPos;
 uniform int u_clipAxis;
 uniform float u_clipFlip;
 uniform mat4 u_projView;
+// World-space size of one pixel per unit of distance from the camera:
+// 2*tan(fov/2) / viewportHeightPx. Everything the marcher needs to decide
+// "close enough" is expressed against this, so the answer scales with zoom.
+uniform float u_pixelRadius;
+// Absolute floor for that, so a ray starting at t = 0 (camera inside the
+// bounding box) still advances instead of spinning out its step budget.
+uniform float u_stepFloor;
 
 varying vec3 vWorldPos;
 varying vec3 vViewDir;
 
 ${sdfFunc}
 
-vec3 calcNormal(vec3 p) {
-  float e = length(u_bbMax - u_bbMin) * 0.0002;
-  return normalize(vec3(
-    sdf(p + vec3(e,0,0)) - sdf(p - vec3(e,0,0)),
-    sdf(p + vec3(0,e,0)) - sdf(p - vec3(0,e,0)),
-    sdf(p + vec3(0,0,e)) - sdf(p - vec3(0,0,e))
-  ));
+/**
+ * Gradient by the tetrahedron technique: four samples at the corners of a
+ * regular tetrahedron rather than six along three axes. Same gradient, two
+ * thirds of the cost, and this runs once per *hit* pixel — so on a shape
+ * filling the viewport it is a third of the shading work.
+ *
+ * The offset is a fraction of the marched distance rather than of the scene size.
+ * The old epsilon was length(u_bbMax - u_bbMin) * 0.0002, and u_bbMin/u_bbMax
+ * are the *diagonal-expanded cube* the mesh is drawn as, not the model's box —
+ * so it was ~1.7x larger than it reads as intending, and being tied to the
+ * whole scene it did not shrink when you zoomed into a small feature of a large
+ * model, which is exactly where an oversized epsilon smooths detail away.
+ * Scaling with t keeps the offset at a fixed fraction of a pixel at any zoom.
+ */
+vec3 calcNormal(vec3 p, float t) {
+  float e = max(t * u_pixelRadius * 0.35, u_stepFloor);
+  const vec2 k = vec2(1.0, -1.0);
+  return normalize(
+    k.xyy * sdf(p + k.xyy * e) +
+    k.yyx * sdf(p + k.yyx * e) +
+    k.yxy * sdf(p + k.yxy * e) +
+    k.xxx * sdf(p + k.xxx * e)
+  );
 }
 
 ${SHARED_GLSL}
@@ -74,8 +97,15 @@ void main() {
   float t = tStart;
   bool hit = false;
   vec3 p;
-  float camDist = length(u_cameraPos);
-  float minStep = camDist * 0.00005;
+  // Hit threshold, recomputed per step from how far the ray has travelled.
+  //
+  // It used to be length(u_cameraPos) * 0.00005 -- distance from the world
+  // *origin*, which is neither where the camera is looking nor how big a pixel
+  // is. A model translated away from the origin got a coarser threshold for no
+  // reason, and zooming into a small feature did not tighten it. Half a pixel
+  // at the current distance is the quantity that actually matters: there is
+  // nothing to resolve below it, and it costs steps to try.
+  float minStep = max(tStart * u_pixelRadius * 0.5, u_stepFloor);
 
   // Enhanced sphere tracing (Keinert et al. 2014): over-relax the marching
   // step by omega, and back off if the over-relaxed step overshot the field's
@@ -105,6 +135,7 @@ void main() {
       omega = 1.6; prevRadius = 0.0; stepLength = 0.0;
       continue;
     }
+    minStep = max(t * u_pixelRadius * 0.5, u_stepFloor);
     float radius = abs(sdf(p));
     bool sorFail = (omega > 1.0) && (radius + prevRadius < stepLength);
     if (sorFail) {
@@ -122,7 +153,7 @@ void main() {
   }
   if (!hit) discard;
 
-  vec3 normal = calcNormal(p);
+  vec3 normal = calcNormal(p, t);
   vec3 baseColor = vec3(0.45, 0.56, 0.82);
 ${hasWarn ? `  float warnDist = abs(sdfWarn(p));
   float warnEps = length(u_bbMax - u_bbMin) * 0.002;
@@ -302,6 +333,8 @@ export class SdfMesh {
         u_clipAxis: { value: clipAxis === 'x' ? 0 : clipAxis === 'z' ? 2 : 1 },
         u_clipFlip: { value: useViewportStore.getState().clipFlip ? 1.0 : 0.0 },
         u_projView: { value: new THREE.Matrix4() },
+        u_pixelRadius: { value: 0.002 },
+        u_stepFloor: { value: 1e-4 },
         ...texUniforms,
       },
       side: THREE.BackSide,
@@ -349,6 +382,21 @@ export class SdfMesh {
       const half = Math.sqrt(w*w + h*h + d*d) / 2;
       u.u_bbMin.value.set(cx - half, cy - half, cz - half);
       u.u_bbMax.value.set(cx + half, cy + half, cz + half);
+
+      // One pixel's world-space width per unit of camera distance. The marcher
+      // states both its hit threshold and its normal offset against this, so
+      // both track zoom instead of tracking the scene's size or the model's
+      // distance from the world origin.
+      const cam = this.engine.camera;
+      const size = new THREE.Vector2();
+      this.engine.renderer.getSize(size);
+      const heightPx = Math.max(1, size.y * this.engine.renderer.getPixelRatio());
+      u.u_pixelRadius.value = (2 * Math.tan((cam.fov * Math.PI) / 360)) / heightPx;
+      // A ray that starts inside the bounding box has t = 0, where a purely
+      // relative threshold is zero and the march would spend its whole budget
+      // creeping. Tied to the model rather than to a constant so it means the
+      // same thing for a 1mm part and a 1m one.
+      u.u_stepFloor.value = Math.max(half * 1e-5, 1e-9);
 
       // Update mesh geometry if bounding box changed
       if (this.mesh) {

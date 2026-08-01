@@ -181,6 +181,26 @@ async function renderScene(page: Page, tree: unknown, camera: { el: number; az: 
   return Buffer.from(dataUrl.split(',')[1], 'base64');
 }
 
+/**
+ * Render a scene and stash its raw pixels on `window[key]`, for comparing two
+ * renders against each other rather than against a stored file.
+ */
+async function stashPixels(page: Page, tree: unknown, camera: { el: number; az: number }, key: string) {
+  await renderScene(page, tree, camera);
+  await page.evaluate(
+    ({ key, size }) => {
+      const eng = (window as any).__ENGINE_REF__;
+      const probe = document.createElement('canvas');
+      probe.width = size;
+      probe.height = size;
+      const ctx = probe.getContext('2d', { willReadFrequently: true })!;
+      ctx.drawImage(eng.renderer.domElement, 0, 0, size, size);
+      (window as any)[key] = Array.from(ctx.getImageData(0, 0, size, size).data);
+    },
+    { key, size: SIZE },
+  );
+}
+
 test.describe('Viewport golden images', () => {
   // Software-rendering a sphere tracer five times over.
   test.slow();
@@ -229,5 +249,64 @@ test.describe('Viewport golden images', () => {
       threshold: 0.08,
       maxDiffPixelRatio: 0.004,
     });
+  });
+});
+
+/**
+ * The marcher's hit threshold must depend on the geometry, not on where the
+ * geometry happens to sit.
+ *
+ * It used to be `length(u_cameraPos) * 0.00005` — the camera's distance from
+ * the world *origin*, a quantity no ray-surface intersection depends on. It is
+ * now half a pixel at the marched distance, which is what actually bounds how
+ * finely there is any point resolving.
+ *
+ * **This test passes under the old formulation too, and that is worth stating
+ * plainly.** The old threshold was wrong in kind but conservative in practice:
+ * even at a 700mm offset it stayed well under a pixel, so it wasted march
+ * steps rather than producing a wrong image. I checked at a 28-metre offset as
+ * well and the image still held, because a sphere's normal is radial and
+ * barely moves when the march stops slightly short. So this is a regression
+ * guard on a property that must keep holding, not a demonstration of a defect
+ * being fixed — the defect was step count.
+ *
+ * It is not a stored reference image: both sides are rendered in the same run
+ * and compared to each other, so it asserts the invariance directly rather
+ * than asserting that today's output matches a file.
+ */
+test.describe('Viewport rendering is translation-invariant', () => {
+  test.slow();
+
+  test('renders a model the same wherever it sits in world space', async ({ page }) => {
+    await enterModeler(page);
+
+    const sphere = node('sphere', { radius: 30 });
+    const shifted = node('translate', { x: 500, y: -300, z: 400 }, [node('sphere', { radius: 30 })]);
+    const camera = { el: 20, az: 35 };
+
+    await stashPixels(page, sphere, camera, '__PX_ORIGIN__');
+    await stashPixels(page, shifted, camera, '__PX_SHIFTED__');
+
+    const diff = await page.evaluate(() => {
+      const a = (window as any).__PX_ORIGIN__ as number[];
+      const b = (window as any).__PX_SHIFTED__ as number[];
+      let differing = 0;
+      for (let i = 0; i < a.length; i += 4) {
+        // Any channel off by more than a rounding step counts.
+        if (
+          Math.abs(a[i] - b[i]) > 4 ||
+          Math.abs(a[i + 1] - b[i + 1]) > 4 ||
+          Math.abs(a[i + 2] - b[i + 2]) > 4 ||
+          Math.abs(a[i + 3] - b[i + 3]) > 4
+        ) differing++;
+      }
+      return differing / (a.length / 4);
+    });
+
+    // The camera sits 500-700mm further from the origin in the shifted case,
+    // so float32 precision in the ray origin moves a few silhouette pixels.
+    // The defect this guards against moved far more than that: a tenfold
+    // change in the hit threshold shifts the whole surface.
+    expect(diff).toBeLessThan(0.01);
   });
 });

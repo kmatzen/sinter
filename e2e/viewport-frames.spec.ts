@@ -69,13 +69,29 @@ async function settle(page: Page) {
   await page.waitForTimeout(700);
 }
 
-/** Drive `trigger`, then require at least one frame to come out of it. */
-async function expectFrameAfter(page: Page, label: string, trigger: () => Promise<void>) {
+/**
+ * Drive `trigger`, then require at least one frame to come out of it.
+ *
+ * `prepare` runs *before* the frame count is snapshotted, so a trigger that
+ * needs the state to start somewhere specific can put it there without the
+ * setup itself counting as the frame under test.
+ *
+ * The poll budget is deliberately generous. The failure this guards against is
+ * a frame that never arrives, not one that arrives late, and the CI runner
+ * renders through SwiftShader while another spec is marching pixels.
+ */
+async function expectFrameAfter(
+  page: Page,
+  label: string,
+  trigger: () => Promise<void>,
+  prepare?: () => Promise<void>,
+) {
+  if (prepare) await prepare();
   await settle(page);
   const before = await frames(page);
   await trigger();
   await expect
-    .poll(() => frames(page), { message: `no frame drawn after ${label}`, timeout: 5000 })
+    .poll(() => frames(page), { message: `no frame drawn after ${label}`, timeout: 15000 })
     .toBeGreaterThan(before);
 }
 
@@ -149,11 +165,17 @@ test.describe('Viewport renders on demand', () => {
   test('draws after the selection changes', async ({ page }) => {
     await enterModeler(page);
     await armFrameCounter(page);
-    await expectFrameAfter(page, 'a selection change', () =>
-      page.evaluate(() => {
-        const s = (window as any).__MODELER_STORE__;
-        s.selectNode(s.tree.id);
-      }),
+    await expectFrameAfter(
+      page,
+      'a selection change',
+      () =>
+        page.evaluate(() => {
+          const s = (window as any).__MODELER_STORE__;
+          s.selectNode(s.tree.id);
+        }),
+      // Start from nothing selected, so selecting the root is unambiguously a
+      // change rather than a re-assertion of what was already there.
+      () => page.evaluate(() => (window as any).__MODELER_STORE__.selectNode(null)),
     );
   });
 });
