@@ -200,8 +200,7 @@ export function PropertyPanel() {
  * confident wrong tree.
  */
 function FitPrimitive({ node }: { node: SDFNodeUI }) {
-  const replaceNode = useModelerStore((s) => s.addNodeFromData);
-  const removeNode = useModelerStore((s) => s.removeNode);
+  const replaceNode = useModelerStore((s) => s.replaceNode);
   const [busy, setBusy] = useState(false);
   const [fit, setFit] = useState<MeshFitResult | null | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
@@ -222,10 +221,9 @@ function FitPrimitive({ node }: { node: SDFNodeUI }) {
 
   const apply = () => {
     if (!fit?.node) return;
-    // Insert beside the mesh, then drop the mesh — `addNodeFromData` is the one
-    // path that goes through commit(), so this stays a single undo step.
+    // One history entry, so undoing the fit is one press and never leaves the
+    // tree with the mesh gone and the primitive not yet in.
     replaceNode(node.id, fit.node);
-    removeNode(node.id);
   };
 
   const mm = (v: number) => `${v.toFixed(2)} mm`;

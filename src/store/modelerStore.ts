@@ -35,6 +35,7 @@ interface ModelerState {
   updateNodeData: (id: string, data: Record<string, string>) => void;
   changeNodeKind: (id: string, kind: string) => void;
   removeNode: (id: string) => void;
+  replaceNode: (id: string, replacement: SDFNodeUI) => void;
   toggleNode: (id: string) => void;
   toggleExpanded: (id: string) => void;
   expandAll: () => void;
@@ -266,6 +267,24 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
     set(commit(get(), newTree, {
       selectedNodeId: get().selectedNodeId === id ? null : get().selectedNodeId,
     }));
+  },
+
+  /**
+   * Swap one node for another in place, as a single history entry.
+   *
+   * Doing it as an insert followed by a remove would be two, so undoing a
+   * primitive fit would take two presses and leave a visibly broken tree in
+   * between — the mesh gone and the primitive not yet back.
+   */
+  replaceNode: (id, replacement) => {
+    const { tree } = get();
+    if (!tree) return;
+    if (tree.id === id) {
+      set(commit(get(), replacement, { selectedNodeId: replacement.id }));
+      return;
+    }
+    const newTree = updateInTree(tree, id, () => replacement);
+    set(commit(get(), newTree, { selectedNodeId: replacement.id }));
   },
 
   toggleNode: (id) => {
