@@ -88,7 +88,18 @@ for (let config = 0; config < 256; config++) {
   EDGE_PATCH.push(edgePatch);
 }
 
-export function dualContour(grid: Float32Array, res: number, bbox: BBox, sdf: SDFNode, onProgress?: (pct: number) => void): MeshResult {
+/**
+ * Blocks the octree could not prove empty, from `evaluateCPUWithProgress`.
+ *
+ * Optional: without it every cell in the grid is visited, which is what this
+ * did before and is still what the tests compare against.
+ */
+export interface ActiveBlocks {
+  nb: number;
+  bits: Uint8Array;
+}
+
+export function dualContour(grid: Float32Array, res: number, bbox: BBox, sdf: SDFNode, onProgress?: (pct: number) => void, active?: ActiveBlocks): MeshResult {
   const dx = (bbox.max[0] - bbox.min[0]) / res;
   const dy = (bbox.max[1] - bbox.min[1]) / res;
   const dz = (bbox.max[2] - bbox.min[2]) / res;
@@ -97,6 +108,43 @@ export function dualContour(grid: Float32Array, res: number, bbox: BBox, sdf: SD
   const oz = bbox.min[2] + dz * 0.5;
   const r2 = res * res;
   const eps = Math.min(dx, dy, dz) * 0.01;
+
+  /**
+   * Walk the cells worth visiting, in exactly the order a dense walk would.
+   *
+   * Order is not cosmetic here: pass 1 numbers vertices as it meets them, so
+   * visiting blocks block-major instead of z-major produces the same surface
+   * with a different vertex numbering. The first version of this did that, and
+   * the equality test below caught it. So the z and y loops stay dense — 65k
+   * iterations at res 256, nothing — and only the x runs are skipped, at block
+   * granularity.
+   *
+   * At 256 the dense walk is 33M cell visits to find roughly 360k active ones,
+   * 98% of it reading eight corners to learn the cell is empty. The block size
+   * is derived from `res` and the mask's own dimensions rather than agreed by
+   * constant, so the two cannot drift apart.
+   */
+  function forEachCell(fn: (x: number, y: number, z: number) => void, report?: (frac: number) => void) {
+    const last = res - 1;
+    const blk = active ? Math.ceil(res / active.nb) : 0;
+    for (let z = 0; z < last; z++) {
+      report?.(z / last);
+      const bz = active ? (z / blk) | 0 : 0;
+      for (let y = 0; y < last; y++) {
+        if (!active) {
+          for (let x = 0; x < last; x++) fn(x, y, z);
+          continue;
+        }
+        const by = (y / blk) | 0;
+        const rowBase = (bz * active.nb + by) * active.nb;
+        for (let bx = 0; bx < active.nb; bx++) {
+          if (!active.bits[rowBase + bx]) continue;
+          const x1 = Math.min((bx + 1) * blk, last);
+          for (let x = bx * blk; x < x1; x++) fn(x, y, z);
+        }
+      }
+    }
+  }
 
   function gv(x: number, y: number, z: number): number {
     if (x < 0 || x >= res || y < 0 || y >= res || z < 0 || z >= res) return 1;
@@ -166,13 +214,9 @@ export function dualContour(grid: Float32Array, res: number, bbox: BBox, sdf: SD
   let vertCount = 0;
 
   let lastPct = -1;
-  for (let z = 0; z < res - 1; z++) {
-    if (onProgress) {
-      const pct = Math.round((z / (res - 1)) * 100);
-      if (pct > lastPct) { lastPct = pct; onProgress(pct); }
-    }
-    for (let y = 0; y < res - 1; y++) {
-      for (let x = 0; x < res - 1; x++) {
+  forEachCell((x, y, z) => {
+    {
+      {
         const corners = [
           gv(x, y, z), gv(x + 1, y, z), gv(x + 1, y + 1, z), gv(x, y + 1, z),
           gv(x, y, z + 1), gv(x + 1, y, z + 1), gv(x + 1, y + 1, z + 1), gv(x, y + 1, z + 1),
@@ -181,7 +225,7 @@ export function dualContour(grid: Float32Array, res: number, bbox: BBox, sdf: SD
         let config = 0;
         for (let c = 0; c < 8; c++) if (corners[c] < 0) config |= 1 << c;
         const patches = PATCHES[config];
-        if (patches.length === 0) continue;
+        if (patches.length === 0) return;
 
         const cellIdx = z * r2 + y * res + x;
         cellBase[cellIdx] = vertCount;
@@ -228,7 +272,11 @@ export function dualContour(grid: Float32Array, res: number, bbox: BBox, sdf: SD
         }
       }
     }
-  }
+  }, (frac) => {
+    if (!onProgress) return;
+    const pct = Math.round(frac * 100);
+    if (pct > lastPct) { lastPct = pct; onProgress(pct); }
+  });
 
   // --- Step 2: Emit quads for each sign-changing grid edge ---
   // The 4 cells sharing the edge each contribute the vertex of the patch
@@ -280,9 +328,9 @@ export function dualContour(grid: Float32Array, res: number, bbox: BBox, sdf: SD
     }
   }
 
-  for (let z = 0; z < res - 1; z++) {
-    for (let y = 0; y < res - 1; y++) {
-      for (let x = 0; x < res - 1; x++) {
+  forEachCell((x, y, z) => {
+    {
+      {
         const v00 = gv(x, y, z);
 
         // X-edge: (x,y,z)→(x+1,y,z); local edge in each adjacent cell:
@@ -328,7 +376,7 @@ export function dualContour(grid: Float32Array, res: number, bbox: BBox, sdf: SD
         }
       }
     }
-  }
+  });
 
   return {
     positions: new Float32Array(positions),

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { dualContour } from './dualContour';
 import { evaluateSDF } from './evaluate';
+import { evaluateInterval } from './interval';
 import { analyzeMesh } from './meshRepair';
 import type { MeshResult } from './marchingCubes';
 import type { SDFNode, BBox } from './types';
@@ -202,5 +203,104 @@ describe('dualContour', () => {
       );
       expect(len).toBeCloseTo(1, 1);
     }
+  });
+});
+
+/**
+ * The active-block mask must change *how much* is visited, never *what* comes
+ * out (#88 A2).
+ *
+ * The mask comes from the octree: a block it filled uniformly was proved free
+ * of surface by an interval enclosure excluding zero, so no cell wholly inside
+ * it can straddle. The argument that this is safe at the seams is that two
+ * adjacent uniform blocks cannot disagree in sign — the field is provably
+ * non-zero throughout each closed block and they share a face — so every
+ * straddling cell has a corner in a descended block, and the mask is dilated by
+ * one block to catch cells whose origin lies just outside.
+ *
+ * That argument is worth testing rather than trusting, because getting it wrong
+ * is a hole in an exported mesh: geometry that silently is not there.
+ */
+describe('dualContour active-block mask', () => {
+  /** The same descent rule the worker's octree uses, reduced to a mask. */
+  function maskFor(node: SDFNode, res: number, bbox: BBox, blk: number) {
+    const nb = Math.ceil(res / blk);
+    const marks = new Uint8Array(nb * nb * nb);
+    for (let bz = 0; bz < nb; bz++) {
+      for (let by = 0; by < nb; by++) {
+        for (let bx = 0; bx < nb; bx++) {
+          const cell: BBox = {
+            min: [
+              bbox.min[0] + (bx * blk / res) * (bbox.max[0] - bbox.min[0]),
+              bbox.min[1] + (by * blk / res) * (bbox.max[1] - bbox.min[1]),
+              bbox.min[2] + (bz * blk / res) * (bbox.max[2] - bbox.min[2]),
+            ],
+            max: [
+              bbox.min[0] + Math.min(1, (bx + 1) * blk / res) * (bbox.max[0] - bbox.min[0]),
+              bbox.min[1] + Math.min(1, (by + 1) * blk / res) * (bbox.max[1] - bbox.min[1]),
+              bbox.min[2] + Math.min(1, (bz + 1) * blk / res) * (bbox.max[2] - bbox.min[2]),
+            ],
+          };
+          const e = evaluateInterval(node, cell);
+          if (!(e.lo > 0 || e.hi < 0)) marks[bz * nb * nb + by * nb + bx] = 1;
+        }
+      }
+    }
+    // Dilate by one block, as the worker does.
+    const bits = new Uint8Array(marks.length);
+    for (let z = 0; z < nb; z++) for (let y = 0; y < nb; y++) for (let x = 0; x < nb; x++) {
+      if (!marks[z * nb * nb + y * nb + x]) continue;
+      for (let dz = -1; dz <= 1; dz++) for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+        const nz = z + dz, ny = y + dy, nx = x + dx;
+        if (nz < 0 || nz >= nb || ny < 0 || ny >= nb || nx < 0 || nx >= nb) continue;
+        bits[nz * nb * nb + ny * nb + nx] = 1;
+      }
+    }
+    return { nb, bits };
+  }
+
+  const CASES: [string, SDFNode][] = [
+    ['sphere', { kind: 'sphere', radius: 6 }],
+    ['box', { kind: 'box', size: [9, 6, 11] }],
+    ['subtract', {
+      kind: 'subtract', k: 0,
+      a: { kind: 'box', size: [10, 10, 10] },
+      b: { kind: 'sphere', radius: 6 },
+    }],
+    ['two disjoint spheres', {
+      kind: 'union', k: 0,
+      a: { kind: 'transform', child: { kind: 'sphere', radius: 3 }, tx: -6, ty: 0, tz: 0, rx: 0, ry: 0, rz: 0, sx: 1, sy: 1, sz: 1 },
+      b: { kind: 'transform', child: { kind: 'sphere', radius: 3 }, tx: 6, ty: 0, tz: 0, rx: 0, ry: 0, rz: 0, sx: 1, sy: 1, sz: 1 },
+    }],
+    ['thin shell', { kind: 'shell', thickness: 1, child: { kind: 'box', size: [10, 8, 10] } }],
+  ];
+
+  it.each(CASES)('%s meshes identically with and without the mask', (_name, node) => {
+    const res = 32;
+    const bbox: BBox = { min: [-10, -10, -10], max: [10, 10, 10] };
+    const grid = makeGrid(node, res, bbox);
+
+    const dense = dualContour(grid, res, bbox, node);
+    const masked = dualContour(grid, res, bbox, node, undefined, maskFor(node, res, bbox, 8));
+
+    expect(masked.indices.length).toBeGreaterThan(0);
+    expect(Array.from(masked.indices)).toEqual(Array.from(dense.indices));
+    expect(Array.from(masked.positions)).toEqual(Array.from(dense.positions));
+  });
+
+  /**
+   * The mask is an optimisation, so an all-ones mask must be a no-op and an
+   * empty one must produce nothing — if either were untrue the walker would be
+   * doing something other than restricting iteration.
+   */
+  it('is a no-op when every block is marked', () => {
+    const res = 32;
+    const bbox: BBox = { min: [-10, -10, -10], max: [10, 10, 10] };
+    const node: SDFNode = { kind: 'sphere', radius: 6 };
+    const grid = makeGrid(node, res, bbox);
+    const nb = Math.ceil(res / 8);
+    const all = { nb, bits: new Uint8Array(nb * nb * nb).fill(1) };
+    expect(Array.from(dualContour(grid, res, bbox, node, undefined, all).indices))
+      .toEqual(Array.from(dualContour(grid, res, bbox, node).indices));
   });
 });
