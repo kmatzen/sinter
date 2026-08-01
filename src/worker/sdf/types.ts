@@ -23,7 +23,23 @@ export type SDFNode =
       glyphSegments?: { type: 'L'; x0: number; y0: number; x1: number; y1: number }[];
       glyphBeziers?: { type: 'Q'; x0: number; y0: number; x1: number; y1: number; x2: number; y2: number }[];
       glyphWidth?: number; glyphAscent?: number; glyphDescent?: number }
+  /**
+   * An imported mesh, carried as a baked signed-distance grid rather than as
+   * triangles (#87). The grid is the single representation both evaluators
+   * sample, which is what stops this becoming another node kind that means one
+   * solid on the CPU and a different one on the GPU — see #85. `meshField.ts`
+   * explains the trade-off the bake makes.
+   */
+  | { kind: 'mesh'; field: MeshFieldData; name?: string; warn?: boolean }
   | { kind: '_far'; warn?: boolean };
+
+/** A signed-distance grid baked from a triangle mesh. See `meshField.ts`. */
+export interface MeshFieldData {
+  bbox: BBox;
+  /** Samples per axis; the grid holds `res^3` values in x-fastest order. */
+  res: number;
+  data: Float32Array;
+}
 
 export interface BBox {
   min: Vec3;

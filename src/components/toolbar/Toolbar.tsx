@@ -8,8 +8,9 @@ import { triggerDownload } from '../../utils/download';
 import { useChatStore } from '../../store/chatStore';
 import { ProjectList } from '../projects/ProjectList';
 import { ImportProject } from '../projects/ImportProject';
+import { ImportMesh } from '../projects/ImportMesh';
 import { SettingsPage } from '../settings/SettingsPage';
-import { FolderOpen, Save, Undo2, Redo2, MessageSquare, FileDown, FilePlus, Share2, Link, List, SlidersHorizontal, MoreHorizontal } from 'lucide-react';
+import { FolderOpen, Save, Undo2, Redo2, MessageSquare, FileDown, FilePlus, Share2, Link, List, SlidersHorizontal, MoreHorizontal, Upload } from 'lucide-react';
 
 export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => void; onMobileProps?: () => void } = {}) {
   const projectName = useModelerStore((s) => s.projectName);
@@ -31,6 +32,7 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
   const [showProjects, setShowProjects] = useState(false);
   const [copied, setCopied] = useState(false);
   const [showImport, setShowImport] = useState(false);
+  const [showImportMesh, setShowImportMesh] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showOverflow, setShowOverflow] = useState(false);
   const [avatarFailed, setAvatarFailed] = useState(false);
@@ -154,6 +156,7 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
         <div className="w-px h-4 mx-1" style={{ background: 'var(--border-default)' }} />
         <IconBtn icon={<FilePlus size={14} />} title="New project" onClick={() => { useModelerStore.getState().setTree(null); useModelerStore.getState().setProjectName('Untitled'); }} />
         <IconBtn icon={<FolderOpen size={14} />} title="Projects" onClick={() => setShowProjects(true)} />
+        <IconBtn icon={<Upload size={14} />} title="Import STL" onClick={() => setShowImportMesh(true)} />
         <IconBtn icon={<Save size={14} />} title={saving ? 'Saving...' : 'Save to cloud'} onClick={handleSaveCloud} disabled={saving || !dirty} />
         {projectId && (
           shareUrl ? (
@@ -213,6 +216,7 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
             <OverflowItem label="Undo" onClick={() => { undo(); setShowOverflow(false); }} />
             <OverflowItem label="Redo" onClick={() => { redo(); setShowOverflow(false); }} />
             <OverflowDivider />
+            <OverflowItem label="Import STL" onClick={() => { setShowImportMesh(true); setShowOverflow(false); }} />
             <OverflowItem label={exporting === 'STL' && exportProgress ? `Exporting ${exportProgress.percent}%` : 'Export STL'} onClick={() => { handleExportSTL(); setShowOverflow(false); }} disabled={evaluating || !tree || !!exporting} />
             <OverflowItem label={exporting === '3MF' && exportProgress ? `Exporting ${exportProgress.percent}%` : 'Export 3MF'} onClick={() => { handleExport3MF(); setShowOverflow(false); }} disabled={evaluating || !tree || !!exporting} />
             {projectId && (
@@ -311,6 +315,9 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
     )}
     {showImport && (
       <ImportProject onDone={() => setShowImport(false)} />
+    )}
+    {showImportMesh && (
+      <ImportMesh onDone={() => setShowImportMesh(false)} />
     )}
     {showSettings && (
       <SettingsPage onClose={() => setShowSettings(false)} />

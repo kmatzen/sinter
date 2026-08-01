@@ -306,9 +306,14 @@ export class SdfMesh {
     const texUniforms: Record<string, THREE.IUniform> = {};
     for (const tex of (sdf.textures || [])) {
       const data = new Uint8Array(tex.data);
-      const dt = new THREE.DataTexture(data, tex.width, tex.height, THREE.RedFormat, THREE.UnsignedByteType);
-      dt.minFilter = THREE.LinearFilter;
-      dt.magFilter = THREE.LinearFilter;
+      const format = tex.channels === 4 ? THREE.RGBAFormat : THREE.RedFormat;
+      const dt = new THREE.DataTexture(data, tex.width, tex.height, format, THREE.UnsignedByteType);
+      // NEAREST, deliberately. A baked mesh field is stored as tiled z-slices,
+      // and hardware filtering would blend across a tile boundary — mixing the
+      // edge of one slice with geometry from the far side of the model. The
+      // trilinear blend is written out in the emitted GLSL instead.
+      dt.minFilter = THREE.NearestFilter;
+      dt.magFilter = THREE.NearestFilter;
       dt.wrapS = THREE.ClampToEdgeWrapping;
       dt.wrapT = THREE.ClampToEdgeWrapping;
       dt.needsUpdate = true;

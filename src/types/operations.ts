@@ -10,6 +10,10 @@ export interface SDFNodeUI {
 
 // All valid node kinds
 export const NODE_KINDS = {
+  // `mesh` is a primitive in the sense that matters here — it takes no
+  // children — but it is deliberately not in this list, which drives the
+  // palette. There is no useful default mesh to drag in; one only exists once a
+  // file has been imported, so it arrives through the importer instead.
   primitives: ['box', 'sphere', 'cylinder', 'torus', 'cone', 'capsule', 'ellipsoid'] as const,
   booleans: ['union', 'subtract', 'intersect'] as const,
   modifiers: ['shell', 'offset', 'round', 'mirror', 'halfSpace'] as const,
@@ -26,6 +30,7 @@ export const NODE_LABELS: Record<string, string> = {
   capsule: 'Capsule',
   ellipsoid: 'Ellipsoid',
   text: 'Text',
+  mesh: 'Imported Mesh',
   union: 'Union',
   subtract: 'Subtract',
   intersect: 'Intersect',
@@ -50,6 +55,9 @@ export const NODE_DEFAULTS: Record<string, Record<string, number>> = {
   capsule: { radius: 10, height: 30 },
   ellipsoid: { width: 30, height: 20, depth: 40 },
   text: { size: 10, depth: 2 },
+  // Grid resolution for the baked field. 48 keeps the bake to ~110k
+  // closest-point queries and the atlas texture to 336x336.
+  mesh: { resolution: 48 },
   union: { smooth: 0 },
   subtract: { smooth: 0 },
   intersect: { smooth: 0 },
@@ -67,6 +75,7 @@ export const NODE_DEFAULTS: Record<string, Record<string, number>> = {
 
 // How many children each kind expects
 export function expectedChildren(kind: string): number {
+  if (kind === 'mesh' || kind === 'text') return 0;
   if (NODE_KINDS.primitives.includes(kind as any)) return 0;
   if (NODE_KINDS.booleans.includes(kind as any)) return 2;
   return 1; // modifiers, transforms, patterns wrap one child

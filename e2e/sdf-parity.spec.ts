@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 import { generateSDFFunction } from '../src/worker/sdf/codegen';
 import { evaluateSDF } from '../src/worker/sdf/evaluate';
 import { computeBounds } from '../src/worker/sdf/bounds';
+import { bakeMeshField } from '../src/worker/sdf/meshField';
 import type { SDFNode, Vec3 } from '../src/worker/sdf/types';
 
 /**
@@ -18,14 +19,14 @@ import type { SDFNode, Vec3 } from '../src/worker/sdf/types';
  */
 
 /** Bake the uniform array into the source, the way generateGLSL does. */
-function bakedShader(root: SDFNode): string {
+function bakedShader(root: SDFNode): { src: string; textures: { name: string; width: number; height: number; data: number[]; channels: number }[] } {
   const r = generateSDFFunction(root);
   let src = r.glsl;
   for (let i = r.paramCount - 1; i >= 0; i--) {
     const v = r.paramValues[i] ?? 0;
     src = src.split(`u_p[${i}]`).join(v.toFixed(9));
   }
-  return src;
+  return { src, textures: r.textures };
 }
 
 const FRAG = (sdfSource: string) => `precision highp float;
@@ -94,6 +95,29 @@ const TEXT_WITH_CURVES: SDFNode = {
   glyphWidth: 18, glyphAscent: 18, glyphDescent: 0,
 };
 
+/**
+ * An imported mesh (#87). Both evaluators sample the *same baked grid* — the
+ * CPU from a Float32Array, the GPU from a 16-bit atlas texture built from it —
+ * so this checks that the two trilinear implementations and the atlas
+ * addressing agree. That is the whole design: a mesh node is stored as a field
+ * precisely so it cannot become another #85, where one node kind meant a
+ * different solid on each side.
+ */
+const MESH_BOX: SDFNode = (() => {
+  const v: [number, number, number][] = [
+    [-9, -7, -5], [9, -7, -5], [9, 7, -5], [-9, 7, -5],
+    [-9, -7, 5], [9, -7, 5], [9, 7, 5], [-9, 7, 5],
+  ];
+  const faces: [number, number, number][] = [
+    [0, 2, 1], [0, 3, 2], [4, 5, 6], [4, 6, 7],
+    [0, 1, 5], [0, 5, 4], [3, 7, 6], [3, 6, 2],
+    [0, 4, 7], [0, 7, 3], [1, 2, 6], [1, 6, 5],
+  ];
+  const positions = new Float32Array(faces.length * 9);
+  faces.forEach((f, i) => f.forEach((idx, k) => positions.set(v[idx], i * 9 + k * 3)));
+  return { kind: 'mesh', field: bakeMeshField(positions, 32) };
+})();
+
 const CASES: [string, SDFNode][] = [
   ['box', { kind: 'box', size: [30, 20, 40] }],
   ['sphere', { kind: 'sphere', radius: 14 }],
@@ -130,6 +154,12 @@ const CASES: [string, SDFNode][] = [
   ['text without glyph data (the reachable case)', {
     kind: 'text', text: 'AB', size: 20, depth: 6, font: 'sans-serif',
   }],
+  ['imported mesh field', MESH_BOX],
+  ['imported mesh inside a boolean', {
+    kind: 'subtract', k: 0,
+    a: { kind: 'box', size: [24, 20, 16] },
+    b: MESH_BOX,
+  }],
   ['circularPattern spanning sectors', {
     kind: 'circularPattern', axis: [0, 1, 0], count: 6,
     child: {
@@ -148,10 +178,11 @@ test.describe('CPU and GPU evaluators agree', () => {
     test(name, async ({ page }) => {
       await page.goto('/');
       const bb = computeBounds(tree);
-      const src = FRAG(bakedShader(tree));
+      const compiled = bakedShader(tree);
+      const src = FRAG(compiled.src);
 
       const gpu = await page.evaluate(
-        ({ src, bbMin, bbMax, res, slices }) => {
+        ({ src, bbMin, bbMax, res, slices, textures }) => {
           const canvas = document.createElement('canvas');
           canvas.width = res; canvas.height = res;
           const gl = canvas.getContext('webgl', { antialias: false, preserveDrawingBuffer: true });
@@ -198,6 +229,26 @@ test.describe('CPU and GPU evaluators agree', () => {
           }
           gl.viewport(0, 0, res, res);
 
+          // Mesh nodes carry their baked field as an atlas texture, so the
+          // harness has to bind it or the shader samples an unbound sampler and
+          // silently reads zeros — which would look like agreement on an empty
+          // field rather than a missing upload.
+          textures.forEach((t, unit) => {
+            const glTex = gl.createTexture();
+            gl.activeTexture(gl.TEXTURE1 + unit);
+            gl.bindTexture(gl.TEXTURE_2D, glTex);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+            gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+            const fmt = t.channels === 4 ? gl.RGBA : gl.LUMINANCE;
+            gl.texImage2D(gl.TEXTURE_2D, 0, fmt, t.width, t.height, 0, fmt,
+              gl.UNSIGNED_BYTE, new Uint8Array(t.data));
+            gl.uniform1i(gl.getUniformLocation(prog, t.name), 1 + unit);
+          });
+          gl.activeTexture(gl.TEXTURE0);
+
           gl.uniform3f(gl.getUniformLocation(prog, 'u_bbMin'), bbMin[0], bbMin[1], bbMin[2]);
           gl.uniform3f(gl.getUniformLocation(prog, 'u_bbMax'), bbMax[0], bbMax[1], bbMax[2]);
           gl.uniform2f(gl.getUniformLocation(prog, 'u_resolution'), res, res);
@@ -214,7 +265,7 @@ test.describe('CPU and GPU evaluators agree', () => {
           }
           return { data: out };
         },
-        { src, bbMin: bb.min, bbMax: bb.max, res: RES, slices: SLICES },
+        { src, bbMin: bb.min, bbMax: bb.max, res: RES, slices: SLICES, textures: compiled.textures },
       );
 
       expect(gpu.error, `GPU setup failed: ${gpu.error}`).toBeUndefined();
