@@ -51,6 +51,44 @@ jobs:
           path: test-results/
           retention-days: 7
 
+  bench:
+    name: Export Benchmark
+    runs-on: ubuntu-latest
+    # Reports, does not gate. A shared runner's wall clock is too noisy to fail
+    # a PR on, and #88's own instruction is that nothing be optimised without a
+    # number before and after — this is where that number comes from, attached
+    # to the PR instead of retyped from someone's laptop. The harness reports
+    # the minimum of several runs precisely because the mean would measure the
+    # runner.
+    continue-on-error: true
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Run benchmark
+        run: npm run bench -- --repeat=3 | tee bench.txt
+      - name: Summarise
+        run: |
+          {
+            echo '### Export pipeline benchmark'
+            echo
+            echo '```'
+            cat bench.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - run: npm run bench -- --repeat=3 --json > bench.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bench
+          path: |
+            bench.txt
+            bench.json
+          retention-days: 30
+
   build:
     name: Build
     runs-on: ubuntu-latest
