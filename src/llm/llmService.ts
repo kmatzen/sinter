@@ -87,12 +87,43 @@ export class LLMAuthError extends Error {
   }
 }
 
+/**
+ * Output-token budget for a request.
+ *
+ * One number, both wire formats. The reply is an SDF tree as JSON plus a
+ * sentence of explanation — a few hundred tokens for anything typical — so
+ * these are already generous; the ceiling exists to stop a provider reserving
+ * its model's entire output window against the user's balance.
+ */
+export function maxTokensFor(req: LLMRequest, model: string): number {
+  return resolveThinking(req, model) ? 16000 : 4096;
+}
+
+/**
+ * A 402 means the provider would not start the request, and its own body says
+ * why far better than a generic message would — but it arrives as several
+ * kilobytes of nested JSON with the same sentence repeated five times in
+ * `previous_errors`. Surfacing the message and dropping the rest is the
+ * difference between an actionable error and a wall of text.
+ */
+function conciseDetail(status: number, detail: string): string {
+  if (status !== 402) return detail;
+  try {
+    const parsed = JSON.parse(detail);
+    const message = parsed?.error?.message;
+    if (typeof message === 'string' && message) return message;
+  } catch {
+    // Not JSON; fall through to the raw body.
+  }
+  return detail;
+}
+
 async function raiseForStatus(res: Response, provider: ProviderDef): Promise<never> {
   const detail = await res.text().catch(() => '');
   if (res.status === 401 || res.status === 403) {
     throw new LLMAuthError(provider, res.status, detail.slice(0, 200));
   }
-  throw new Error(`${provider.label} API error (${res.status}): ${detail}`);
+  throw new Error(`${provider.label} API error (${res.status}): ${conciseDetail(res.status, detail)}`);
 }
 
 /**
@@ -166,7 +197,7 @@ async function streamAnthropic(
 
   const body: any = {
     model,
-    max_tokens: useThinking ? 16000 : 4096,
+    max_tokens: maxTokensFor(req, model),
     stream: true,
     messages: req.messages.map((m) => ({ role: m.role, content: toAnthropicContent(m) })),
   };
@@ -244,6 +275,18 @@ async function streamOpenAI(
     body: JSON.stringify({
       model: req.model || provider.defaultModel,
       stream: true,
+      // Omitting this is not "no limit" — it is "the model's limit". OpenRouter
+      // reserves credit against `max_tokens` up front, so an unset value made
+      // it reserve the model's full output window (65536 on some) and reject
+      // the request outright with a 402 for anyone whose balance could not
+      // cover a reservation they were never going to spend.
+      //
+      // The Anthropic path has always capped this. The asymmetry arrived with
+      // the provider registry and went unnoticed because a direct OpenAI or
+      // Anthropic key is usually attached to an account with real credit —
+      // whereas OpenRouter is the provider people reach for precisely to try
+      // it with a few dollars.
+      max_tokens: maxTokensFor(req, req.model || provider.defaultModel),
       messages: [
         { role: 'system', content: req.systemPrompt },
         ...req.messages.map((m) => ({ role: m.role, content: toOpenAIContent(m) })),

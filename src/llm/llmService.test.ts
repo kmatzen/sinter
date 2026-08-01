@@ -132,6 +132,91 @@ describe('extended thinking', () => {
   });
 });
 
+/**
+ * OpenRouter reserves credit against `max_tokens` before generating anything,
+ * so omitting it is not "no limit" — it is "reserve the model's entire output
+ * window". A user with $10 got a 402 and never saw a token, because the
+ * reservation was 65536 tokens they were never going to spend.
+ *
+ * The Anthropic path always capped this; the OpenAI path did not, and that
+ * asymmetry is invisible unless a test looks at the body both wires send.
+ */
+describe('output token budget', () => {
+  it('caps max_tokens on the OpenAI wire', async () => {
+    const fetchMock = mockFetch(sseResponse(['data: [DONE]\n\n']));
+    await streamLLMMessage(
+      // `supportsThinking: false` explicitly: an OpenRouter id like
+      // `anthropic/claude-opus-5` is thinking-capable by the heuristic, which
+      // would take the 16000 branch and not test the cap this is about.
+      { systemPrompt: 'sp', messages, apiKey: 'k', provider: 'openrouter', model: 'anthropic/claude-opus-5', supportsThinking: false },
+      () => {},
+    );
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body.max_tokens).toBe(4096);
+  });
+
+  it('raises the cap on the OpenAI wire when the model is thinking', async () => {
+    const fetchMock = mockFetch(sseResponse(['data: [DONE]\n\n']));
+    await streamLLMMessage(
+      { systemPrompt: 'sp', messages, apiKey: 'k', provider: 'openrouter', model: 'anthropic/claude-opus-5', supportsThinking: true },
+      () => {},
+    );
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).max_tokens).toBe(16000);
+  });
+
+  it('sends the same budget on both wires', async () => {
+    const anthropic = mockFetch(sseResponse(['data: [DONE]\n\n']));
+    await streamLLMMessage(
+      { systemPrompt: 'sp', messages, apiKey: 'k', provider: 'anthropic', model: 'claude-opus-5', supportsThinking: false },
+      () => {},
+    );
+    const a = JSON.parse(anthropic.mock.calls[0][1].body).max_tokens;
+
+    const openai = mockFetch(sseResponse(['data: [DONE]\n\n']));
+    await streamLLMMessage(
+      { systemPrompt: 'sp', messages, apiKey: 'k', provider: 'openai', model: 'gpt-5', supportsThinking: false },
+      () => {},
+    );
+    expect(JSON.parse(openai.mock.calls[0][1].body).max_tokens).toBe(a);
+  });
+});
+
+describe('402 credit errors', () => {
+  /**
+   * OpenRouter's 402 body says exactly what to do, and then repeats it five
+   * times inside `previous_errors`. The user sees whatever this throws, so
+   * dumping several kilobytes of nested JSON at them buries the one sentence
+   * that matters.
+   */
+  it('surfaces the provider message instead of the whole JSON body', async () => {
+    const body = JSON.stringify({
+      error: {
+        message: 'This request requires more credits, or fewer max_tokens.',
+        code: 402,
+        metadata: { previous_errors: Array(5).fill({ code: 402, message: 'This request requires more credits, or fewer max_tokens.' }) },
+      },
+    });
+    mockFetch(new Response(body, { status: 402 }));
+
+    await expect(
+      streamLLMMessage({ systemPrompt: 'sp', messages, apiKey: 'k', provider: 'openrouter', model: 'm' }, () => {}),
+    ).rejects.toThrow(/requires more credits/);
+
+    const err = await streamLLMMessage(
+      { systemPrompt: 'sp', messages, apiKey: 'k', provider: 'openrouter', model: 'm' }, () => {},
+    ).catch((e: Error) => e.message);
+    expect(err).not.toContain('previous_errors');
+    expect(err!.length).toBeLessThan(200);
+  });
+
+  it('falls back to the raw body when it is not the shape we expect', async () => {
+    mockFetch(new Response('upstream exploded', { status: 402 }));
+    await expect(
+      streamLLMMessage({ systemPrompt: 'sp', messages, apiKey: 'k', provider: 'openrouter', model: 'm' }, () => {}),
+    ).rejects.toThrow(/upstream exploded/);
+  });
+});
+
 describe('errors', () => {
   it('raises a distinct auth error on 401 and names the fix', async () => {
     mockFetch(sseResponse(['unauthorized'], false, 401));
