@@ -30,6 +30,37 @@ export default defineConfig({
     timeout: 30000,
   },
   projects: [
-    { name: 'chromium', use: { browserName: 'chromium' } },
+    { name: 'chromium', use: { browserName: 'chromium' }, testIgnore: /viewport-golden\.spec\.ts/ },
+    {
+      // Golden images run against SwiftShader everywhere, not against whatever
+      // GPU the machine has. #52 rejected golden images as brittle across GPUs
+      // and driver versions, and that objection is right — so this project
+      // removes the variable rather than tolerating it. SwiftShader ships
+      // inside the pinned Playwright browser build, so a developer's machine
+      // and the CI runner execute the same rasteriser, and the reference images
+      // are portable. Only CPU-architecture arithmetic differences remain,
+      // which the per-pixel threshold in the spec absorbs.
+      name: 'golden',
+      testMatch: /viewport-golden\.spec\.ts/,
+      // Reference images are not platform-scoped, because pinning SwiftShader
+      // is what makes them portable. Playwright's default template appends the
+      // OS name, which would leave CI with no image to compare against and each
+      // developer maintaining their own set.
+      snapshotPathTemplate: '{testDir}/golden-snapshots/{arg}{ext}',
+      use: {
+        browserName: 'chromium',
+        launchOptions: {
+          args: [
+            '--use-gl=angle',
+            '--use-angle=swiftshader',
+            // Chromium refuses to fall back to SwiftShader without this once a
+            // real GPU is available, which is exactly the case on a developer
+            // machine.
+            '--enable-unsafe-swiftshader',
+            '--disable-gpu',
+          ],
+        },
+      },
+    },
   ],
 });
