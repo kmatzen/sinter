@@ -180,13 +180,44 @@ export function simplifyMesh(mesh: MeshResult, target: number | SimplifyOptions,
   const triAlive = new Uint8Array(numTris).fill(1);
   let aliveTris = numTris;
 
-  // Vertex -> list of triangle indices
-  const vertTris: Set<number>[] = new Array(numVerts);
-  for (let i = 0; i < numVerts; i++) vertTris[i] = new Set();
+  /**
+   * Vertex -> incident triangles, as singly linked lists over one preallocated
+   * node array.
+   *
+   * This was `numVerts` separate `Set<number>`s. Two things made that the
+   * dominant cost of the whole mesher: ~300k Set allocations up front plus an
+   * iterator object per traversal, and — worse — the lists were never
+   * compacted. A collapse merges rb's triangles into ra and kills the ones that
+   * went degenerate, but the dead entries stayed in the set, so every later
+   * collapse walked past a growing pile of corpses. Cost per collapse rose as
+   * the mesh shrank, which is the wrong way round.
+   *
+   * Each triangle owns exactly three nodes at fixed slots (t*3+k), so no
+   * allocation happens after setup: merging re-homes rb's nodes onto ra, and
+   * dead nodes are unlinked by the traversals that already have to visit them.
+   *
+   * Appending preserves the Set's insertion order, and a triangle can never be
+   * appended to a list it is already in — that would mean two of its corners
+   * resolve to the same vertex, which is exactly the degenerate case killed
+   * just above. So this reproduces `add`'s dedup without needing a membership
+   * test, and every downstream traversal sees the same order it saw before.
+   */
+  const nodeTri = new Int32Array(numTris * 3);
+  const nodeNext = new Int32Array(numTris * 3).fill(-1);
+  const vtHead = new Int32Array(numVerts).fill(-1);
+  const vtTail = new Int32Array(numVerts).fill(-1);
+  function vtAppend(v: number, node: number) {
+    nodeNext[node] = -1;
+    if (vtTail[v] === -1) vtHead[v] = node;
+    else nodeNext[vtTail[v]] = node;
+    vtTail[v] = node;
+  }
   for (let t = 0; t < numTris; t++) {
-    vertTris[triV[t * 3]].add(t);
-    vertTris[triV[t * 3 + 1]].add(t);
-    vertTris[triV[t * 3 + 2]].add(t);
+    for (let k = 0; k < 3; k++) {
+      const n = t * 3 + k;
+      nodeTri[n] = t;
+      vtAppend(triV[n], n);
+    }
   }
 
   // Union-find for merged vertices
@@ -305,8 +336,9 @@ export function simplifyMesh(mesh: MeshResult, target: number | SimplifyOptions,
     const MIN_QUALITY = 0.05; // minimum triangle quality (0 = degenerate, 1 = equilateral)
 
     // Check all triangles that reference ra or rb
-    for (const src of [vertTris[ra], vertTris[rb]]) {
-      for (const t of src) {
+    for (let pass = 0; pass < 2; pass++) {
+      for (let node = vtHead[pass === 0 ? ra : rb]; node !== -1; node = nodeNext[node]) {
+        const t = nodeTri[node];
         if (!triAlive[t]) continue;
 
         const i0 = find(triV[t * 3]), i1 = find(triV[t * 3 + 1]), i2 = find(triV[t * 3 + 2]);
@@ -354,6 +386,12 @@ export function simplifyMesh(mesh: MeshResult, target: number | SimplifyOptions,
     return true;
   }
 
+  // Scratch for the one-ring of the merged vertex. A stamp per vertex gives the
+  // dedup a `Set` provided, without allocating one per collapse.
+  const nbStamp = new Int32Array(numVerts).fill(-1);
+  let nbList = new Int32Array(64);
+  let stamp = 0;
+
   // Collapse loop
   const trisToRemove = numTris - targetTris;
   let lastSimplifyPct = -1;
@@ -385,35 +423,65 @@ export function simplifyMesh(mesh: MeshResult, target: number | SimplifyOptions,
     vx[ra] = pos[0]; vy[ra] = pos[1]; vz[ra] = pos[2];
     for (let k = 0; k < 10; k++) quadrics[ra * 10 + k] += quadrics[rb * 10 + k];
 
-    // Merge triangle lists
-    for (const t of vertTris[rb]) {
-      if (!triAlive[t]) continue;
-      for (let k = 0; k < 3; k++) {
-        triV[t * 3 + k] = find(triV[t * 3 + k]);
-      }
-      const v0 = triV[t * 3], v1 = triV[t * 3 + 1], v2 = triV[t * 3 + 2];
-      if (v0 === v1 || v1 === v2 || v0 === v2) {
-        triAlive[t] = 0;
-        aliveTris--;
-        vertTris[v0]?.delete(t);
-        vertTris[v1]?.delete(t);
-        vertTris[v2]?.delete(t);
-      } else {
-        vertTris[ra].add(t);
+    // Merge triangle lists: walk rb's nodes and re-home the survivors onto ra.
+    // Nodes for triangles that died are simply not carried over, so a collapse
+    // never grows ra's list by more than the triangles it actually gained.
+    {
+      let node = vtHead[rb];
+      vtHead[rb] = -1; vtTail[rb] = -1;
+      while (node !== -1) {
+        const next = nodeNext[node];
+        const t = nodeTri[node];
+        if (triAlive[t]) {
+          for (let k = 0; k < 3; k++) {
+            triV[t * 3 + k] = find(triV[t * 3 + k]);
+          }
+          const v0 = triV[t * 3], v1 = triV[t * 3 + 1], v2 = triV[t * 3 + 2];
+          if (v0 === v1 || v1 === v2 || v0 === v2) {
+            triAlive[t] = 0;
+            aliveTris--;
+          } else {
+            vtAppend(ra, node);
+          }
+        }
+        node = next;
       }
     }
 
-    // Re-insert affected edges with new costs
-    const neighbors = new Set<number>();
-    for (const t of vertTris[ra]) {
-      if (!triAlive[t]) continue;
-      for (let k = 0; k < 3; k++) {
-        const vi = find(triV[t * 3 + k]);
-        if (vi !== ra) neighbors.add(vi);
+    // Re-insert affected edges with new costs. This walk is also where ra's
+    // list gets swept: a triangle killed by some earlier collapse is unlinked
+    // here rather than being stepped over again by every future collapse.
+    // Unlinking only removes entries the loop already skips, so the live
+    // entries keep their relative order and so does `nbList` after them.
+    stamp++;
+    let nbCount = 0;
+    let prev = -1;
+    for (let node = vtHead[ra]; node !== -1; ) {
+      const next = nodeNext[node];
+      const t = nodeTri[node];
+      if (!triAlive[t]) {
+        if (prev === -1) vtHead[ra] = next; else nodeNext[prev] = next;
+        if (vtTail[ra] === node) vtTail[ra] = prev;
+      } else {
+        for (let k = 0; k < 3; k++) {
+          const vi = find(triV[t * 3 + k]);
+          if (vi !== ra && nbStamp[vi] !== stamp) {
+            nbStamp[vi] = stamp;
+            if (nbCount === nbList.length) {
+              const grown = new Int32Array(nbList.length * 2);
+              grown.set(nbList);
+              nbList = grown;
+            }
+            nbList[nbCount++] = vi;
+          }
+        }
+        prev = node;
       }
+      node = next;
     }
     gen++;
-    for (const nb of neighbors) {
+    for (let i = 0; i < nbCount; i++) {
+      const nb = nbList[i];
       const nek = edgeKey(ra, nb);
       edgeGen.set(nek, gen);
       const { cost } = computeEdgeCost(ra, nb);
