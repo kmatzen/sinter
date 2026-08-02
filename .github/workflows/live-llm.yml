@@ -1,0 +1,62 @@
+name: Live LLM
+
+# Does the headline feature actually work against a real model?
+#
+# Everything between a typed prompt and a changed model is covered in pieces and
+# stubbed at the seams, so the whole suite can be green while chat produces
+# nothing usable. `src/llm/live.test.ts` closes that gap by asking a real model
+# for a 20 mm cube and checking the evaluated geometry is a 20 mm cube.
+#
+# It is not part of `CI` because it costs money and depends on a third party
+# being up: a paid, flaky-by-nature check on every PR would get ignored or
+# disabled within a week. Weekly plus on-demand catches the things that actually
+# break here — a provider changing its wire format, a model drifting out of the
+# response format the system prompt asks for, a credential expiring — none of
+# which are triggered by our own commits.
+on:
+  schedule:
+    # Mondays, 07:00 UTC.
+    - cron: '0 7 * * 1'
+  workflow_dispatch:
+    inputs:
+      provider:
+        description: 'Provider to test against'
+        type: choice
+        options: [openrouter, anthropic, openai]
+        default: openrouter
+      model:
+        description: 'Model id (blank = provider default)'
+        type: string
+        default: ''
+
+jobs:
+  live:
+    name: Chat produces real geometry
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+
+      # A missing credential must not read as a pass. Without this the run goes
+      # green having tested nothing, which is worse than no job at all.
+      - name: Require a credential
+        env:
+          KEY: ${{ secrets.LIVE_LLM_API_KEY }}
+        run: |
+          if [ -z "$KEY" ]; then
+            echo "::error::Secret LIVE_LLM_API_KEY is not set, so nothing would be tested."
+            echo "Add it in Settings > Secrets and variables > Actions, or disable this workflow."
+            exit 1
+          fi
+
+      - name: Ask a real model for real geometry
+        env:
+          SINTER_LIVE_API_KEY: ${{ secrets.LIVE_LLM_API_KEY }}
+          SINTER_LIVE_PROVIDER: ${{ inputs.provider || 'openrouter' }}
+          SINTER_LIVE_MODEL: ${{ inputs.model }}
+        run: npm run test:live

@@ -113,7 +113,21 @@ npm run typecheck     # tsc --noEmit
 npm test              # unit tests
 npm run test:e2e      # Playwright, including CPU/GPU parity and golden images
 npm run bench         # export pipeline timings, per stage
+npm run test:live     # asks a real model for real geometry (needs a credential)
 ```
+
+`test:live` is the only test that spends money, so it is skipped unless you opt
+in with a credential:
+
+```bash
+SINTER_LIVE_API_KEY=sk-... npm run test:live
+# SINTER_LIVE_PROVIDER  anthropic | openai | openrouter   (default: openrouter)
+# SINTER_LIVE_MODEL     overrides the provider's default model
+```
+
+It also runs weekly in CI (`live-llm.yml`), because what breaks this path is a
+provider changing its wire format or a model drifting out of the response format
+the system prompt asks for — neither of which any commit of ours triggers.
 
 A few of these are load-bearing rather than routine, and are worth knowing about
 before changing the geometry code:
