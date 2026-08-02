@@ -7,4 +7,21 @@ export default defineConfig({
   worker: {
     format: 'es',
   },
+  build: {
+    rollupOptions: {
+      output: {
+        /**
+         * Split the two dependencies that dominate the bundle into their own
+         * chunks. Beyond the on-demand loading above, this is a caching win:
+         * three.js and React change when they are upgraded, application code
+         * changes every deploy, and shipping them in one file means every
+         * deploy invalidates 620 kB of vendor code that did not change.
+         */
+        manualChunks: {
+          three: ['three'],
+          react: ['react', 'react-dom'],
+        },
+      },
+    },
+  },
 });
