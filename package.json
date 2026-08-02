@@ -13,6 +13,7 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test",
+    "test:live": "vitest run src/llm/live.test.ts",
     "test:all": "vitest run && playwright test",
     "migrate": "tsx server/migrate-to-static.ts",
     "bench": "tsx bench/mesh.bench.ts"

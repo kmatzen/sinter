@@ -1,13 +1,65 @@
 name: Deploy
 
+# Production is published deliberately, not as a side effect of merging.
+#
+# This used to run on every push to `main`, which had two problems. The obvious
+# one: nothing sat between "PR approved" and "live", so every merge was a
+# production release whether or not anyone meant it that way. The subtler one:
+# this workflow and `ci.yml` both trigger on that same push and run
+# concurrently, so a deploy could publish a commit before its own tests
+# finished — and this build is faster than the e2e suite, so it usually would.
+# A red `main` could reach users while its tests were still running.
+#
+# Publishing is now either a tag (`v1.2.3`), which leaves a record of what
+# shipped, or a manual run from the Actions tab against any ref. Either way the
+# `guard` job refuses a commit whose CI is not already green.
 on:
   push:
-    branches: [main]
+    tags: ['v*']
   workflow_dispatch:
 
 jobs:
+  guard:
+    name: Require green CI for this commit
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      # Asks for a *completed* CI run against this exact SHA rather than
+      # assuming one happened. A tag can point at any commit and a manual run
+      # can select any ref, so neither implies tests were run.
+      - name: Check CI result for ${{ github.sha }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.sha }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          echo "Looking for a completed CI run against $SHA"
+          conclusion=$(gh api \
+            "repos/$REPO/actions/runs?head_sha=$SHA&status=completed&per_page=100" \
+            --jq '[.workflow_runs[] | select(.name == "CI")]
+                  | sort_by(.run_started_at)
+                  | last
+                  | .conclusion // ""')
+
+          if [ -z "$conclusion" ]; then
+            echo "::error::No completed CI run for $SHA — refusing to deploy."
+            echo "If CI is still running, wait for it and re-run this workflow."
+            exit 1
+          fi
+
+          if [ "$conclusion" != "success" ]; then
+            echo "::error::CI concluded '$conclusion' for $SHA — refusing to deploy."
+            exit 1
+          fi
+
+          echo "CI is green for $SHA."
+
   deploy:
     name: Deploy to Cloudflare Pages
+    needs: guard
     runs-on: ubuntu-latest
     permissions:
       contents: read

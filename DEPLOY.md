@@ -105,7 +105,28 @@ In the repo settings → Secrets and variables → Actions:
 
 ## Steady-state: deploying changes
 
-Push to `main`. The `deploy.yml` workflow runs `npm run build` and publishes to Cloudflare Pages. Pages Functions in `functions/` deploy automatically alongside.
+**Merging to `main` no longer publishes to production.** It runs CI and nothing else. Publishing is a separate, deliberate act:
+
+```bash
+# Option 1 — tag a release (leaves a record of what shipped)
+git tag v1.4.0 && git push origin v1.4.0
+
+# Option 2 — publish the current main by hand
+gh workflow run deploy.yml --ref main
+```
+
+Either way `deploy.yml` first runs a `guard` job that looks up the **completed** CI run for that exact commit and refuses to deploy unless it concluded `success`. If CI is still running, the guard fails; wait and re-run.
+
+This replaced a push-to-`main` trigger, which had two problems worth remembering if anyone is tempted to put it back:
+
+- There was no gate at all between merging a PR and being live.
+- `deploy.yml` and `ci.yml` both fired on the same push and ran **concurrently**, so a deploy could publish a commit before its own tests finished — and since the build is faster than the e2e suite, it usually did. A red `main` could reach users.
+
+Pages Functions in `functions/` deploy automatically alongside the static assets, as before.
+
+### Rolling back
+
+Deploy an earlier commit the same way — `gh workflow run deploy.yml --ref <sha-or-tag>`. The guard requires that commit to have its own green CI, which any previously-shipped commit will have.
 
 For local dev:
 
