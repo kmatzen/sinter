@@ -1,0 +1,236 @@
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+
+/**
+ * `chatStore.sendMessage` — the path from a typed prompt to a changed model.
+ *
+ * This had no coverage. `chatStore.settings.test.ts` covers persistence and the
+ * v1 migration; `parseResponse.test.ts` covers the parser in isolation;
+ * `llmService.test.ts` covers the wire. Nothing joined them up, and the join is
+ * where the app's headline feature lives: build the system prompt, attach
+ * viewport renders, stream, parse, and mutate the tree.
+ *
+ * Two bugs shipped in this area recently — settings unreachable without an
+ * account, and an unset `max_tokens` — and both were found by a person using
+ * the app rather than by the suite. Neither is the sort of thing these tests
+ * would have caught, but the reason they got as far as a user is that nothing
+ * here is exercised automatically at all.
+ *
+ * The network and the GPU are stubbed. `parseResponse` deliberately is not:
+ * the point is to run real model-shaped replies through the real parser, since
+ * a reply that does not parse is the most likely way this silently does
+ * nothing.
+ */
+
+const streamLLMMessage = vi.fn();
+const captureMultiView = vi.fn();
+
+vi.mock('../llm/llmService', () => ({
+  streamLLMMessage: (...args: unknown[]) => streamLLMMessage(...args),
+}));
+
+vi.mock('../engine/engineRef', () => ({
+  getEngineRef: () => ({ captureMultiView: (...a: unknown[]) => captureMultiView(...a) }),
+}));
+
+/**
+ * jsdom here provides no `localStorage`, so the store's persistence would
+ * throw rather than no-op. The same in-memory stub `chatStore.settings.test.ts`
+ * uses, so both suites see the same storage semantics.
+ */
+function makeStorageStub(): Storage {
+  const cell = new Map<string, string>();
+  return {
+    getItem: (k: string) => cell.get(k) ?? null,
+    setItem: (k: string, v: string) => { cell.set(k, String(v)); },
+    removeItem: (k: string) => { cell.delete(k); },
+    clear: () => cell.clear(),
+    key: (i: number) => Array.from(cell.keys())[i] ?? null,
+    get length() { return cell.size; },
+  } as Storage;
+}
+
+vi.stubGlobal('localStorage', makeStorageStub());
+
+const { useChatStore } = await import('./chatStore');
+const { useModelerStore } = await import('./modelerStore');
+
+/** A reply in the shape the system prompt asks for. */
+const replaceWith = (kind: string, params: Record<string, number>) =>
+  '```json\n' + JSON.stringify({
+    action: 'replace',
+    tree: { kind, params, children: [] },
+  }) + '\n```';
+
+/** Stream `chunks` to the token callback, then resolve with the whole text. */
+function respondWith(chunks: string[]) {
+  streamLLMMessage.mockImplementation(async (_req: unknown, onToken: (t: string) => void) => {
+    for (const c of chunks) onToken(c);
+    return chunks.join('');
+  });
+}
+
+const messages = () => useChatStore.getState().messages;
+const lastMessage = () => messages()[messages().length - 1];
+
+describe('chatStore.sendMessage', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    captureMultiView.mockReturnValue(null);
+    useChatStore.setState({ messages: [], isLoading: false, apiKey: 'k', provider: 'anthropic' });
+    useModelerStore.setState({ tree: null });
+    vi.stubGlobal('localStorage', makeStorageStub());
+  });
+
+  afterEach(() => {
+    useModelerStore.setState({ tree: null });
+  });
+
+  it('applies a replace action to the tree', async () => {
+    respondWith([replaceWith('sphere', { radius: 12 })]);
+
+    await useChatStore.getState().sendMessage('make a ball');
+
+    expect(streamLLMMessage).toHaveBeenCalledTimes(1);
+    const tree = useModelerStore.getState().tree!;
+    expect(tree.kind).toBe('sphere');
+    expect(tree.params.radius).toBe(12);
+  });
+
+  it('streams tokens into the assistant message as they arrive', async () => {
+    const seen: string[] = [];
+    streamLLMMessage.mockImplementation(async (_req: unknown, onToken: (t: string) => void) => {
+      for (const c of ['Here', ' you', ' go']) {
+        onToken(c);
+        seen.push(lastMessage().content);
+      }
+      return 'Here you go';
+    });
+
+    await useChatStore.getState().sendMessage('hi');
+
+    // Each token was visible before the next arrived, which is what makes the
+    // reply appear progressively rather than in one jump at the end.
+    expect(seen).toEqual(['Here', 'Here you', 'Here you go']);
+  });
+
+  /**
+   * A model that answers in prose instead of JSON must be *flagged*, not
+   * silently ignored. Without `parseFailed` the user sees a friendly reply and
+   * an unchanged model, with nothing to indicate the two are related.
+   */
+  it('flags a reply it could not parse, and leaves the tree alone', async () => {
+    useModelerStore.setState({ tree: { id: 'keep', kind: 'box', label: 'Box', params: { width: 1, height: 1, depth: 1 }, children: [], enabled: true } });
+    respondWith(['I would suggest starting with a cylinder.']);
+
+    await useChatStore.getState().sendMessage('advise me');
+
+    expect(lastMessage().parseFailed).toBe(true);
+    expect(useModelerStore.getState().tree!.id).toBe('keep');
+  });
+
+  it('does not flag a reply that parsed', async () => {
+    respondWith([replaceWith('box', { width: 5, height: 5, depth: 5 })]);
+    await useChatStore.getState().sendMessage('a cube');
+    expect(lastMessage().parseFailed).toBeUndefined();
+  });
+
+  it('clears the loading flag on success', async () => {
+    respondWith([replaceWith('sphere', { radius: 4 })]);
+    await useChatStore.getState().sendMessage('ball');
+    expect(useChatStore.getState().isLoading).toBe(false);
+  });
+
+  describe('without a credential', () => {
+    it('does not call the model, and says how to fix it', async () => {
+      useChatStore.setState({ apiKey: '', provider: 'anthropic' });
+
+      await useChatStore.getState().sendMessage('hello');
+
+      expect(streamLLMMessage).not.toHaveBeenCalled();
+      expect(lastMessage().content).toMatch(/API key/i);
+    });
+
+    /**
+     * An OAuth provider has no key to paste, so telling someone to configure
+     * one sends them looking for something that does not exist.
+     */
+    it('tells an OAuth provider to connect rather than to paste a key', async () => {
+      useChatStore.setState({ apiKey: '', provider: 'openrouter' });
+
+      await useChatStore.getState().sendMessage('hello');
+
+      expect(lastMessage().content).toMatch(/Connect OpenRouter/i);
+      expect(lastMessage().content).not.toMatch(/API key/i);
+    });
+  });
+
+  describe('when the model call fails', () => {
+    it('replaces the empty placeholder rather than leaving a blank message', async () => {
+      streamLLMMessage.mockRejectedValue(new Error('OpenRouter API error (402): out of credit'));
+
+      await useChatStore.getState().sendMessage('hi');
+
+      // One user message and one assistant message — not an empty placeholder
+      // followed by a separate error.
+      expect(messages()).toHaveLength(2);
+      expect(lastMessage().role).toBe('assistant');
+      expect(lastMessage().content).toContain('402');
+      expect(useChatStore.getState().isLoading).toBe(false);
+    });
+
+    it('leaves the tree untouched', async () => {
+      useModelerStore.setState({ tree: { id: 'keep', kind: 'box', label: 'Box', params: { width: 1, height: 1, depth: 1 }, children: [], enabled: true } });
+      streamLLMMessage.mockRejectedValue(new Error('network down'));
+
+      await useChatStore.getState().sendMessage('change it');
+
+      expect(useModelerStore.getState().tree!.id).toBe('keep');
+    });
+  });
+
+  describe('viewport context', () => {
+    it('attaches renders and describes them when there is a model to look at', async () => {
+      useModelerStore.setState({ tree: { id: 'b', kind: 'box', label: 'Box', params: { width: 1, height: 1, depth: 1 }, children: [], enabled: true } });
+      captureMultiView.mockReturnValue({ images: ['data:image/webp;base64,AAA'], description: 'Model bounding box: 1 x 1 x 1 mm.' });
+      respondWith([replaceWith('sphere', { radius: 2 })]);
+
+      await useChatStore.getState().sendMessage('make it round');
+
+      const sent = streamLLMMessage.mock.calls[0][0] as { messages: { content: string; images?: string[] }[] };
+      const user = sent.messages[sent.messages.length - 1];
+      expect(user.images).toEqual(['data:image/webp;base64,AAA']);
+      // The description is prepended so the model knows what the images are;
+      // without it they arrive as unexplained pictures.
+      expect(user.content).toContain('Model bounding box');
+      expect(user.content).toContain('make it round');
+    });
+
+    it('sends no renders when there is nothing modelled yet', async () => {
+      respondWith([replaceWith('sphere', { radius: 2 })]);
+
+      await useChatStore.getState().sendMessage('start me off');
+
+      expect(captureMultiView).not.toHaveBeenCalled();
+      const sent = streamLLMMessage.mock.calls[0][0] as { messages: { images?: string[] }[] };
+      expect(sent.messages[sent.messages.length - 1].images).toBeUndefined();
+    });
+  });
+
+  /**
+   * Images are stripped before persisting: four base64 webp renders per turn
+   * would fill the localStorage quota within a handful of messages, and losing
+   * the whole history to a quota error is worse than losing the thumbnails.
+   */
+  it('persists the transcript without the attached images', async () => {
+    useModelerStore.setState({ tree: { id: 'b', kind: 'box', label: 'Box', params: { width: 1, height: 1, depth: 1 }, children: [], enabled: true } });
+    captureMultiView.mockReturnValue({ images: ['data:image/webp;base64,AAA'], description: 'd' });
+    respondWith([replaceWith('sphere', { radius: 2 })]);
+
+    await useChatStore.getState().sendMessage('hello');
+
+    const saved = localStorage.getItem('sinter_chat_messages')!;
+    expect(saved).toBeTruthy();
+    expect(saved).not.toContain('base64');
+    expect(JSON.parse(saved)).toHaveLength(2);
+  });
+});
