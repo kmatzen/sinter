@@ -1,5 +1,20 @@
 import { useState, useEffect } from 'react';
-import { HeroDemo } from './HeroDemo';
+import { lazy, Suspense } from 'react';
+
+/**
+ * The hero is a live three.js demo, and three.js is half the bundle. Loading it
+ * on demand means the marketing copy — the thing a first-time visitor is
+ * actually here to read — paints without waiting for a renderer.
+ *
+ * The placeholder reserves the demo's exact height so nothing below it moves
+ * when the chunk lands. A hero that appears a beat late is fine; a page that
+ * jumps under the reader's eyes is not.
+ */
+const HeroDemo = lazy(() => import('./HeroDemo').then((m) => ({ default: m.HeroDemo })));
+
+function HeroPlaceholder() {
+  return <div className="w-full h-[280px] md:h-[320px]" aria-hidden="true" />;
+}
 import { ensureConsent } from '../../store/consent';
 
 export function LandingPage({ onLaunch }: { onLaunch: () => void }) {
@@ -98,7 +113,7 @@ export function LandingPage({ onLaunch }: { onLaunch: () => void }) {
         <div className="flex flex-col md:flex-row items-center gap-8 rounded-xl p-8"
              style={{ background: 'var(--bg-panel)', border: '1px solid var(--border-subtle)' }}>
           <div className="w-full md:w-1/2 shrink-0">
-            <HeroDemo />
+            <Suspense fallback={<HeroPlaceholder />}><HeroDemo /></Suspense>
           </div>
           <div className="w-full md:w-1/2 space-y-4">
             <p className="font-mono text-[11px] tracking-[0.2em] uppercase" style={{ color: 'var(--accent)' }}>

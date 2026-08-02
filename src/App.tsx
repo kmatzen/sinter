@@ -1,22 +1,34 @@
-import { useEffect, useState } from 'react';
-import { NodeTreePanel, NodeTreeContent } from './components/tree/NodeTreePanel';
-import { Viewport } from './components/viewport/Viewport';
-import { PropertyPanel, PropertyContent } from './components/properties/PropertyPanel';
-import { Toolbar } from './components/toolbar/Toolbar';
-import { ChatDrawer } from './components/chat/ChatDrawer';
-import { MobilePanel } from './components/mobile/MobilePanel';
-import { BottomSheet } from './components/mobile/BottomSheet';
+import { useEffect, useState, lazy, Suspense } from 'react';
+
+/**
+ * The editor and the shared-project viewer are loaded on demand.
+ *
+ * Both pull three.js, which is 477 kB of a 927 kB bundle. A first-time visitor
+ * to `/` gets a marketing page, and blocking its first paint on the renderer
+ * they have not asked for yet is the single largest thing this bundle was
+ * doing wrong.
+ */
+const ModelerApp = lazy(() => import('./ModelerApp'));
+const SharedViewer = lazy(() =>
+  import('./components/share/SharedViewer').then((m) => ({ default: m.SharedViewer })),
+);
+
+/**
+ * Shown while a route's chunk arrives. Deliberately identical to the
+ * loading state the OAuth callbacks already render, so a slow network looks
+ * like the app is starting rather than like something went wrong.
+ */
+function RouteFallback() {
+  return (
+    <div className="h-full flex items-center justify-center bg-zinc-900">
+      <div className="text-zinc-400 text-sm">Loading...</div>
+    </div>
+  );
+}
 import { LoginPage } from './components/auth/LoginPage';
 import { LandingPage } from './components/landing/LandingPage';
-import { SharedViewer } from './components/share/SharedViewer';
 import { CookieConsent } from './components/ui/CookieConsent';
-import { useEvaluator } from './engine/useEvaluator';
-import { useModelerStore } from './store/modelerStore';
-import { useViewportStore } from './store/viewportStore';
 import { useAuthStore } from './store/authStore';
-import { startAutoSave } from './store/projectStore';
-import { startLocalAutoSave } from './store/localPersist';
-import { AppModals } from './components/ui/AppModals';
 import { OPENROUTER_CALLBACK_PATH, completeOpenRouterSignIn } from './llm/openrouter';
 import { useChatStore } from './store/chatStore';
 
@@ -126,7 +138,7 @@ function App() {
       </div>
     );
   } else if (route.kind === 'shared') {
-    content = <SharedViewer onOpenEditor={() => setRoute({ kind: 'app' })} />;
+    content = <Suspense fallback={<RouteFallback />}><SharedViewer onOpenEditor={() => setRoute({ kind: 'app' })} /></Suspense>;
   } else if (showLanding) {
     content = <LandingPage onLaunch={() => { localStorage.setItem('sinter_launched', '1'); setShowLanding(false); setRoute({ kind: 'app' }); }} />;
   } else if (!localStorage.getItem('sinter_launched') && (loading || !checked)) {
@@ -138,7 +150,7 @@ function App() {
   } else if (!localStorage.getItem('sinter_launched') && !user) {
     content = <LoginPage />;
   } else {
-    content = <ModelerApp />;
+    content = <Suspense fallback={<RouteFallback />}><ModelerApp /></Suspense>;
   }
 
   return (
@@ -146,90 +158,6 @@ function App() {
       {content}
       <CookieConsent />
     </>
-  );
-}
-
-function isMobile() {
-  return typeof window !== 'undefined' && window.innerWidth < 768;
-}
-
-function ModelerApp() {
-  useEvaluator();
-  const [mobilePanel, setMobilePanel] = useState<'tree' | 'props' | null>(null);
-
-  useEffect(() => {
-    let prev = useModelerStore.getState().selectedNodeId;
-    const unsub = useModelerStore.subscribe(() => {
-      const curr = useModelerStore.getState().selectedNodeId;
-      if (curr && curr !== prev && isMobile()) setMobilePanel('props');
-      prev = curr;
-    });
-    return unsub;
-  }, []);
-
-  useEffect(() => {
-    startAutoSave();
-    startLocalAutoSave();
-  }, []);
-
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if ((e.target as HTMLElement)?.tagName === 'INPUT' || (e.target as HTMLElement)?.tagName === 'TEXTAREA') return;
-
-      if ((e.metaKey || e.ctrlKey) && e.key === 'z' && !e.shiftKey) { e.preventDefault(); useModelerStore.getState().undo(); }
-      if ((e.metaKey || e.ctrlKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) { e.preventDefault(); useModelerStore.getState().redo(); }
-      if ((e.metaKey || e.ctrlKey) && e.key === 'c') useModelerStore.getState().copySelected();
-      if ((e.metaKey || e.ctrlKey) && e.key === 'v') useModelerStore.getState().pasteToSelected();
-      if ((e.metaKey || e.ctrlKey) && e.key === 'd') { e.preventDefault(); useModelerStore.getState().duplicateSelected(); }
-      const { gizmoMode, setGizmoMode } = useViewportStore.getState();
-      if (e.key === 'w' || e.key === 'W') setGizmoMode(gizmoMode === 'translate' ? 'none' : 'translate');
-      if (e.key === 'e' || e.key === 'E') setGizmoMode(gizmoMode === 'rotate' ? 'none' : 'rotate');
-      if (e.key === 'r' || e.key === 'R') setGizmoMode(gizmoMode === 'scale' ? 'none' : 'scale');
-      if (e.key === 'Escape') setGizmoMode('none');
-      if (e.key === 'Delete' || e.key === 'Backspace') {
-        const id = useModelerStore.getState().selectedNodeId;
-        if (id) useModelerStore.getState().removeNode(id);
-      }
-      if ((e.metaKey || e.ctrlKey) && e.key === 's') {
-        e.preventDefault();
-        const json = useModelerStore.getState().toJSON();
-        const blob = new Blob([json], { type: 'application/json' });
-        const name = useModelerStore.getState().projectName;
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(blob);
-        a.download = `${name}.json`;
-        a.click();
-        URL.revokeObjectURL(a.href);
-      }
-    };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, []);
-
-  return (
-    <div data-testid="modeler-app" className="h-full flex flex-col overflow-hidden" style={{ background: 'var(--bg-deep)', color: 'var(--text-primary)' }}>
-      <Toolbar onMobileTree={() => setMobilePanel((p) => p === 'tree' ? null : 'tree')} onMobileProps={() => setMobilePanel((p) => p === 'props' ? null : 'props')} />
-      <div className="flex flex-1 min-h-0">
-        <NodeTreePanel />
-        <Viewport />
-        <PropertyPanel />
-      </div>
-      <ChatDrawer />
-      <AppModals />
-
-      {mobilePanel === 'tree' && (
-        <MobilePanel title="Node Tree" side="left" onClose={() => setMobilePanel(null)}>
-          <div className="flex flex-col h-full">
-            <NodeTreeContent />
-          </div>
-        </MobilePanel>
-      )}
-      {mobilePanel === 'props' && (
-        <BottomSheet onClose={() => setMobilePanel(null)}>
-          <PropertyContent />
-        </BottomSheet>
-      )}
-    </div>
   );
 }
 
