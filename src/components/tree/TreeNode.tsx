@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
 import { useModelerStore } from '../../store/modelerStore';
+import { useViewportStore } from '../../store/viewportStore';
 import { NODE_LABELS, nodeSummary, expectedChildren, incompleteNodeIds } from '../../types/operations';
 import type { SDFNodeUI } from '../../types/operations';
 
@@ -35,6 +36,11 @@ export function TreeNode({ node, depth, isLast = true, incompleteIds: incomplete
   const duplicateSelected = useModelerStore((s) => s.duplicateSelected);
   const moveNode = useModelerStore((s) => s.moveNode);
   const addNodeFromData = useModelerStore((s) => s.addNodeFromData);
+  // A boolean, not the id: only the two rows whose hovered-ness actually
+  // changed re-render, rather than every row in the tree on every pointer move
+  // over the viewport.
+  const isHovered = useViewportStore((s) => s.hoveredNodeId === node.id);
+  const setHoveredNode = useViewportStore((s) => s.setHoveredNode);
   const [dragOver, setDragOver] = useState(false);
 
   // Compute incomplete IDs once at the root, pass down to children
@@ -97,13 +103,26 @@ export function TreeNode({ node, depth, isLast = true, incompleteIds: incomplete
         className="flex items-center gap-1 pr-1.5 h-[26px] cursor-pointer relative"
         style={{
           paddingLeft: `${leftPad}px`,
-          background: isSelected ? 'var(--accent-subtle)' : dragOver ? 'rgba(91,140,223,0.1)' : isIncomplete ? 'rgba(212,90,90,0.08)' : 'transparent',
-          borderLeft: isSelected ? `2px solid var(--accent)` : isIncomplete ? '2px solid rgba(212,90,90,0.5)' : '2px solid transparent',
+          // Hover is now shared state rather than a direct write to
+          // `currentTarget.style`, so it can be driven from the viewport too —
+          // pointing at a surface lights up its row, and pointing at a row
+          // lights up its geometry. (The old handler also reset the background
+          // to `transparent` on leave, quietly wiping the incomplete-node tint
+          // off any row the pointer crossed.)
+          background: isSelected ? 'var(--accent-subtle)'
+            : dragOver ? 'rgba(91,140,223,0.1)'
+            : isHovered ? 'var(--bg-hover)'
+            : isIncomplete ? 'rgba(212,90,90,0.08)'
+            : 'transparent',
+          borderLeft: isSelected ? `2px solid var(--accent)`
+            : isHovered ? '2px solid rgba(255,255,255,0.35)'
+            : isIncomplete ? '2px solid rgba(212,90,90,0.5)'
+            : '2px solid transparent',
           opacity: node.enabled ? 1 : 0.35,
         }}
         onClick={() => selectNode(node.id)}
-        onMouseEnter={(e) => { if (!isSelected) e.currentTarget.style.background = 'var(--bg-hover)'; }}
-        onMouseLeave={(e) => { if (!isSelected && !dragOver) e.currentTarget.style.background = 'transparent'; }}
+        onMouseEnter={() => setHoveredNode(node.id)}
+        onMouseLeave={() => setHoveredNode(null)}
         draggable
         onDragStart={(e) => {
           e.dataTransfer.setData('text/plain', node.id);
