@@ -111,7 +111,7 @@ export function NumberInput({ label, value, unit = 'mm', min, max, step = 1, onC
   return (
     <div className="mb-1">
       <div
-        className="flex items-center h-7 rounded"
+        className="flex items-center h-7 tap-h rounded"
         style={{
           background: isFocused ? 'var(--bg-surface)' : 'transparent',
           border: `1px solid ${isFocused ? 'var(--border-default)' : 'transparent'}`,
@@ -122,12 +122,20 @@ export function NumberInput({ label, value, unit = 'mm', min, max, step = 1, onC
       >
         {/* Drag-to-adjust label */}
         <span
-          className="text-[11px] w-[72px] shrink-0 pl-2 pr-1 select-none truncate"
+          className="text-[11px] w-[72px] shrink-0 pl-2 pr-1 select-none truncate self-stretch flex items-center"
           style={{
             color: isDragging ? 'var(--accent)' : 'var(--text-muted)',
             cursor: 'ew-resize',
             fontWeight: 400,
             letterSpacing: '0.01em',
+            /*
+             * Without this the browser claims the gesture for scrolling before
+             * the pointermove handler ever sees it, so scrubbing a value inside
+             * the property sheet did nothing on a phone — it just scrolled the
+             * sheet. `none` hands the whole gesture to us; the sheet is still
+             * scrollable everywhere else.
+             */
+            touchAction: 'none',
           }}
           onPointerDown={(e) => {
             e.preventDefault();
@@ -171,7 +179,22 @@ export function NumberInput({ label, value, unit = 'mm', min, max, step = 1, onC
             if (e.key === 'ArrowDown') { e.preventDefault(); onChange(value - step); }
           }}
           aria-label={label}
-          className="flex-1 min-w-0 bg-transparent text-right pr-0.5 py-0 text-[12px] font-mono focus:outline-none"
+          /*
+           * Stays `type="text"` — the field accepts expressions like `10*2+5`,
+           * which a number input rejects outright. `inputMode` is what picks the
+           * on-screen keyboard, so this gets the numeric pad without giving up
+           * the expression parser.
+           */
+          inputMode="decimal"
+          enterKeyHint="done"
+          /*
+           * `tap-h` on the input itself, not just the row. The row's 1px border
+           * sits outside its content box, so an input stretched to `h-full`
+           * lands 2px short of the floor — close enough to look right and still
+           * fail the sweep, which is exactly the kind of near-miss the sweep
+           * exists to catch.
+           */
+          className="flex-1 min-w-0 h-full tap-h bg-transparent text-right pr-0.5 py-0 text-[12px] font-mono focus:outline-none"
           style={{ color: isExpr ? 'var(--accent)' : 'var(--text-primary)', border: 'none' }}
         />
 
@@ -185,7 +208,14 @@ export function NumberInput({ label, value, unit = 'mm', min, max, step = 1, onC
 
       {/* Slider track */}
       {showSlider && (
-        <div className="px-2 pt-0.5 pb-1">
+        /*
+         * The hit area and the reserved space are sized together on purpose.
+         * A 44px-tall invisible range centred on a 3px track would spill ~20px
+         * into the rows above and below, so a tap meant for the next field
+         * would drag this slider instead. `slider-row` reserves exactly the
+         * height the hit area occupies, which keeps the rows disjoint.
+         */
+        <div className="px-2 pt-0.5 pb-1 slider-row">
           <div className="relative h-[3px] rounded-full" style={{ background: 'var(--bg-elevated)' }}>
             <div
               className="absolute inset-y-0 left-0 rounded-full"
@@ -199,8 +229,7 @@ export function NumberInput({ label, value, unit = 'mm', min, max, step = 1, onC
               value={value}
               onChange={(e) => onChange(parseFloat(e.target.value))}
               aria-label={`${label} slider`}
-              className="absolute inset-0 w-full opacity-0 cursor-pointer"
-              style={{ height: '12px', top: '-4px' }}
+              className="absolute inset-0 w-full opacity-0 cursor-pointer slider-hit"
             />
           </div>
         </div>

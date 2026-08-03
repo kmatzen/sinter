@@ -1,5 +1,5 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
-import { GripHorizontal } from 'lucide-react';
+import { GripHorizontal, X } from 'lucide-react';
 
 interface Props {
   onClose: () => void;
@@ -9,8 +9,16 @@ interface Props {
 const MIN_HEIGHT = 100;   // below this → dismiss
 const MAX_VH = 0.85;      // maximum height as fraction of viewport
 
-/** Snap points as fractions of viewport height */
+/**
+ * Snap points as fractions of viewport height.
+ *
+ * The sheet opens at index 1, not 0. At 33% the property panel showed its type
+ * switcher and two and a half fields — for the surface where all editing
+ * happens on a phone, that is a peek, not a panel. 55% shows a whole shape's
+ * parameters without hiding the model it is describing.
+ */
 const SNAPS = [0.33, 0.55, MAX_VH];
+const INITIAL_SNAP = 1;
 
 function getSnapHeights(vh: number): number[] {
   return SNAPS.map((s) => Math.round(s * vh));
@@ -35,10 +43,17 @@ function nearestSnap(h: number, snaps: number[]): number {
 export function BottomSheet({ onClose, children }: Props) {
   const sheetRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
-  const vh = typeof window !== 'undefined' ? window.innerHeight : 700;
+  /*
+   * Tracked in state rather than read once at mount. The snap heights are
+   * fractions of the viewport, and the viewport changes constantly on a phone —
+   * rotation, the URL bar collapsing, the keyboard opening. A sheet holding
+   * heights computed against the old viewport ends up either floating above the
+   * bottom edge or taller than the screen.
+   */
+  const [vh, setVh] = useState(() => (typeof window !== 'undefined' ? window.innerHeight : 700));
   const snaps = getSnapHeights(vh);
 
-  const [height, setHeight] = useState(snaps[0]);
+  const [height, setHeight] = useState(snaps[INITIAL_SNAP]);
   const [dragging, setDragging] = useState(false);
   const dragState = useRef<{ y: number; h: number; scrolling: boolean } | null>(null);
 
@@ -119,6 +134,41 @@ export function BottomSheet({ onClose, children }: Props) {
     };
   }, [height, snaps, onClose]);
 
+  /*
+   * Re-derive the snap heights when the viewport changes, and carry the sheet
+   * to the equivalent snap rather than leaving it at a stale pixel height.
+   *
+   * The current viewport is read from a ref rather than from `vh` state so the
+   * listener does not have to be torn down and rebound on every resize frame,
+   * and so neither state updater has to read the other's value — an updater
+   * that triggers a second update is not safe to run twice, which is exactly
+   * what StrictMode does.
+   */
+  const vhRef = useRef(vh);
+  useEffect(() => { vhRef.current = vh; }, [vh]);
+
+  useEffect(() => {
+    const onResize = () => {
+      const next = window.innerHeight;
+      const prev = vhRef.current;
+      if (prev === next || next === 0) return;
+      vhRef.current = next;
+      setVh(next);
+      setHeight((h) => {
+        const fraction = h / prev;
+        const nearest = SNAPS.reduce((best, s) =>
+          Math.abs(s - fraction) < Math.abs(best - fraction) ? s : best, SNAPS[0]);
+        return Math.round(nearest * next);
+      });
+    };
+    window.addEventListener('resize', onResize);
+    window.addEventListener('orientationchange', onResize);
+    return () => {
+      window.removeEventListener('resize', onResize);
+      window.removeEventListener('orientationchange', onResize);
+    };
+  }, []);
+
   // Close on Escape
   useEffect(() => {
     const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
@@ -127,7 +177,7 @@ export function BottomSheet({ onClose, children }: Props) {
   }, [onClose]);
 
   return (
-    <div className="md:hidden fixed inset-0 z-50" onClick={onClose}>
+    <div className="lg:hidden fixed inset-0 z-50" onClick={onClose}>
       {/* Backdrop */}
       <div
         className="absolute inset-0"
@@ -151,7 +201,7 @@ export function BottomSheet({ onClose, children }: Props) {
       >
         {/* Drag handle */}
         <div
-          className="flex items-center justify-center py-2 cursor-grab active:cursor-grabbing shrink-0"
+          className="flex items-center justify-center py-2 tap-h cursor-grab active:cursor-grabbing shrink-0"
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
@@ -160,18 +210,31 @@ export function BottomSheet({ onClose, children }: Props) {
           <GripHorizontal size={20} style={{ color: 'var(--text-muted)', opacity: 0.5 }} />
         </div>
 
-        {/* Header */}
-        <div className="px-4 pb-2 shrink-0">
+        {/*
+          Header. The close button is not decoration: dismissal used to be
+          swipe-down or backdrop-tap only, neither of which announces itself,
+          and the backdrop is a thin strip once the sheet is open.
+        */}
+        <div className="px-4 pb-2 shrink-0 flex items-center justify-between gap-2">
           <span
             className="font-mono text-[10px] tracking-[0.15em] uppercase"
             style={{ color: 'var(--text-muted)' }}
           >
             Properties
           </span>
+          <button
+            onClick={onClose}
+            aria-label="Close properties"
+            title="Close"
+            className="tap flex items-center justify-center rounded -mr-2"
+            style={{ color: 'var(--text-muted)' }}
+          >
+            <X size={16} />
+          </button>
         </div>
 
         {/* Content */}
-        <div ref={contentRef} className="flex-1 overflow-y-auto min-h-0">
+        <div ref={contentRef} className="flex-1 overflow-y-auto min-h-0 pb-safe px-safe">
           {children}
         </div>
       </div>

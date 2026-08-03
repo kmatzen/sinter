@@ -131,10 +131,15 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
 
   return (
     <>
-    <div className="h-11 flex items-center px-2 md:px-3 gap-1 md:gap-2 shrink-0"
-         style={{ background: 'var(--bg-panel)', borderBottom: '1px solid var(--border-subtle)' }}>
+    <div className="h-11 flex items-center gap-1 lg:gap-2 shrink-0 px-safe-plus"
+         style={{
+           background: 'var(--bg-panel)',
+           borderBottom: '1px solid var(--border-subtle)',
+           // Base horizontal padding, folded in with the landscape notch inset.
+           ['--safe-pad-x' as any]: '0.5rem',
+         }}>
       {/* Logo + name */}
-      <div className="flex items-center gap-1.5 md:gap-2 min-w-0">
+      <div className="flex items-center gap-1.5 lg:gap-2 min-w-0">
         <img src="/logo-64.png" alt="Sinter" className="w-5 h-5 rounded shrink-0"
              style={{ cursor: 'pointer' }}
              onClick={() => window.dispatchEvent(new Event('show-landing'))}
@@ -143,19 +148,19 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
           value={projectName}
           onChange={(e) => setProjectName(e.target.value)}
           aria-label="Project name"
-          className="bg-transparent border-none text-sm font-medium w-20 md:w-32 focus:outline-none rounded px-1 min-w-0"
+          className="bg-transparent border-none text-sm font-medium w-24 lg:w-32 focus:outline-none rounded px-1 min-w-0 tap-h"
           style={{ color: 'var(--text-primary)' }}
         />
       </div>
 
       {/* Mobile-only: tree + props toggles */}
-      <div className="md:hidden flex items-center gap-1">
+      <div className="lg:hidden flex items-center gap-1">
         <IconBtn icon={<List size={14} />} title="Node tree" onClick={() => onMobileTree?.()} />
         <IconBtn icon={<SlidersHorizontal size={14} />} title="Properties" onClick={() => onMobileProps?.()} />
       </div>
 
       {/* Desktop-only: full toolbar */}
-      <div className="hidden md:contents">
+      <div className="hidden lg:contents">
         <div className="w-px h-4 mx-1" style={{ background: 'var(--border-default)' }} />
         <IconBtn icon={<FilePlus size={14} />} title="New project" onClick={() => { useModelerStore.getState().setTree(null); useModelerStore.getState().setProjectName('Untitled'); }} />
         <IconBtn icon={<FolderOpen size={14} />} title="Projects" onClick={() => setShowProjects(true)} />
@@ -184,7 +189,7 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
       <div className="flex-1" />
 
       {/* Desktop-only: export buttons */}
-      <div className="hidden md:contents">
+      <div className="hidden lg:contents">
         {/*
           Export grid resolution. Cost is cubic, so this is the single biggest
           lever over a 20s export — and a draft pass is usually what you want
@@ -214,7 +219,7 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
         title="AI Chat"
         aria-label="Toggle AI Chat"
         aria-pressed={isChatOpen}
-        className="px-2 py-1 rounded font-medium flex items-center gap-1.5"
+        className="px-2 py-1 rounded font-medium flex items-center justify-center gap-1.5 tap"
         style={{
           background: isChatOpen ? 'var(--accent)' : 'var(--bg-elevated)',
           color: isChatOpen ? 'var(--bg-deep)' : 'var(--text-secondary)',
@@ -225,7 +230,7 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
       </button>
 
       {/* Mobile-only: overflow menu */}
-      <div className="md:hidden relative" ref={overflowRef}>
+      <div className="lg:hidden relative" ref={overflowRef}>
         <IconBtn icon={<MoreHorizontal size={14} />} title="More actions" onClick={() => setShowOverflow(!showOverflow)} />
         {showOverflow && (
           <div className="absolute top-10 right-0 rounded-lg py-1 z-50 w-48 shadow-lg"
@@ -238,15 +243,44 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
             <OverflowItem label="Redo" onClick={() => { redo(); setShowOverflow(false); }} />
             <OverflowDivider />
             <OverflowItem label="Import STL" onClick={() => { setShowImportMesh(true); setShowOverflow(false); }} />
+            {/*
+              Export resolution was desktop-only, which put the biggest cost
+              lever in the app — the grid is cubic — out of reach of exactly the
+              devices that need it most. A phone exporting at Fine is a minutes-
+              long wait it never agreed to.
+            */}
+            <div className="flex items-center justify-between px-3 py-2 gap-2">
+              <span className="text-[12px] shrink-0" style={{ color: 'var(--text-muted)' }}>Resolution</span>
+              <select
+                value={exportResolution}
+                onChange={(e) => setExportResolution(Number(e.target.value))}
+                aria-label="Export resolution"
+                disabled={!!exporting}
+                className="rounded text-[12px] px-2 tap-h focus:outline-none"
+                style={{ background: 'var(--bg-elevated)', color: 'var(--text-secondary)', border: '1px solid var(--border-subtle)' }}
+              >
+                <option value={128}>Draft</option>
+                <option value={256}>Standard</option>
+                <option value={384}>Fine</option>
+              </select>
+            </div>
             <OverflowItem label={exporting === 'STL' && exportProgress ? `Exporting ${exportProgress.percent}%` : 'Export STL'} onClick={() => { handleExportSTL(); setShowOverflow(false); }} disabled={evaluating || !tree || !!exporting} />
             <OverflowItem label={exporting === '3MF' && exportProgress ? `Exporting ${exportProgress.percent}%` : 'Export 3MF'} onClick={() => { handleExport3MF(); setShowOverflow(false); }} disabled={evaluating || !tree || !!exporting} />
             {projectId && (
               <>
                 <OverflowDivider />
                 {shareUrl ? (
-                  <OverflowItem label="Copy Share Link" onClick={() => {
-                    navigator.clipboard.writeText(shareUrl);
-                    setShowOverflow(false);
+                  /*
+                   * Desktop gets a "Copied!" state on the button; this wrote to
+                   * the clipboard and closed the menu, so the only evidence it
+                   * had worked was pasting somewhere else. Hold the menu item
+                   * open long enough to say so.
+                   */
+                  <OverflowItem label={copied ? 'Copied!' : 'Copy Share Link'} onClick={() => {
+                    navigator.clipboard.writeText(shareUrl).then(() => {
+                      setCopied(true);
+                      setTimeout(() => { setCopied(false); setShowOverflow(false); }, 1200);
+                    });
                   }} />
                 ) : (
                   <OverflowItem label="Create Share Link" onClick={() => { toggleShare(); setShowOverflow(false); }} />
@@ -263,7 +297,7 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
       </div>
 
       {/* Desktop-only: settings / sign in / avatar */}
-      <div className="hidden md:contents">
+      <div className="hidden lg:contents">
         <div className="w-px h-4 mx-1" style={{ background: 'var(--border-default)' }} />
         {/*
           Not gated on `user`. Settings is where the AI provider is configured,
@@ -318,7 +352,7 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
         <button
           onClick={handleCancelExport}
           title="Cancel export"
-          className="px-2 py-0.5 rounded text-xs opacity-80 hover:opacity-100"
+          className="px-2 py-0.5 rounded text-xs opacity-80 hover:opacity-100 tap"
           style={{ background: 'var(--bg-panel)', border: '1px solid var(--border-default)' }}
         >
           Cancel
@@ -370,7 +404,7 @@ function IconBtn({ icon, label, title, onClick, disabled }: { icon: React.ReactN
       disabled={disabled}
       title={title}
       aria-label={title}
-      className="px-2 py-1 rounded disabled:opacity-30 disabled:cursor-not-allowed font-medium flex items-center gap-1.5"
+      className="px-2 py-1 rounded disabled:opacity-30 disabled:cursor-not-allowed font-medium flex items-center justify-center gap-1.5 tap"
       style={{ background: 'var(--bg-elevated)', color: 'var(--text-secondary)', border: '1px solid var(--border-subtle)' }}
       onMouseEnter={(e) => { if (!disabled) e.currentTarget.style.borderColor = 'var(--border-default)'; }}
       onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--border-subtle)'; }}
@@ -386,7 +420,7 @@ function OverflowItem({ label, onClick, disabled }: { label: string; onClick: ()
     <button
       onClick={onClick}
       disabled={disabled}
-      className="w-full text-left px-3 py-2 text-[12px] disabled:opacity-30"
+      className="w-full text-left px-3 py-2 text-[12px] disabled:opacity-30 tap-h"
       style={{ color: 'var(--text-secondary)' }}
       onMouseEnter={(e) => { if (!disabled) e.currentTarget.style.background = 'var(--bg-hover)'; }}
       onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
@@ -435,11 +469,11 @@ function ExportPreview({ triangles, size, name, onDownload, onCancel }: {
           </div>
         </div>
         <div className="flex gap-2">
-          <button onClick={onCancel} className="flex-1 px-3 py-1.5 rounded text-[12px] font-medium"
+          <button onClick={onCancel} className="flex-1 px-3 py-1.5 rounded text-[12px] font-medium tap-h"
                   style={{ background: 'var(--bg-elevated)', color: 'var(--text-secondary)', border: '1px solid var(--border-default)' }}>
             Cancel
           </button>
-          <button onClick={onDownload} className="flex-1 px-3 py-1.5 rounded text-[12px] font-medium"
+          <button onClick={onDownload} className="flex-1 px-3 py-1.5 rounded text-[12px] font-medium tap-h"
                   style={{ background: 'var(--accent)', color: 'var(--bg-deep)' }}>
             Download
           </button>

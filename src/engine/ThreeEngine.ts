@@ -212,11 +212,26 @@ export class ThreeEngine {
   private onPointerDown = (e: PointerEvent) => {
     this.pointerStart = { x: e.clientX, y: e.clientY };
   };
+  /**
+   * How far a pointer may travel between down and up and still count as a tap
+   * rather than an orbit.
+   *
+   * A mouse does not move while clicking, so 4px was plenty. A fingertip is a
+   * soft contact patch whose centroid wanders 5-10px over the course of a
+   * deliberate tap, so the same threshold silently discarded a large share of
+   * real selection taps — and the failure is invisible, indistinguishable from
+   * having missed the model. 10px for touch still separates a tap from any
+   * orbit gesture, which covers far more ground than that.
+   */
+  private static TAP_SLOP_MOUSE = 4;
+  private static TAP_SLOP_TOUCH = 10;
   private onPointerUp = async (e: PointerEvent) => {
-    // Ignore drags (> 4px movement)
     const dx = e.clientX - this.pointerStart.x;
     const dy = e.clientY - this.pointerStart.y;
-    if (dx * dx + dy * dy > 16) return;
+    const slop = e.pointerType === 'mouse'
+      ? ThreeEngine.TAP_SLOP_MOUSE
+      : ThreeEngine.TAP_SLOP_TOUCH;
+    if (dx * dx + dy * dy > slop * slop) return;
 
     const rect = this.renderer.domElement.getBoundingClientRect();
     const ndcX = ((e.clientX - rect.left) / rect.width) * 2 - 1;

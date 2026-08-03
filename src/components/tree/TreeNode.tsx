@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
 import { useModelerStore } from '../../store/modelerStore';
+import { useTreeUiStore } from '../../store/treeUiStore';
 import { NODE_LABELS, nodeSummary, expectedChildren, incompleteNodeIds } from '../../types/operations';
 import type { SDFNodeUI } from '../../types/operations';
 
@@ -35,6 +36,9 @@ export function TreeNode({ node, depth, isLast = true, incompleteIds: incomplete
   const duplicateSelected = useModelerStore((s) => s.duplicateSelected);
   const moveNode = useModelerStore((s) => s.moveNode);
   const addNodeFromData = useModelerStore((s) => s.addNodeFromData);
+  const movingNodeId = useTreeUiStore((s) => s.movingNodeId);
+  const beginMove = useTreeUiStore((s) => s.beginMove);
+  const cancelMove = useTreeUiStore((s) => s.cancelMove);
   const [dragOver, setDragOver] = useState(false);
 
   // Compute incomplete IDs once at the root, pass down to children
@@ -43,6 +47,8 @@ export function TreeNode({ node, depth, isLast = true, incompleteIds: incomplete
     [incompleteIdsProp, tree],
   );
   const isIncomplete = node.enabled && incompleteIds.has(node.id);
+  const isMoving = movingNodeId === node.id;
+  const isMoveTarget = !!movingNodeId && !isMoving;
 
   const rowRef = useRef<HTMLDivElement>(null);
   const isSelected = selectedId === node.id;
@@ -94,14 +100,30 @@ export function TreeNode({ node, depth, isLast = true, incompleteIds: incomplete
       {/* Node row */}
       <div
         ref={rowRef}
-        className="flex items-center gap-1 pr-1.5 h-[26px] cursor-pointer relative"
+        className="flex items-center gap-1 pr-1.5 h-[26px] tap-h cursor-pointer relative"
         style={{
           paddingLeft: `${leftPad}px`,
-          background: isSelected ? 'var(--accent-subtle)' : dragOver ? 'rgba(91,140,223,0.1)' : isIncomplete ? 'rgba(212,90,90,0.08)' : 'transparent',
-          borderLeft: isSelected ? `2px solid var(--accent)` : isIncomplete ? '2px solid rgba(212,90,90,0.5)' : '2px solid transparent',
+          background: isMoveTarget ? 'rgba(91,140,223,0.18)'
+            : isMoving ? 'var(--accent-subtle)'
+            : isSelected ? 'var(--accent-subtle)'
+            : dragOver ? 'rgba(91,140,223,0.1)'
+            : isIncomplete ? 'rgba(212,90,90,0.08)' : 'transparent',
+          borderLeft: isMoving ? '2px solid var(--accent-blue)'
+            : isSelected ? `2px solid var(--accent)`
+            : isIncomplete ? '2px solid rgba(212,90,90,0.5)' : '2px solid transparent',
           opacity: node.enabled ? 1 : 0.35,
         }}
-        onClick={() => selectNode(node.id)}
+        onClick={() => {
+          // While a move is in flight the whole row is a destination, so a tap
+          // places the node instead of changing the selection. Tapping the node
+          // being moved is the cancel.
+          if (movingNodeId) {
+            if (movingNodeId !== node.id) moveNode(movingNodeId, node.id);
+            cancelMove();
+            return;
+          }
+          selectNode(node.id);
+        }}
         onMouseEnter={(e) => { if (!isSelected) e.currentTarget.style.background = 'var(--bg-hover)'; }}
         onMouseLeave={(e) => { if (!isSelected && !dragOver) e.currentTarget.style.background = 'transparent'; }}
         draggable
@@ -133,7 +155,7 @@ export function TreeNode({ node, depth, isLast = true, incompleteIds: incomplete
         {/* Expand/collapse */}
         {hasChildren ? (
           <button
-            className="w-4 h-4 flex items-center justify-center shrink-0"
+            className="w-4 h-4 tap flex items-center justify-center shrink-0"
             style={{ color: 'var(--text-muted)', fontSize: '8px' }}
             onClick={(e) => { e.stopPropagation(); toggleExpanded(node.id); }}
             title={isExpanded ? 'Collapse' : 'Expand'}
@@ -143,7 +165,7 @@ export function TreeNode({ node, depth, isLast = true, incompleteIds: incomplete
             {isExpanded ? '\u25BC' : '\u25B6'}
           </button>
         ) : (
-          <span className="w-4 shrink-0" />
+          <span className="w-4 tap-w shrink-0" />
         )}
 
         {/* Kind color pip */}
@@ -181,9 +203,29 @@ export function TreeNode({ node, depth, isLast = true, incompleteIds: incomplete
 
         {/* Actions — visible on hover (desktop) or when selected (mobile) */}
         <span className={`flex items-center gap-0.5 shrink-0 ${isSelected ? 'opacity-100' : 'opacity-0 group-hover-actions'}`}>
+          {/*
+            Move: the touch counterpart to dragging the row. Dragging is HTML5
+            DnD, which touch never fires, so without this a phone cannot
+            restructure a tree at all — only add to it and delete from it.
+            Picking up here arms the tap-to-place handler on every other row.
+          */}
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              if (isMoving) { cancelMove(); return; }
+              beginMove(node.id);
+            }}
+            className="w-5 h-5 tap flex items-center justify-center rounded text-[10px]"
+            style={{ color: isMoving ? 'var(--accent-blue)' : 'var(--text-muted)' }}
+            title={isMoving ? 'Cancel move' : 'Move into another node'}
+            aria-label={isMoving ? 'Cancel move' : 'Move node into another node'}
+            aria-pressed={isMoving}
+          >
+            {'✥'}
+          </button>
           <button
             onClick={(e) => { e.stopPropagation(); selectNode(node.id); duplicateSelected(); }}
-            className="w-5 h-5 flex items-center justify-center rounded text-[10px]"
+            className="w-5 h-5 tap flex items-center justify-center rounded text-[10px]"
             style={{ color: 'var(--text-muted)' }}
             title="Duplicate"
             aria-label="Duplicate node"
@@ -192,7 +234,7 @@ export function TreeNode({ node, depth, isLast = true, incompleteIds: incomplete
           </button>
           <button
             onClick={(e) => { e.stopPropagation(); toggleNode(node.id); }}
-            className="w-5 h-5 flex items-center justify-center rounded text-[10px]"
+            className="w-5 h-5 tap flex items-center justify-center rounded text-[10px]"
             style={{ color: 'var(--text-muted)' }}
             title={node.enabled ? 'Disable' : 'Enable'}
             aria-label={node.enabled ? 'Disable node' : 'Enable node'}
@@ -202,7 +244,7 @@ export function TreeNode({ node, depth, isLast = true, incompleteIds: incomplete
           </button>
           <button
             onClick={(e) => { e.stopPropagation(); removeNode(node.id); }}
-            className="w-5 h-5 flex items-center justify-center rounded text-[10px]"
+            className="w-5 h-5 tap flex items-center justify-center rounded text-[10px]"
             style={{ color: 'var(--text-muted)' }}
             title="Remove"
             aria-label="Remove node"
@@ -254,6 +296,8 @@ export function TreeNode({ node, depth, isLast = true, incompleteIds: incomplete
 function PlaceholderSlot({ parentId, depth, isLast, urgent }: { parentId: string; depth: number; isLast: boolean; urgent?: boolean }) {
   const moveNode = useModelerStore((s) => s.moveNode);
   const addNodeFromData = useModelerStore((s) => s.addNodeFromData);
+  const movingNodeId = useTreeUiStore((s) => s.movingNodeId);
+  const cancelMove = useTreeUiStore((s) => s.cancelMove);
   const [dragOver, setDragOver] = useState(false);
 
   const visualDepth = Math.min(depth, MAX_VISUAL_DEPTH);
@@ -283,10 +327,16 @@ function PlaceholderSlot({ parentId, depth, isLast, urgent }: { parentId: string
       />
 
       <div
-        className="flex items-center h-[26px]"
+        className="flex items-center h-[26px] tap-h"
         style={{
           paddingLeft: `${leftPad + 20}px`,
-          background: dragOver ? 'rgba(91,140,223,0.1)' : 'transparent',
+          background: movingNodeId ? 'rgba(91,140,223,0.18)' : dragOver ? 'rgba(91,140,223,0.1)' : 'transparent',
+          cursor: movingNodeId ? 'pointer' : undefined,
+        }}
+        onClick={() => {
+          if (!movingNodeId) return;
+          moveNode(movingNodeId, parentId);
+          cancelMove();
         }}
         onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; setDragOver(true); }}
         onDragLeave={() => setDragOver(false)}
@@ -311,7 +361,7 @@ function PlaceholderSlot({ parentId, depth, isLast, urgent }: { parentId: string
             background: urgent ? 'rgba(212,90,90,0.06)' : 'transparent',
           }}
         >
-          {urgent ? '\u26A0 needs shape' : 'drop here'}
+          {movingNodeId ? 'move here' : urgent ? '\u26A0 needs shape' : 'drop here'}
         </span>
       </div>
     </div>

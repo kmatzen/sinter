@@ -109,7 +109,16 @@ export class GizmoController {
 
     this.controls = new (TransformControls as any)(engine.camera, engine.renderer.domElement);
     this.controls.attach(this.transformObj);
-    this.controls.setSize(1.2);
+    /*
+     * The gizmo is picked by ray, so its on-screen size *is* its hit area. At
+     * 1.2 the axis arrows are a few pixels wide — fine under a cursor whose
+     * hotspot is a single pixel, a guessing game under a fingertip that covers
+     * roughly 44px. Coarse pointers get a proportionally larger gizmo rather
+     * than a separate picker mesh, so what you aim at is what you hit.
+     */
+    const coarsePointer = typeof window !== 'undefined'
+      && window.matchMedia?.('(pointer: coarse)').matches;
+    this.controls.setSize(coarsePointer ? 1.9 : 1.2);
     this.controls.setSpace('local');
     this.controls.visible = false;
     this.controls.enabled = false;

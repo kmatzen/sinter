@@ -1,5 +1,13 @@
 # Mobile usability assessment
 
+> **Status.** This is the original assessment, kept as written so the
+> before-state and the measurements behind it stay on the record. The findings
+> were filed as #126–#137; everything below except the two follow-ups noted in
+> §10 has since been fixed. `e2e/mobile.spec.ts` is what keeps them fixed —
+> in particular the sweep asserting that no interactive element on a
+> coarse-pointer viewport is under 44px.
+
+
 Method: the app was driven through Chromium device emulation (real touch flags, device
 pixel ratios, device viewports) on **iPhone 13 (393×664 CSS px)**, **Pixel 5**,
 **iPhone SE (320px)**, **iPhone 13 landscape (750×342)** and **iPad Mini portrait (768×1024)**.
@@ -233,3 +241,38 @@ regression described here would pass CI today.
 15. `overscroll-behavior`, `-webkit-tap-highlight-color`, `-webkit-text-size-adjust`,
     `user-select: none` on chrome.
 16. Replace or supplement the `?`-triggered `ShortcutOverlay` with help reachable on touch.
+
+---
+
+## 10. What was done
+
+Filed as #126–#137 and fixed on `mobile/touch-usability`, except where noted.
+
+| # | Finding | Resolution |
+| --- | --- | --- |
+| 126 | Nothing meets 44px | `@media (pointer: coarse)` layer with opt-in `.tap` / `.tap-h` / `.tap-w`, applied across toolbar, viewport tools, tree rows and actions, property controls, palette tabs and the number input. Gated on pointer type, not width, so desktop density is untouched. |
+| 127 | Blank mobile first run | `MobileEmptyState` in the viewport, with the two ways in as buttons. |
+| 128 | Reparenting impossible on touch | Two-tap move mode (`treeUiStore`) alongside the existing drag-and-drop. Works with mouse, finger and keyboard. |
+| 129 | iOS zoom / QWERTY for numbers | 16px inputs on coarse pointers; `inputMode="decimal"` + `enterKeyHint` on `NumberInput`, which stays `type="text"` so expressions still parse. |
+| 130 | Chat drawer inescapable | Close button, `top-11` to match the toolbar, and `useKeyboardInset` lifts the drawer clear of the on-screen keyboard. |
+| 131 | No platform integration | `viewport-fit=cover`, safe-area helpers, `100dvh`, `overscroll-behavior`, tap-highlight, text-size-adjust, `user-select`. |
+| 132 | Taps swallowed; mouse-sized gizmo | Tap slop is pointer-type aware (4px mouse / 10px touch); gizmo scales up on coarse pointers. |
+| 133 | Sheet opens at 33%, no close | Opens at 55%, has a close button, and recomputes its snap points on resize and rotation. |
+| 134 | Duplicate header, no Escape | `MobilePanel`'s title is optional and the tree carries its own header and close button; Escape closes both containers. |
+| 135 | Desktop-only features | Export resolution and share-copy confirmation added to the mobile overflow menu. |
+| 136 | No mobile e2e | `e2e/mobile.spec.ts` and a `mobile` Playwright project on iPhone 13. |
+| 137 | iPad portrait on desktop layout | Layout switch moved from 768 to 1024 (`DESKTOP_LAYOUT_MIN_WIDTH`), so iPad portrait gets a full-width viewport and drawers. |
+
+Two things named in §4 and §7 were deliberately left:
+
+- **Copy/paste still has no mobile control.** Delete, duplicate and move are all
+  reachable from the tree row; copy/paste would need a paste target concept that
+  does not exist yet, and is worth designing rather than bolting on.
+- **Landscape phones still get the portrait arrangement.** Wrapping toolbars
+  stop it overflowing, but 342px of height wants a layout of its own rather than
+  the portrait one squeezed. Left in #137.
+
+One thing the fixes introduced, worth knowing: opening the property sheet at 55%
+covers more of the model than 33% did, and the camera does not currently frame
+the model against the visible area. Dragging the sheet down still works. Framing
+the camera around the sheet is a follow-up.

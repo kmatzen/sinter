@@ -35,13 +35,121 @@
 }
 
 html, body, #root {
+  /*
+   * `100%` resolves against the *large* viewport on iOS — the one that assumes
+   * the URL bar is hidden — so the bottom row of the editor sat under browser
+   * chrome until you scrolled. `100dvh` tracks the bar as it collapses and
+   * expands. The `100%` stays as the fallback for anything without dvh.
+   */
   height: 100%;
+  height: 100dvh;
   margin: 0;
   font-family: 'Outfit', system-ui, sans-serif;
   background: var(--bg-deep);
   color: var(--text-primary);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  /* Landscape rotation on iOS otherwise inflates every font in the app. */
+  -webkit-text-size-adjust: 100%;
+  /* The editor is an app surface, not a document: no pull-to-refresh, no
+     rubber-band, and no long-press text selection on chrome mid-drag. */
+  overscroll-behavior: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* …but text the user is actually reading or editing stays selectable. */
+input, textarea, [contenteditable], pre, p, .selectable {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+/*
+ * Safe-area helpers.
+ *
+ * Padding rather than margin, so panel backgrounds still bleed into the inset
+ * and the notch never reveals the page behind.
+ *
+ * These *replace* padding rather than adding to it — they are plain classes
+ * declared after the Tailwind import, so `class="px-2 px-safe"` loses the
+ * `px-2` entirely and the content ends up flush against the screen edge. Two
+ * ways to stay out of that trap: put them on an element with no competing
+ * padding, or use the `-plus` variants below, which fold the base value in.
+ */
+.pb-safe { padding-bottom: env(safe-area-inset-bottom, 0px); }
+.pl-safe { padding-left: env(safe-area-inset-left, 0px); }
+.pr-safe { padding-right: env(safe-area-inset-right, 0px); }
+.px-safe {
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+}
+
+/*
+ * Additive variants for elements that already carry padding. The base comes in
+ * as `--safe-pad-x` / `--safe-pad-y`, so one class covers every base value
+ * instead of needing a variant per Tailwind step.
+ */
+.px-safe-plus {
+  padding-left: calc(var(--safe-pad-x, 0px) + env(safe-area-inset-left, 0px));
+  padding-right: calc(var(--safe-pad-x, 0px) + env(safe-area-inset-right, 0px));
+}
+.pb-safe-plus { padding-bottom: calc(var(--safe-pad-y, 0px) + env(safe-area-inset-bottom, 0px)); }
+
+/*
+ * Touch sizing.
+ *
+ * Gated on `pointer: coarse` rather than a width breakpoint: what matters is
+ * whether a fingertip is doing the pointing, not how wide the screen is. A
+ * touchscreen laptop gets the bigger targets; a 380px-wide desktop window does
+ * not. Desktop density is left exactly as it was.
+ *
+ * `--tap` is the floor from the Apple HIG (44pt); Material asks 48dp and the
+ * extra 4px is not worth the vertical budget on a 664px-tall phone.
+ */
+:root { --tap: 44px; }
+
+@media (pointer: coarse) {
+  /*
+   * 16px is the threshold below which iOS Safari zooms the page on focus and
+   * never zooms back. It applies to the *computed* size, so it has to beat the
+   * utility classes on the inputs themselves — hence the specificity here.
+   */
+  input, select, textarea,
+  input[type="text"], input[type="number"], input[type="password"] {
+    font-size: 16px;
+  }
+
+  /* Range inputs are the one control the finger cannot miss by a pixel. */
+  input[type="range"] { height: var(--tap); }
+
+  /*
+   * The property slider: a full-height invisible range centred on its 3px
+   * track, with the row padded to reserve exactly that height so neighbouring
+   * fields keep their own hit areas. (3px - 44px) / 2 puts the top edge of the
+   * hit area level with the top of the padding.
+   */
+  .slider-hit { height: var(--tap); top: calc((3px - var(--tap)) / 2); }
+  .slider-row {
+    padding-top: calc((var(--tap) - 3px) / 2);
+    padding-bottom: calc((var(--tap) - 3px) / 2);
+  }
+
+  /*
+   * Opt-in rather than a blanket `button { min-height }`: several controls sit
+   * inside fixed-height rows where growing the button silently breaks the row
+   * instead of the row growing with it. Each site that gets `.tap` was checked
+   * against its container.
+   */
+  .tap { min-height: var(--tap); min-width: var(--tap); }
+  .tap-h { min-height: var(--tap); }
+  .tap-w { min-width: var(--tap); }
+
+  /*
+   * lucide sets width/height as SVG *attributes*, which CSS outranks. A 14px
+   * glyph marooned in a 44px button reads as a mis-rendered button rather than
+   * a big one, so the icon grows with the target it sits in.
+   */
+  .tap > svg, .tap-h > svg { width: 20px; height: 20px; }
 }
 
 /* Mono text for measurements and values */
@@ -91,9 +199,28 @@ button, a, input {
   color: white;
 }
 
+/* Property slider: invisible range overlaid on a 3px track. Mouse default;
+   the coarse-pointer block below grows both this and the space it reserves. */
+.slider-hit { height: 12px; top: -4px; }
+
 /* Tree node: show actions on row hover */
 .group-hover-actions { opacity: 0; transition: opacity 0.1s; }
 div:hover > .group-hover-actions { opacity: 1; }
+
+/*
+ * Hover is not a thing a finger can do, so on touch the row actions are always
+ * present rather than revealed. They used to appear only for the *selected*
+ * row, which meant discovering delete required first selecting — and selecting
+ * is what opens the property sheet over the tree.
+ */
+@media (pointer: coarse) {
+  .group-hover-actions { opacity: 1; }
+}
+
+/* No grey flash box on tap. Every control here has its own pressed state. */
+@media (pointer: coarse) {
+  * { -webkit-tap-highlight-color: transparent; }
+}
 
 /* Prevent browser gestures on the 3D viewport canvas */
 canvas { touch-action: none; }
