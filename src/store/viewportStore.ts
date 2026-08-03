@@ -40,6 +40,29 @@ interface ViewportState {
   showDimensions: boolean;
   toggleDimensions: () => void;
 
+  /**
+   * The node the pointer is currently over, from either direction: hovering a
+   * surface in the viewport, or hovering a row in the node tree. One field for
+   * both so the highlight is symmetric — pointing at geometry names the node,
+   * and pointing at a node shows you which geometry it is.
+   *
+   * Deliberately in the viewport store, not the modeler store. The modeler
+   * store is the document, and every write to it wakes the evaluator, pushes
+   * the tree through the identity check, and invalidates the frame. Hover fires
+   * many times a second and changes nothing about the document.
+   */
+  hoveredNodeId: string | null;
+  /**
+   * Where that hover came from.
+   *
+   * Pointing at geometry and pointing at a row are the same highlight but not
+   * the same statement. Only the viewport case means "a click here would
+   * select this" — the breadcrumb says so out loud, and if it could not tell
+   * the two apart, hovering a crumb would flip the chip into preview mode and
+   * disable the button the pointer was on its way to.
+   */
+  hoverSource: 'viewport' | 'ui' | null;
+  setHoveredNode: (id: string | null, source?: 'viewport' | 'ui') => void;
 }
 
 export const useViewportStore = create<ViewportState>((set) => ({
@@ -66,4 +89,11 @@ export const useViewportStore = create<ViewportState>((set) => ({
   setResolution: (res) => set({ resolution: res }),
   showDimensions: false,
   toggleDimensions: () => set((s) => ({ showDimensions: !s.showDimensions })),
+  hoveredNodeId: null,
+  hoverSource: null,
+  setHoveredNode: (id, source = 'ui') => set((s) => {
+    const next = id === null ? null : source;
+    if (s.hoveredNodeId === id && s.hoverSource === next) return s;
+    return { hoveredNodeId: id, hoverSource: next };
+  }),
 }));
