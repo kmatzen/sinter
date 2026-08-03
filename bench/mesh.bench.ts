@@ -30,6 +30,7 @@ import { evaluateCPUWithProgress } from '../src/worker/sdf/gridEval';
 import { dualContour } from '../src/worker/sdf/dualContour';
 import { simplifyMesh } from '../src/worker/sdf/simplify';
 import { removeDegenerateTriangles, projectVerticesToSurface } from '../src/worker/sdf/meshRepair';
+import { CLUSTER_ERROR_VOXELS, SIMPLIFY_ERROR_VOXELS, PROJECT_TOLERANCE_VOXELS } from '../src/worker/sdf/budgets';
 import { PRESET_CATEGORIES } from '../src/components/tree/presets';
 import type { BBox } from '../src/worker/sdf/types';
 import type { SDFNodeUI } from '../src/types/operations';
@@ -175,17 +176,17 @@ function run(name: string, tree: SDFNodeUI): StageTimes {
 
   let raw!: ReturnType<typeof dualContour>;
   const contour = ms(() => {
-    raw = dualContour(evaluated.grid, RES, bbox, root, undefined, NO_MASK ? undefined : evaluated.active);
+    raw = dualContour(evaluated.grid, RES, bbox, root, undefined, NO_MASK ? undefined : evaluated.active, voxel * CLUSTER_ERROR_VOXELS);
   });
 
   const cleaned = removeDegenerateTriangles(raw);
   const before = cleaned.indices.length / 3;
 
   let simplified!: typeof cleaned;
-  const simplify = ms(() => { simplified = simplifyMesh(cleaned, { maxError: voxel * 0.05 }); });
+  const simplify = ms(() => { simplified = simplifyMesh(cleaned, { maxError: voxel * SIMPLIFY_ERROR_VOXELS }); });
 
   let projected!: typeof simplified;
-  const project = ms(() => { projected = projectVerticesToSurface(simplified, root, voxel * 0.5); });
+  const project = ms(() => { projected = projectVerticesToSurface(simplified, root, voxel * PROJECT_TOLERANCE_VOXELS); });
 
   return {
     name,
