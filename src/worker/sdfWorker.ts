@@ -17,6 +17,7 @@ import { exportBinarySTL } from './stlExporter';
 import { export3MF } from './exporters';
 import { toSDFNode } from './sdf/convert';
 import { simplifyMesh } from './sdf/simplify';
+import { CLUSTER_ERROR_VOXELS, SIMPLIFY_ERROR_VOXELS, PROJECT_TOLERANCE_VOXELS } from './sdf/budgets';
 import { removeDegenerateTriangles, projectVerticesToSurface } from './sdf/meshRepair';
 
 self.postMessage({ type: 'ready' });
@@ -67,9 +68,11 @@ function prepareBBox(root: SDFNode): BBox {
 /**
  * Full export meshing pipeline:
  *   1. SDF grid evaluation (interval-verified octree descent)
- *   2. Manifold dual contouring with SVD QEF vertex placement
+ *   2. Manifold dual contouring with SVD QEF vertex placement, collapsing
+ *      cells one vertex can represent so a flat face never becomes thousands
+ *      of triangles that step 4 would only have to take away again
  *   3. Degenerate-face cleanup
- *   4. Error-bounded QEM simplification (budget: 5% of a voxel)
+ *   4. Error-bounded QEM simplification
  *   5. Newton projection of the surviving vertices back onto the SDF
  *      zero set, clearing the residual bias simplification introduced
  */
@@ -91,22 +94,22 @@ function evaluateAndMeshWithProgress(tree: SDFNodeUI | null, resolution: number,
     progress('Evaluating SDF grid', pct);
   });
 
-  // Dual contouring (60-80%)
+  // Dual contouring, with octree vertex clustering (60-80%)
   progress('Generating mesh', 60);
   const raw = dualContour(grid, resolution, bbox, root, (pct) => {
     progress('Generating mesh', 60 + pct * 0.2);
-  }, active);
+  }, active, voxel * CLUSTER_ERROR_VOXELS);
   if (raw.indices.length === 0) return null;
 
   // Simplification (80-92%)
   progress('Simplifying mesh', 80);
-  const simplified = simplifyMesh(removeDegenerateTriangles(raw), { maxError: voxel * 0.05 }, (pct) => {
+  const simplified = simplifyMesh(removeDegenerateTriangles(raw), { maxError: voxel * SIMPLIFY_ERROR_VOXELS }, (pct) => {
     progress('Simplifying mesh', 80 + pct * 0.12);
   });
 
   // Surface snap (92-95%)
   progress('Refining surface', 92);
-  return projectVerticesToSurface(simplified, root, voxel * 0.5);
+  return projectVerticesToSurface(simplified, root, voxel * PROJECT_TOLERANCE_VOXELS);
 }
 
 /**
