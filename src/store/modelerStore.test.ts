@@ -239,10 +239,18 @@ describe('Modeler editing scenarios', () => {
       const innerUnion = root.children[0];
       const cylinder = root.children[1];
 
-      // Move cylinder into the inner union
+      // Move cylinder into the inner union. That union is already full, so
+      // the cylinder cannot simply be appended -- `toSDFNode` reads two
+      // operands and no more, and a third would vanish at mesh time with no
+      // warning anywhere. It unions in place instead (#120, NodeTree.tla).
       getState().moveNode(cylinder.id, innerUnion.id);
       const updated = getState().tree!;
-      expect(updated.children[0].children).toHaveLength(3);
+      const landed = updated.children[0];
+      expect(landed.kind).toBe('union');
+      expect(landed.children.map((c) => c.kind)).toEqual(['union', 'cylinder']);
+      expect(landed.children[0].children.map((c) => c.kind)).toEqual(['box', 'sphere']);
+      // The slot the cylinder left keeps its position, as it does on delete.
+      expect(updated.children[1].kind).toBe('_empty');
     });
   });
 

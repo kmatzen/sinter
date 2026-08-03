@@ -108,7 +108,20 @@ function commit(
 ): Partial<ModelerState> {
   const history = state.history.slice(0, state.historyIndex + 1);
   history.push(tree ? cloneTree(tree) : null);
-  return { ...extra, tree, history, historyIndex: history.length - 1 };
+  // Clamp the selection to a node that still exists. `surviving` was already
+  // doing this for undo and redo, and nothing else did: removing a node took
+  // its descendants with it but only cleared the selection when the removed
+  // id *was* the selected one (#120). A selected id that points at nothing
+  // makes addNodeFromData bail at `if (!targetNode) return` -- so the palette
+  // stops responding, with no visible reason why.
+  const wanted = 'selectedNodeId' in extra ? extra.selectedNodeId ?? null : state.selectedNodeId;
+  return {
+    ...extra,
+    selectedNodeId: surviving(tree, wanted),
+    tree,
+    history,
+    historyIndex: history.length - 1,
+  };
 }
 
 function findNode(tree: SDFNodeUI, id: string): SDFNodeUI | null {
@@ -135,14 +148,27 @@ function emptySlot(): SDFNodeUI {
   return { id: uuidv4(), kind: '_empty', label: '', params: {}, children: [], enabled: false };
 }
 
-function removeFromTree(tree: SDFNodeUI, id: string): SDFNodeUI | null {
+/**
+ * Detach `id` from the tree.
+ *
+ * With `promote` (a delete), a node holding a single *real* operand hands it
+ * up into the vacated slot, so removing a wrapper does not take the shape
+ * inside it. Counting `_empty` placeholders as operands here is what made a
+ * boolean that had already lost one child destroy the other one: it still had
+ * `children.length === 2`, so the survivor was never promoted (#120).
+ *
+ * Without `promote` (a move), the subtree leaves whole. `moveNode` re-attaches
+ * it elsewhere, so promoting anything out of it would put that child in the
+ * document twice, under one id.
+ */
+function removeFromTree(tree: SDFNodeUI, id: string, promote = true): SDFNodeUI | null {
   if (tree.id === id) {
-    // If this node has exactly one child, promote the child
-    if (tree.children.length === 1) return tree.children[0];
-    return null;
+    if (!promote) return null;
+    const real = tree.children.filter((c) => c.kind !== '_empty');
+    return real.length === 1 ? real[0] : null;
   }
 
-  const mapped = tree.children.map((child) => removeFromTree(child, id));
+  const mapped = tree.children.map((child) => removeFromTree(child, id, promote));
 
   let newChildren: SDFNodeUI[];
   if (NODE_KINDS.booleans.includes(tree.kind as any)) {
@@ -156,15 +182,50 @@ function removeFromTree(tree: SDFNodeUI, id: string): SDFNodeUI | null {
   return { ...tree, children: newChildren };
 }
 
-/** Add a child to a node, replacing the first _empty placeholder if one exists. */
-function addChildPreferSlot(node: SDFNodeUI, child: SDFNodeUI): SDFNodeUI {
-  const emptyIdx = node.children.findIndex(c => c.kind === '_empty');
-  if (emptyIdx >= 0) {
-    const updated = [...node.children];
-    updated[emptyIdx] = child;
-    return { ...node, children: updated };
+/** Does this node have somewhere to put another child? */
+function hasRoom(node: SDFNodeUI): boolean {
+  return node.children.some(c => c.kind === '_empty')
+    || node.children.length < expectedChildren(node.kind);
+}
+
+/**
+ * The one way a child gets attached to a parent.
+ *
+ * Fill a slot an earlier delete vacated; else append if the kind still has
+ * room; else the parent is full, so it is replaced in place by a union of
+ * itself and the newcomer.
+ *
+ * That last case is the whole point. Every call site used to append
+ * regardless -- move, duplicate, paste, add-child and two branches of the
+ * palette drop -- and `toSDFNode` reads `children[0]` and `children[1]` and
+ * nothing after (convert.ts:97-165). A third operand under a union, or any
+ * child of a `text` or `mesh`, was silently dropped at mesh time. Nor did the
+ * outline warn: `incompleteNodeIds` only flags nodes with too *few* children
+ * (operations.ts:109). The shape was in the tree and simply not in the model.
+ *
+ * Unioning in place is not a new idea in the UI -- it is what `addPrimitive`
+ * does to the root, and what dropping a shape on a shape already did.
+ *
+ * Verified as `Attach` in specs/NodeTreeFixed.tla.
+ */
+function attachChild(tree: SDFNodeUI, parentId: string, child: SDFNodeUI): SDFNodeUI {
+  const parent = findNode(tree, parentId);
+  if (!parent) return tree;
+
+  if (hasRoom(parent)) {
+    return updateInTree(tree, parentId, (node) => {
+      const emptyIdx = node.children.findIndex(c => c.kind === '_empty');
+      if (emptyIdx >= 0) {
+        const updated = [...node.children];
+        updated[emptyIdx] = child;
+        return { ...node, children: updated };
+      }
+      return { ...node, children: [...node.children, child] };
+    });
   }
-  return { ...node, children: [...node.children, child] };
+
+  const union = createNode('union', [cloneTree(parent), child]);
+  return tree.id === parentId ? union : updateInTree(tree, parentId, () => union);
 }
 
 function reassignIds(node: SDFNodeUI): SDFNodeUI {
@@ -263,10 +324,9 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
   removeNode: (id) => {
     const { tree } = get();
     if (!tree) return;
-    const newTree = removeFromTree(tree, id);
-    set(commit(get(), newTree, {
-      selectedNodeId: get().selectedNodeId === id ? null : get().selectedNodeId,
-    }));
+    // No selection bookkeeping here: `commit` clamps it to a node that still
+    // exists, which also covers removing an *ancestor* of the selected node.
+    set(commit(get(), removeFromTree(tree, id)));
   },
 
   /**
@@ -378,10 +438,7 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
     if (!target) return;
 
     const child = createNode(kind);
-    const newTree = updateInTree(tree, selectedNodeId, (node) => ({
-      ...node,
-      children: [...node.children, child],
-    }));
+    const newTree = attachChild(tree, selectedNodeId, child);
 
     const expanded = new Set(get().expandedNodes);
     expanded.add(selectedNodeId);
@@ -426,7 +483,18 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
       return;
     }
 
-    // No specific target (dropped on empty area): union with root
+    // Replace `target` in place with `newNode`, which has taken it as a child.
+    // Ids are preserved, so this wraps rather than duplicates.
+    const wrap = (target: SDFNodeUI): SDFNodeUI => {
+      newNode.children = [cloneTree(target)];
+      return tree.id === target.id ? newNode : updateInTree(tree, target.id, () => newNode);
+    };
+
+    // No specific target (dropped on empty area): union with root. An
+    // operation falls through and is ignored -- deliberate, and asserted by
+    // "ignores a dropped operation with no target on an existing tree".
+    // The model flags it as a silent no-op, which it is; it is a UX gap
+    // rather than a defect, so it is left alone. See specs/README.md.
     if (!targetId) {
       if (isPrim) {
         const unionNode = createNode('union', [tree, newNode]);
@@ -438,50 +506,28 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
     // Dropped on a specific node
     const targetNode = findNode(tree, targetId);
     if (!targetNode) return;
-    const targetIsPrim = NODE_KINDS.primitives.includes(targetNode.kind as any);
-    const targetExpected = expectedChildren(targetNode.kind);
-    const targetEmptySlot = targetNode.children.findIndex(c => c.kind === '_empty');
-    const targetHasRoom = targetNode.children.length < targetExpected || targetEmptySlot >= 0;
+    // Classify the target by arity -- the same question already asked of the
+    // dropped node above. Asking `NODE_KINDS.primitives.includes(...)` instead
+    // answered "no" for `text` and `mesh`, which take no children either, so
+    // they fell through to the `targetExpected === 0` branch and were handed a
+    // child that the mesher never reads (#120).
+    const targetIsLeaf = expectedChildren(targetNode.kind) === 0;
 
-    if (isOp && targetIsPrim) {
-      // Operation dropped on a primitive → WRAP the primitive
-      // The new operation becomes parent, the primitive becomes its child
-      newNode.children = [cloneTree(targetNode)];
-      let newTree: SDFNodeUI;
-      if (tree.id === targetId) {
-        newTree = newNode;
-      } else {
-        newTree = updateInTree(tree, targetId, () => newNode);
-      }
-      place(newTree, newNode.id, [newNode.id]);
-    } else if (isPrim && targetIsPrim) {
-      // Primitive dropped on another primitive → wrap both in a Union
+    if (isOp && targetIsLeaf) {
+      // Operation dropped on a leaf → WRAP it
+      place(wrap(targetNode), newNode.id, [newNode.id]);
+    } else if (isPrim && targetIsLeaf) {
+      // Shape dropped on a leaf → wrap both in a Union
       const unionNode = createNode('union', [cloneTree(targetNode), newNode]);
-      let newTree: SDFNodeUI;
-      if (tree.id === targetId) {
-        newTree = unionNode;
-      } else {
-        newTree = updateInTree(tree, targetId, () => unionNode);
-      }
+      const newTree = tree.id === targetId ? unionNode : updateInTree(tree, targetId, () => unionNode);
       place(newTree, newNode.id, [unionNode.id]);
-    } else if (targetHasRoom || targetExpected === 0) {
-      // Target has room for children, or is a primitive somehow → add as child
-      const newTree = updateInTree(tree, targetId, (node) => addChildPreferSlot(node, newNode));
-      place(newTree, newNode.id, [targetId]);
-    } else if (isOp) {
-      // Operation dropped on an operation that's full → wrap the target
-      newNode.children = [cloneTree(targetNode)];
-      let newTree: SDFNodeUI;
-      if (tree.id === targetId) {
-        newTree = newNode;
-      } else {
-        newTree = updateInTree(tree, targetId, () => newNode);
-      }
-      place(newTree, newNode.id, [newNode.id]);
+    } else if (isOp && !hasRoom(targetNode)) {
+      // Operation dropped on an operation that's full → wrap the target.
+      // A deliberate gesture, not an overflow, so it stays ahead of attachChild.
+      place(wrap(targetNode), newNode.id, [newNode.id]);
     } else {
-      // Primitive on a full operation → replace empty slot or add as child
-      const newTree = updateInTree(tree, targetId, (node) => addChildPreferSlot(node, newNode));
-      place(newTree, newNode.id, [targetId]);
+      // Room, a vacated slot, or a full target that unions in place.
+      place(attachChild(tree, targetId, newNode), newNode.id, [targetId]);
     }
   },
 
@@ -498,13 +544,18 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
     const sourceNode = findNode(tree, sourceId);
     if (!sourceNode) return;
     if (findNode(sourceNode, targetId)) return; // target is a descendant of source
+    // Without this the detach below still happens and the re-attach finds
+    // nothing to attach to, so the source is simply deleted.
+    if (!findNode(tree, targetId)) return;
 
-    // Remove source from tree
-    const treeWithout = removeFromTree(cloneTree(tree), sourceId);
-    if (!treeWithout) return;
+    // Detach, don't delete. `removeFromTree`'s promote rule would hand the
+    // source's only child up into the vacated slot *and* send a copy of that
+    // child along inside the source -- one id in two places, which makes
+    // `findNode` see only the first and `updateInTree` rewrite both (#120).
+    const detached = removeFromTree(cloneTree(tree), sourceId, false);
+    if (!detached) return;
 
-    // Add source as child of target
-    const newTree = updateInTree(treeWithout, targetId, (node) => addChildPreferSlot(node, cloneTree(sourceNode)));
+    const newTree = attachChild(detached, targetId, cloneTree(sourceNode));
 
     const expanded = new Set(get().expandedNodes);
     expanded.add(targetId);
@@ -531,10 +582,7 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
     }
     if (!selectedNodeId) return;
     // Add as child to selected node
-    const newTree = updateInTree(tree, selectedNodeId, (node) => ({
-      ...node,
-      children: [...node.children, fresh],
-    }));
+    const newTree = attachChild(tree, selectedNodeId, fresh);
     const expanded = new Set(get().expandedNodes);
     expanded.add(selectedNodeId);
     set(commit(get(), newTree, { selectedNodeId: fresh.id, expandedNodes: expanded }));
@@ -557,10 +605,7 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
     // Find parent, add dupe as sibling
     const parent = findParentOf(tree, selectedNodeId);
     if (!parent) return;
-    const newTree = updateInTree(tree, parent.id, (p) => ({
-      ...p,
-      children: [...p.children, dupe],
-    }));
+    const newTree = attachChild(tree, parent.id, dupe);
     set(commit(get(), newTree, { selectedNodeId: dupe.id }));
   },
 
