@@ -20,6 +20,7 @@ const GIZMO_OUTLINE_FRAG = `
 precision highp float;
 uniform sampler2D u_gizmo;
 uniform vec2 u_resolution;
+uniform float u_radius;
 varying vec2 vUv;
 
 void main() {
@@ -33,7 +34,7 @@ void main() {
     for (int y = -2; y <= 2; y++) {
       if (x == 0 && y == 0) continue;
       float r = sqrt(float(x*x + y*y));
-      if (r > 2.5) continue;
+      if (r > u_radius) continue;
       vec2 offset = vec2(float(x) * px, float(y) * py);
       float a = texture2D(u_gizmo, vUv + offset).a;
       maxAlpha = max(maxAlpha, a);
@@ -81,13 +82,16 @@ uniform sampler2D u_depth;
 uniform vec2 u_resolution;
 uniform float u_near;
 uniform float u_far;
+uniform float u_radius;
 varying vec2 vUv;
 
-// Kernel radius, and the loop bound that matches it. It used to sweep -4..4 —
-// 81 taps — and cull everything past r = 3.0, so 32 of them did a sqrt and two
-// depth linearisations only to be thrown away. -3..3 is the smallest box that
-// contains the disc, so the culled set is now just the four corners.
-const float u_radius = 3.0;
+// The loop bound that matches the widest kernel we ever request. It used to
+// sweep -4..4 — 81 taps — and cull everything past r = 3.0, so 32 of them did a
+// sqrt and two depth linearisations only to be thrown away. -3..3 is the
+// smallest box that contains the disc, so the culled set is now just the four
+// corners. u_radius is a uniform (see OUTLINE_CSS_RADIUS) rather than the old
+// const 3.0: the kernel is measured in CSS pixels and converted to texels per
+// frame, so it never exceeds 3.0 and never overruns this bound.
 const int R = 3;
 
 void main() {
@@ -137,6 +141,43 @@ void main() {
 }
 `;
 
+/**
+ * Device-pixel ratio the outline kernels were authored against.
+ *
+ * `ThreeEngine` renders at `MAX_DPR = 1.5` when idle and drops to `1.0` while
+ * the camera moves. Both outline shaders originally measured their kernel in
+ * *texels of the depth texture*, so a fixed texel count spanned a different
+ * number of CSS pixels at each ratio — the outline visibly thickened for the
+ * duration of a drag and snapped back on settle (issue #121). The kernels look
+ * right at the idle ratio, so that is the width we pin: the CSS-pixel radius is
+ * `texelRadius / 1.5`, and we convert back to texels per frame at whatever
+ * ratio is current.
+ */
+const OUTLINE_DESIGN_DPR = 1.5;
+
+/** Compile-time loop bound `R` in `OUTLINE_FRAG`; the kernel can never exceed this many texels. */
+export const OUTLINE_MAX_TEXELS = 3;
+/** The `if (r > 2.5)` cull the `-2..2` box in `GIZMO_OUTLINE_FRAG` enforces. */
+export const GIZMO_MAX_TEXELS = 2.5;
+
+/** Outline half-width in CSS pixels — the idle-ratio appearance, held across DPR changes. */
+export const OUTLINE_CSS_RADIUS = OUTLINE_MAX_TEXELS / OUTLINE_DESIGN_DPR; // 2.0
+export const GIZMO_CSS_RADIUS = GIZMO_MAX_TEXELS / OUTLINE_DESIGN_DPR; // ~1.667
+
+/**
+ * Convert a CSS-pixel kernel radius to depth-texture texels at a given pixel
+ * ratio, clamped to the shader's compile-time loop bound.
+ *
+ * A CSS-pixel radius times the pixel ratio is the texel radius, so the on-screen
+ * width stays constant as the ratio changes: at ratio 1.5 the outline spans
+ * `2.0 * 1.5 = 3.0` texels, at ratio 1.0 it spans `2.0` texels — both 2.0 CSS
+ * px. The clamp guards the loop bound: the ratio never exceeds `MAX_DPR = 1.5`,
+ * so this only bites if that ceiling is ever raised past the kernel width.
+ */
+export function outlineTexelRadius(pixelRatio: number, cssRadius: number, maxTexels: number): number {
+  return Math.min(cssRadius * pixelRatio, maxTexels);
+}
+
 export class OutlinePass {
   private engine: OutlinePassEngine;
   /** Colour *and* depth from the one scene render. */
@@ -182,6 +223,7 @@ export class OutlinePass {
         u_resolution: { value: new THREE.Vector2(w, h) },
         u_near: { value: 0.01 },
         u_far: { value: 5000 },
+        u_radius: { value: outlineTexelRadius(dpr, OUTLINE_CSS_RADIUS, OUTLINE_MAX_TEXELS) },
       },
       transparent: true,
       depthTest: false,
@@ -206,6 +248,7 @@ export class OutlinePass {
       uniforms: {
         u_gizmo: { value: this.gizmoTarget.texture },
         u_resolution: { value: new THREE.Vector2(w, h) },
+        u_radius: { value: outlineTexelRadius(dpr, GIZMO_CSS_RADIUS, GIZMO_MAX_TEXELS) },
       },
       transparent: true,
       depthTest: false,
@@ -292,6 +335,22 @@ export class OutlinePass {
 
     this.material.uniforms.u_near.value = camera.near;
     this.material.uniforms.u_far.value = camera.far;
+
+    // Pin both kernels to a constant CSS-pixel width. `getPixelRatio()` reports
+    // the interactive ratio (1.0) mid-drag and the idle ratio (1.5) otherwise;
+    // scaling the texel radius by it keeps the on-screen thickness fixed instead
+    // of letting the outline "breathe" every time the camera moves (issue #121).
+    const pr = renderer.getPixelRatio();
+    this.material.uniforms.u_radius.value = outlineTexelRadius(
+      pr,
+      OUTLINE_CSS_RADIUS,
+      OUTLINE_MAX_TEXELS,
+    );
+    this.gizmoMaterial.uniforms.u_radius.value = outlineTexelRadius(
+      pr,
+      GIZMO_CSS_RADIUS,
+      GIZMO_MAX_TEXELS,
+    );
 
     // 1. The one scene render. Colour and depth come out of the same pass.
     //    The gizmo goes into the same target immediately after, so it composites
