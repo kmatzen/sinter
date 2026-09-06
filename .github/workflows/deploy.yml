@@ -95,36 +95,8 @@ jobs:
           # Tag checkouts are detached, which Wrangler otherwise identifies as
           # branch "head" and publishes as a preview instead of production.
           command: pages deploy dist --project-name=sinter --branch=main
-      - name: Verify production security headers
-        run: |
-          set -euo pipefail
-          headers=$(curl --fail --silent --show-error --retry 6 --retry-delay 5 --head https://sinter-3d.com/)
-          require_header() {
-            if ! printf '%s\n' "$headers" | grep -qi "^$1:"; then
-              echo "::error::Production response is missing $1"
-              exit 1
-            fi
-          }
-          require_header content-security-policy
-          require_header strict-transport-security
-          require_header permissions-policy
-          require_header x-frame-options
-      - name: Verify production build identity
+      - name: Verify production headers and build identity
         env:
           EXPECTED_SHA: ${{ github.sha }}
           EXPECTED_RELEASE: ${{ github.ref_type == 'tag' && github.ref_name || format('manual-{0}', github.run_number) }}
-        run: |
-          set -euo pipefail
-          curl --fail --silent --show-error --retry 6 --retry-delay 5 \
-            --output build.json https://sinter-3d.com/build.json
-          node -e '
-            const fs = require("node:fs");
-            const build = JSON.parse(fs.readFileSync("build.json", "utf8"));
-            if (build.commit !== process.env.EXPECTED_SHA) {
-              throw new Error(`custom domain serves ${build.commit}, expected ${process.env.EXPECTED_SHA}`);
-            }
-            if (build.release !== process.env.EXPECTED_RELEASE) {
-              throw new Error(`custom domain serves ${build.release}, expected ${process.env.EXPECTED_RELEASE}`);
-            }
-            console.log(`Verified ${build.release} (${build.commit}) on sinter-3d.com`);
-          '
+        run: node scripts/verify-production.mjs
