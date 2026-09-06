@@ -226,7 +226,7 @@ export function TreeNode({ node, depth, isLast = true, incompleteIds: incomplete
         {/* Summary */}
         <span
           className="text-[10px] truncate flex-1 font-mono"
-          style={{ color: 'var(--text-muted)', opacity: 0.7 }}
+          style={{ color: 'var(--text-muted)' }}
         >
           {summary}
         </span>

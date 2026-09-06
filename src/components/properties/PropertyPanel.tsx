@@ -20,7 +20,7 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
     <div
       className="text-[10px] tracking-[0.08em] uppercase pt-3 pb-1 px-2 first:pt-0"
-      style={{ color: 'var(--text-muted)', opacity: 0.7 }}
+      style={{ color: 'var(--text-muted)' }}
     >
       {children}
     </div>

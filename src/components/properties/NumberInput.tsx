@@ -248,7 +248,7 @@ export function NumberInput({ label, value, unit = 'mm', min, max, step = 1, onC
 
         {/* Unit badge */}
         {unit && (
-          <span className="text-[10px] pr-2 shrink-0 font-mono" style={{ color: 'var(--text-muted)', opacity: 0.6 }}>
+          <span className="text-[10px] pr-2 shrink-0 font-mono" style={{ color: 'var(--text-muted)' }}>
             {unit}
           </span>
         )}
