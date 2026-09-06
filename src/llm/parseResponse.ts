@@ -30,7 +30,7 @@ function shortId(value: unknown): value is string {
 }
 
 function decodeModifications(input: unknown): Modification[] | null {
-  if (!Array.isArray(input) || input.length > MAX_MODIFICATIONS) return null;
+  if (!Array.isArray(input) || input.length === 0 || input.length > MAX_MODIFICATIONS) return null;
   const result: Modification[] = [];
   for (const value of input) {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return null;

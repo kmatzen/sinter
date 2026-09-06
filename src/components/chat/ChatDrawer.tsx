@@ -9,6 +9,10 @@ export function ChatDrawer() {
   const isLoading = useChatStore((s) => s.isLoading);
   const sendMessage = useChatStore((s) => s.sendMessage);
   const retryLast = useChatStore((s) => s.retryLast);
+  const pendingProposal = useChatStore((s) => s.pendingProposal);
+  const proposalError = useChatStore((s) => s.proposalError);
+  const applyProposal = useChatStore((s) => s.applyProposal);
+  const discardProposal = useChatStore((s) => s.discardProposal);
 
   const toggleOpen = useChatStore((s) => s.toggleOpen);
 
@@ -102,8 +106,29 @@ export function ChatDrawer() {
                 )}
               </div>
             )}
+            {msg.actionError && (
+              <div role="alert" className="mt-2 text-[11px]" style={{ color: 'var(--accent-red)' }}>
+                Proposed changes rejected: {msg.actionError}
+              </div>
+            )}
           </div>
         ))}
+        {pendingProposal && (
+          <div className="rounded-lg p-3 text-xs" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--accent)' }}>
+            <div className="font-medium mb-1" style={{ color: 'var(--text-primary)' }}>Review proposed model changes</div>
+            <ul className="list-disc pl-4 space-y-0.5" style={{ color: 'var(--text-secondary)' }}>
+              {pendingProposal.summary.map((item, index) => <li key={`${item}-${index}`}>{item}</li>)}
+            </ul>
+            <div className="mt-1" style={{ color: 'var(--text-muted)' }}>
+              {pendingProposal.affectedNodeIds.length} affected node{pendingProposal.affectedNodeIds.length === 1 ? '' : 's'}
+            </div>
+            {proposalError && <div role="alert" className="mt-2" style={{ color: 'var(--accent-red)' }}>{proposalError}</div>}
+            <div className="flex gap-2 mt-3">
+              <button onClick={applyProposal} className="px-2 py-1 rounded" style={{ background: 'var(--accent)', color: 'var(--bg-deep)' }}>Apply</button>
+              <button onClick={discardProposal} className="px-2 py-1 rounded" style={{ border: '1px solid var(--border-default)' }}>Discard</button>
+            </div>
+          </div>
+        )}
         {isLoading && messages.length > 0 && messages[messages.length - 1].role === 'assistant' && !messages[messages.length - 1].content && (
           <div className="text-sm rounded-lg px-3 py-2 mr-8 animate-pulse" style={{ background: 'var(--bg-surface)', color: 'var(--text-muted)' }}>
             Thinking...

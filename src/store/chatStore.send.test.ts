@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import type { SDFNodeUI } from '../types/operations';
 
 /**
  * `chatStore.sendMessage` — the path from a typed prompt to a changed model.
@@ -76,8 +77,8 @@ describe('chatStore.sendMessage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     captureMultiView.mockReturnValue(null);
-    useChatStore.setState({ messages: [], isLoading: false, apiKey: 'k', provider: 'anthropic' });
-    useModelerStore.setState({ tree: null });
+    useChatStore.setState({ messages: [], isLoading: false, pendingProposal: null, proposalError: null, apiKey: 'k', provider: 'anthropic' });
+    useModelerStore.getState().resetDocument(null, 'Untitled');
     vi.stubGlobal('localStorage', makeStorageStub());
   });
 
@@ -85,15 +86,70 @@ describe('chatStore.sendMessage', () => {
     useModelerStore.setState({ tree: null });
   });
 
-  it('applies a replace action to the tree', async () => {
+  it('previews a replace action and applies it only after confirmation', async () => {
     respondWith([replaceWith('sphere', { radius: 12 })]);
 
     await useChatStore.getState().sendMessage('make a ball');
 
     expect(streamLLMMessage).toHaveBeenCalledTimes(1);
+    expect(useModelerStore.getState().tree).toBeNull();
+    expect(useChatStore.getState().pendingProposal?.summary).toEqual(['Replace the model']);
+    useChatStore.getState().applyProposal();
     const tree = useModelerStore.getState().tree!;
     expect(tree.kind).toBe('sphere');
     expect(tree.params.radius).toBe(12);
+  });
+
+  it('applies a multi-change proposal atomically as one undo entry', async () => {
+    const base: SDFNodeUI = {
+      id: 'u', kind: 'union', label: 'Union', params: { smooth: 0 }, enabled: true,
+      children: [
+        { id: 'a', kind: 'box', label: 'Box', params: { width: 10, height: 10, depth: 10 }, children: [], enabled: true },
+        { id: 'b', kind: 'sphere', label: 'Sphere', params: { radius: 5 }, children: [], enabled: true },
+      ],
+    };
+    useModelerStore.getState().resetDocument(base, 'Model');
+    respondWith([JSON.stringify({ action: 'modify', changes: [
+      { update: 'a', params: { width: 20 } },
+      { update: 'b', params: { radius: 8 } },
+    ] })]);
+
+    await useChatStore.getState().sendMessage('resize both');
+    expect(useModelerStore.getState().tree?.children[0].params.width).toBe(10);
+    const beforeHistory = useModelerStore.getState().history.length;
+    useChatStore.getState().applyProposal();
+    expect(useModelerStore.getState().tree?.children[0].params.width).toBe(20);
+    expect(useModelerStore.getState().tree?.children[1].params.radius).toBe(8);
+    expect(useModelerStore.getState().history).toHaveLength(beforeHistory + 1);
+  });
+
+  it('rejects a mixed proposal entirely when a later operation is invalid', async () => {
+    const base = { id: 'a', kind: 'box', label: 'Box', params: { width: 10, height: 10, depth: 10 }, children: [], enabled: true };
+    useModelerStore.getState().resetDocument(base, 'Model');
+    respondWith([JSON.stringify({ action: 'modify', changes: [
+      { update: 'a', params: { width: 20 } },
+      { addChild: 'a', node: { kind: 'sphere', params: { radius: 2 }, children: [] } },
+    ] })]);
+
+    await useChatStore.getState().sendMessage('make invalid changes');
+
+    expect(useModelerStore.getState().tree?.params.width).toBe(10);
+    expect(useChatStore.getState().pendingProposal).toBeNull();
+    expect(lastMessage().actionError).toMatch(/no empty child input/);
+  });
+
+  it('refuses to apply a proposal after the user edits its base model', async () => {
+    const base = { id: 'a', kind: 'box', label: 'Box', params: { width: 10, height: 10, depth: 10 }, children: [], enabled: true };
+    useModelerStore.getState().resetDocument(base, 'Model');
+    respondWith([JSON.stringify({ action: 'modify', changes: [{ update: 'a', params: { width: 20 } }] })]);
+    await useChatStore.getState().sendMessage('resize it');
+    useModelerStore.getState().updateNodeParams('a', { height: 30 });
+
+    useChatStore.getState().applyProposal();
+
+    expect(useModelerStore.getState().tree?.params.width).toBe(10);
+    expect(useModelerStore.getState().tree?.params.height).toBe(30);
+    expect(useChatStore.getState().proposalError).toMatch(/changed after/);
   });
 
   it('streams tokens into the assistant message as they arrive', async () => {

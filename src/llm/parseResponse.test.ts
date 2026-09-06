@@ -36,6 +36,7 @@ describe('parseResponse', () => {
   });
 
   it('rejects malformed, non-finite, and excessive modifications', () => {
+    expect(parseResponse('{"action":"modify","changes":[]}')).toBeNull();
     expect(parseResponse('{"action":"modify","changes":[{"update":"n","params":{"width":null}}]}')).toBeNull();
     expect(parseResponse(JSON.stringify({
       action: 'modify', changes: Array.from({ length: 101 }, () => ({ remove: 'n' })),
