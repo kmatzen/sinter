@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import fc from 'fast-check';
 import { bakeMeshField, sampleMeshField, meshBounds } from './meshField';
 import { parseSTL, isBinarySTL, STLParseError } from './stl';
 
@@ -308,5 +309,16 @@ endsolid test`;
     const buf = new ArrayBuffer(84);
     new DataView(buf).setUint32(80, 60_001, true);
     expect(() => parseSTL(buf)).toThrow(/supported limit/);
+  });
+
+  it('fails arbitrary bounded input only with a parser error', () => {
+    fc.assert(fc.property(fc.uint8Array({ maxLength: 2_048 }), (bytes) => {
+      try {
+        const copy = Uint8Array.from(bytes);
+        parseSTL(copy.buffer);
+      } catch (error) {
+        expect(error).toBeInstanceOf(STLParseError);
+      }
+    }), { numRuns: 500 });
   });
 });
