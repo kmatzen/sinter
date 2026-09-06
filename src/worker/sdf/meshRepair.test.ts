@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { analyzeMesh, removeDegenerateTriangles, projectVerticesToSurface } from './meshRepair';
+import { analyzeMesh, analyzeOverhangs, removeDegenerateTriangles, projectVerticesToSurface } from './meshRepair';
 import { dualContour } from './dualContour';
 import { evaluateSDF } from './evaluate';
 import type { MeshResult } from './marchingCubes';
@@ -94,6 +94,38 @@ describe('analyzeMesh', () => {
 
   it('reports actual finite mesh dimensions', () => {
     expect(analyzeMesh(tetrahedron()).dimensions).toEqual([1, 1, 1]);
+  });
+});
+
+describe('analyzeOverhangs', () => {
+  const calibration = () => ({
+    positions: new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0, 10, 0, 2, 11, 0, 2, 10, 1, 2]),
+    normals: new Float32Array(18),
+    indices: new Uint32Array([0, 2, 1, 3, 4, 5]),
+  });
+
+  it('localizes downward faces for the selected build direction and threshold', () => {
+    const result = analyzeOverhangs(calibration(), { overhangAngle: 45, buildDirection: 'z' });
+    expect(result.riskyTriangles).toBe(1);
+    expect(result.analyzedTriangles).toBe(2);
+    expect(result.affectedTriangleIds).toEqual([0]);
+    expect(result.affectedBounds).toEqual({ min: [0, 0, 0], max: [1, 1, 0] });
+  });
+
+  it('reverses the risky region with print orientation and bounds returned ids', () => {
+    const result = analyzeOverhangs(calibration(), { overhangAngle: 45, buildDirection: '-z' }, 0);
+    expect(result.riskyTriangles).toBe(1);
+    expect(result.affectedTriangleIds).toEqual([]);
+    expect(result.affectedIdsTruncated).toBe(true);
+    expect(result.affectedBounds).toEqual({ min: [10, 0, 2], max: [11, 1, 2] });
+  });
+
+  it('treats a larger slicer-style threshold as more permissive', () => {
+    const slope = {
+      positions: new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 1]), normals: new Float32Array(9), indices: new Uint32Array([0, 2, 1]),
+    };
+    expect(analyzeOverhangs(slope, { overhangAngle: 30, buildDirection: 'z' }).riskyTriangles).toBe(1);
+    expect(analyzeOverhangs(slope, { overhangAngle: 60, buildDirection: 'z' }).riskyTriangles).toBe(0);
   });
 });
 

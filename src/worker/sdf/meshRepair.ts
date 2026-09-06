@@ -10,6 +10,7 @@
 import type { SDFNode, Vec3 } from './types';
 import { evaluateSDF } from './evaluate';
 import type { MeshResult } from './marchingCubes';
+import type { BuildDirection, ExportPreflightOptions, OverhangDiagnostics } from '../../types/geometry';
 
 export interface MeshDiagnostics {
   vertexCount: number;
@@ -116,6 +117,51 @@ export function analyzeMesh(mesh: MeshResult): MeshDiagnostics {
       invalidIndices === 0 &&
       nonFiniteVertices === 0 &&
       zeroAreaTriangles === 0,
+  };
+}
+
+const BUILD_VECTORS: Record<BuildDirection, [number, number, number]> = {
+  x: [1, 0, 0], '-x': [-1, 0, 0], y: [0, 1, 0], '-y': [0, -1, 0], z: [0, 0, 1], '-z': [0, 0, -1],
+};
+
+/** Analyze downward-facing support risk on the exact export triangles. */
+export function analyzeOverhangs(mesh: MeshResult, options: ExportPreflightOptions, maxAffectedIds = 256): OverhangDiagnostics {
+  const build = BUILD_VECTORS[options.buildDirection] ?? BUILD_VECTORS.z;
+  const angle = Math.min(89, Math.max(0, options.overhangAngle));
+  // Slicer-style threshold: 0° flags every downward face; increasing the
+  // angle permits steeper slopes, while a horizontal underside remains risky.
+  const limit = -Math.sin(angle * Math.PI / 180);
+  const affectedTriangleIds: number[] = [];
+  const min: [number, number, number] = [Infinity, Infinity, Infinity];
+  const max: [number, number, number] = [-Infinity, -Infinity, -Infinity];
+  let riskyTriangles = 0;
+  let analyzedTriangles = 0;
+  const vertexCount = mesh.positions.length / 3;
+  const triangleCount = Math.floor(mesh.indices.length / 3);
+  for (let t = 0; t < triangleCount; t++) {
+    const ids = [mesh.indices[t * 3], mesh.indices[t * 3 + 1], mesh.indices[t * 3 + 2]];
+    if (ids.some((id) => id >= vertexCount)) continue;
+    const a = ids[0] * 3, b = ids[1] * 3, c = ids[2] * 3, p = mesh.positions;
+    if (![p[a], p[a + 1], p[a + 2], p[b], p[b + 1], p[b + 2], p[c], p[c + 1], p[c + 2]].every(Number.isFinite)) continue;
+    const ab = [p[b] - p[a], p[b + 1] - p[a + 1], p[b + 2] - p[a + 2]];
+    const ac = [p[c] - p[a], p[c + 1] - p[a + 1], p[c + 2] - p[a + 2]];
+    const normal = [ab[1] * ac[2] - ab[2] * ac[1], ab[2] * ac[0] - ab[0] * ac[2], ab[0] * ac[1] - ab[1] * ac[0]];
+    const length = Math.hypot(...normal);
+    if (length <= 1e-12) continue;
+    analyzedTriangles++;
+    const dot = (normal[0] * build[0] + normal[1] * build[1] + normal[2] * build[2]) / length;
+    if (dot > limit) continue;
+    riskyTriangles++;
+    if (affectedTriangleIds.length < maxAffectedIds) affectedTriangleIds.push(t);
+    for (const index of ids) for (let axis = 0; axis < 3; axis++) {
+      min[axis] = Math.min(min[axis], p[index * 3 + axis]);
+      max[axis] = Math.max(max[axis], p[index * 3 + axis]);
+    }
+  }
+  return {
+    overhangAngle: angle, buildDirection: options.buildDirection, riskyTriangles, analyzedTriangles, affectedTriangleIds,
+    affectedBounds: riskyTriangles ? { min, max } : null,
+    affectedIdsTruncated: riskyTriangles > affectedTriangleIds.length,
   };
 }
 

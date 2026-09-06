@@ -1,4 +1,4 @@
-import type { WorkerRequest, WorkerResponse, ClipPlane, MeshFitResult, ExportArtifact } from '../types/geometry';
+import type { WorkerRequest, WorkerResponse, ClipPlane, MeshFitResult, ExportArtifact, ExportPreflightOptions } from '../types/geometry';
 import type { SDFNodeUI } from '../types/operations';
 import type { SDFDisplayData } from '../store/modelerStore';
 
@@ -277,18 +277,18 @@ class WorkerBridge {
     });
   }
 
-  async exportSTL(tree: SDFNodeUI | null, onProgress?: ProgressHandler, resolution?: number): Promise<ExportArtifact> {
+  async exportSTL(tree: SDFNodeUI | null, onProgress?: ProgressHandler, resolution?: number, preflight?: ExportPreflightOptions): Promise<ExportArtifact> {
     return this.issue<ExportArtifact>(
       this.exportChannel,
-      (rid) => ({ type: 'exportSTL', rid, tree, resolution }),
+      (rid) => ({ type: 'exportSTL', rid, tree, resolution, preflight }),
       { kind: 'export', seq: 0, mime: 'application/octet-stream', onProgress },
     );
   }
 
-  async export3MF(tree: SDFNodeUI | null, onProgress?: ProgressHandler, resolution?: number): Promise<ExportArtifact> {
+  async export3MF(tree: SDFNodeUI | null, onProgress?: ProgressHandler, resolution?: number, preflight?: ExportPreflightOptions): Promise<ExportArtifact> {
     return this.issue<ExportArtifact>(
       this.exportChannel,
-      (rid) => ({ type: 'export3MF', rid, tree, resolution }),
+      (rid) => ({ type: 'export3MF', rid, tree, resolution, preflight }),
       { kind: 'export', seq: 0, mime: 'application/vnd.ms-package.3dmanufacturing-3dmodel+xml', onProgress },
     );
   }

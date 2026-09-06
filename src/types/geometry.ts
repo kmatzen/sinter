@@ -40,6 +40,17 @@ export interface ExportDiagnostics {
   nonFiniteVertices: number;
   zeroAreaTriangles: number;
   dimensions: [number, number, number];
+  overhang?: OverhangDiagnostics;
+}
+
+export type BuildDirection = 'x' | '-x' | 'y' | '-y' | 'z' | '-z';
+export interface ExportPreflightOptions { overhangAngle: number; buildDirection: BuildDirection; }
+export interface OverhangDiagnostics extends ExportPreflightOptions {
+  riskyTriangles: number;
+  analyzedTriangles: number;
+  affectedTriangleIds: number[];
+  affectedBounds: { min: [number, number, number]; max: [number, number, number] } | null;
+  affectedIdsTruncated: boolean;
 }
 
 export interface ClipPlane {
@@ -56,8 +67,8 @@ export type WorkerRequest =
   // `resolution` is the export grid's samples per axis. Optional so an older
   // persisted request, or a caller that does not care, still means "the
   // default" rather than "zero".
-  | { type: 'exportSTL'; rid: number; tree: SDFNodeUI | null; resolution?: number }
-  | { type: 'export3MF'; rid: number; tree: SDFNodeUI | null; resolution?: number }
+  | { type: 'exportSTL'; rid: number; tree: SDFNodeUI | null; resolution?: number; preflight?: ExportPreflightOptions }
+  | { type: 'export3MF'; rid: number; tree: SDFNodeUI | null; resolution?: number; preflight?: ExportPreflightOptions }
   // Fit a primitive to an imported mesh (#87). Carries the mesh rather than a
   // node id, because the worker holds no document — the store does.
   | { type: 'fitMesh'; rid: number; meshPositions: string; resolution?: number };

@@ -16,7 +16,7 @@ import { useModalStore } from '../../store/modalStore';
 import { isTreeExportable } from '../../types/operations';
 import { useDialogFocus } from '../ui/useDialogFocus';
 import type { ExportConformance, ExportDiagnostics } from '../../types/geometry';
-import { dimensionsOutsideBuildVolume, useManufacturingProfileStore } from '../../store/manufacturingProfile';
+import { dimensionsOutsideBuildVolume, exportPreflightOptions, useManufacturingProfileStore } from '../../store/manufacturingProfile';
 import { commandById, OPEN_COMMAND_PALETTE_EVENT, runEditorCommand, TOOLBAR_COMMAND_EVENT } from '../../commands/editorCommands';
 import { formatLength } from '../../types/units';
 
@@ -31,6 +31,7 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
   const evaluating = useModelerStore((s) => s.evaluating);
   const evaluatedTree = useModelerStore((s) => s.evaluatedTree);
   const setError = useModelerStore((s) => s.setError);
+  const manufacturingProfile = useManufacturingProfileStore();
   const selectedNodeId = useModelerStore((s) => s.selectedNodeId);
   const clipboard = useModelerStore((s) => s.clipboard);
   const toggleChat = useChatStore((s) => s.toggleOpen);
@@ -133,7 +134,7 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
     setExporting('STL');
     setExportProgress({ stage: 'Starting', percent: 0 });
     try {
-      const { blob, triangleCount: triangles, diagnostics, conformance, achievedTolerance, componentCount } = await workerBridge.exportSTL(tree, onProgress, exportResolution);
+      const { blob, triangleCount: triangles, diagnostics, conformance, achievedTolerance, componentCount } = await workerBridge.exportSTL(tree, onProgress, exportResolution, exportPreflightOptions(manufacturingProfile));
       if (exportEpoch.current !== epoch) return;
       setExportPreview({ blob, name: `${projectName}.stl`, triangles, size: blob.size, diagnostics, conformance, approximateSource: hasImportedMesh(tree), achievedTolerance, componentCount });
     } catch (err: any) {
@@ -150,7 +151,7 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
     setExporting('3MF');
     setExportProgress({ stage: 'Starting', percent: 0 });
     try {
-      const { blob, triangleCount: triangles, diagnostics, conformance, achievedTolerance, componentCount } = await workerBridge.export3MF(tree, onProgress, exportResolution);
+      const { blob, triangleCount: triangles, diagnostics, conformance, achievedTolerance, componentCount } = await workerBridge.export3MF(tree, onProgress, exportResolution, exportPreflightOptions(manufacturingProfile));
       if (exportEpoch.current !== epoch) return;
       setExportPreview({ blob, name: `${projectName}.3mf`, triangles, size: blob.size, diagnostics, conformance, approximateSource: hasImportedMesh(tree), achievedTolerance, componentCount });
     } catch (err: any) {
@@ -713,12 +714,24 @@ function ExportPreview({ triangles, size, name, diagnostics, conformance, approx
               Part exceeds the configured {profile.buildVolume.map((value) => formatLength(value, { displayUnit, decimalPrecision, fractionalDenominator }, false)).join(' × ')}{displayUnit === 'ft-in' ? '' : ` ${displayUnit}`} build volume.
             </p>
           )}
+          {diagnostics.overhang && diagnostics.overhang.riskyTriangles > 0 && (
+            <p role="alert" className="text-[11px] leading-relaxed rounded p-2" style={{ color: 'var(--warning, #f59e0b)', background: 'var(--bg-elevated)' }}>
+              Support risk: {diagnostics.overhang.riskyTriangles.toLocaleString()} of {diagnostics.overhang.analyzedTriangles.toLocaleString()} export triangles exceed the configured {diagnostics.overhang.overhangAngle}° overhang threshold for {diagnostics.overhang.buildDirection.toUpperCase()}-up printing.
+              {diagnostics.overhang.affectedBounds && <> Affected region: {diagnostics.overhang.affectedBounds.min.map((value) => formatLength(value, { displayUnit, decimalPrecision, fractionalDenominator }, false)).join(', ')} to {diagnostics.overhang.affectedBounds.max.map((value) => formatLength(value, { displayUnit, decimalPrecision, fractionalDenominator }, false)).join(', ')}{displayUnit === 'ft-in' ? '' : ` ${displayUnit}`}.</>}
+            </p>
+          )}
           <details className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>
             <summary className="cursor-pointer select-none">Print profile</summary>
             <div className="grid grid-cols-2 gap-2 mt-2">
               <ProfileInput label="Nozzle" value={profile.nozzleDiameter} onChange={(nozzleDiameter) => profile.updateProfile({ nozzleDiameter })} />
               <ProfileInput label="Layer" value={profile.layerHeight} onChange={(layerHeight) => profile.updateProfile({ layerHeight })} />
               <ProfileInput label="Tolerance" value={profile.tolerance} onChange={(tolerance) => profile.updateProfile({ tolerance })} />
+              <ProfileInput label="Overhang angle" value={profile.overhangAngle} onChange={(overhangAngle) => profile.updateProfile({ overhangAngle })} />
+              <label className="text-[10px]" style={{ color: 'var(--text-muted)' }}>Build direction
+                <select aria-label="Build direction" value={profile.buildDirection} onChange={(event) => profile.updateProfile({ buildDirection: event.target.value as typeof profile.buildDirection })} className="mt-1 w-full rounded px-1 py-1" style={{ background: 'var(--bg-deep)', border: '1px solid var(--border-subtle)', color: 'var(--text-primary)' }}>
+                  <option value="z">+Z</option><option value="-z">−Z</option><option value="y">+Y</option><option value="-y">−Y</option><option value="x">+X</option><option value="-x">−X</option>
+                </select>
+              </label>
               {profile.buildVolume.map((value, axis) => (
                 <ProfileInput key={axis} label={`Build ${'XYZ'[axis]}`} value={value} onChange={(next) => {
                   const buildVolume = [...profile.buildVolume] as [number, number, number];
