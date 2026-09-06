@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { useModelerStore } from './modelerStore';
+import { MAX_HISTORY_ENTRIES, useModelerStore } from './modelerStore';
 import { isTreeValid } from '../types/operations';
 import type { SDFNodeUI } from '../types/operations';
 
@@ -16,6 +16,7 @@ function reset() {
     expandedNodes: new Set(),
     history: [null],
     historyIndex: 0,
+    historyTransaction: null,
     clipboard: null,
   });
 }
@@ -859,6 +860,40 @@ describe('Modeler editing scenarios', () => {
       expect(getState().tree!.children[0].params.width).toBe(100);
       expect(isTreeValid(getState().tree)).toBe(true);
     });
+  });
+});
+
+describe('bounded structurally-shared history', () => {
+  beforeEach(() => {
+    const mesh: SDFNodeUI = {
+      id: 'mesh', kind: 'mesh', label: 'Mesh', params: { resolution: 32 },
+      children: [], enabled: true, data: { meshData: 'large-base64-payload' },
+    };
+    const root: SDFNodeUI = {
+      id: 'move', kind: 'translate', label: 'Move', params: { x: 0, y: 0, z: 0 },
+      children: [mesh], enabled: true,
+    };
+    getState().resetDocument(root, 'History');
+  });
+
+  it('shares untouched imported-mesh subtrees between snapshots', () => {
+    getState().updateNodeParams('move', { x: 1 });
+    getState().updateNodeParams('move', { x: 2 });
+    const history = getState().history;
+
+    expect(history[1]!.children[0]).toBe(history[2]!.children[0]);
+    expect(history[0]!.children[0]).toBe(history[1]!.children[0]);
+  });
+
+  it('evicts the oldest entries while preserving a coherent undo cursor', () => {
+    for (let x = 1; x <= 120; x++) getState().updateNodeParams('move', { x });
+
+    expect(getState().history).toHaveLength(MAX_HISTORY_ENTRIES);
+    expect(getState().historyIndex).toBe(MAX_HISTORY_ENTRIES - 1);
+    for (let i = 1; i < MAX_HISTORY_ENTRIES; i++) getState().undo();
+    expect(getState().tree!.params.x).toBe(21);
+    getState().undo();
+    expect(getState().tree!.params.x).toBe(21);
   });
 });
 

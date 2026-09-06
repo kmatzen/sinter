@@ -75,6 +75,9 @@ interface ModelerState {
   fromJSON: (json: string) => void;
 }
 
+/** Keep long editing sessions bounded while retaining useful undo depth. */
+export const MAX_HISTORY_ENTRIES = 100;
+
 function createNode(kind: string, children: SDFNodeUI[] = []): SDFNodeUI {
   const node: SDFNodeUI = {
     id: uuidv4(),
@@ -124,8 +127,14 @@ function commit(
     const wanted = 'selectedNodeId' in extra ? extra.selectedNodeId ?? null : state.selectedNodeId;
     return { ...extra, selectedNodeId: surviving(tree, wanted), tree };
   }
-  const history = state.history.slice(0, state.historyIndex + 1);
-  history.push(tree ? cloneTree(tree) : null);
+  let history = state.history.slice(0, state.historyIndex + 1);
+  // Trees are immutable: updateInTree replaces only the edited path. Keeping
+  // those references preserves structural sharing, most importantly the large
+  // base64 payload on imported-mesh nodes.
+  history.push(tree);
+  if (history.length > MAX_HISTORY_ENTRIES) {
+    history = history.slice(history.length - MAX_HISTORY_ENTRIES);
+  }
   // Clamp the selection to a node that still exists. `surviving` was already
   // doing this for undo and redo, and nothing else did: removing a node took
   // its descendants with it but only cleared the selection when the removed
@@ -296,7 +305,7 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
       lastValidTree: null,
       evaluating: false,
       error: null,
-      history: [snapshot ? cloneTree(snapshot) : null],
+      history: [snapshot],
       historyIndex: 0,
       historyTransaction: null,
       clipboard: null,
@@ -753,7 +762,7 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
     if (state.historyTransaction) return;
     set({
       historyTransaction: {
-        tree: state.tree ? cloneTree(state.tree) : null,
+        tree: state.tree,
         selectedNodeId: state.selectedNodeId,
         expandedNodes: new Set(state.expandedNodes),
       },
@@ -764,7 +773,7 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
     const state = get();
     const transaction = state.historyTransaction;
     if (!transaction) return;
-    if (JSON.stringify(transaction.tree) === JSON.stringify(state.tree)) {
+    if (transaction.tree === state.tree) {
       set({ historyTransaction: null });
       return;
     }
@@ -776,7 +785,7 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
     const transaction = get().historyTransaction;
     if (!transaction) return;
     set({
-      tree: transaction.tree ? cloneTree(transaction.tree) : null,
+      tree: transaction.tree,
       selectedNodeId: transaction.selectedNodeId,
       expandedNodes: new Set(transaction.expandedNodes),
       historyTransaction: null,
@@ -787,7 +796,7 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
     const { historyIndex, history } = get();
     if (historyIndex > 0) {
       const newIndex = historyIndex - 1;
-      const restored = history[newIndex] ? cloneTree(history[newIndex]!) : null;
+      const restored = history[newIndex];
       set({ tree: restored, historyIndex: newIndex, selectedNodeId: surviving(restored, get().selectedNodeId) });
     }
   },
@@ -796,7 +805,7 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
     const { historyIndex, history } = get();
     if (historyIndex < history.length - 1) {
       const newIndex = historyIndex + 1;
-      const restored = history[newIndex] ? cloneTree(history[newIndex]!) : null;
+      const restored = history[newIndex];
       set({ tree: restored, historyIndex: newIndex, selectedNodeId: surviving(restored, get().selectedNodeId) });
     }
   },
