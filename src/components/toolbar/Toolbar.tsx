@@ -13,6 +13,7 @@ import { SettingsPage } from '../settings/SettingsPage';
 import { FolderOpen, Save, Undo2, Redo2, MessageSquare, FileDown, FilePlus, Share2, Link, List, SlidersHorizontal, MoreHorizontal, Upload, Settings } from 'lucide-react';
 import { useLocalBackupStore } from '../../store/localPersist';
 import { isTreeExportable } from '../../types/operations';
+import { useDialogFocus } from '../ui/useDialogFocus';
 
 export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => void; onMobileProps?: () => void } = {}) {
   const projectName = useModelerStore((s) => s.projectName);
@@ -370,7 +371,7 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
     </div>
 
     {exportProgress && (
-      <div data-testid="export-progress" className="h-1 w-full shrink-0" style={{ background: 'var(--bg-elevated)' }}>
+      <div data-testid="export-progress" role="progressbar" aria-label="Export progress" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(exportProgress.percent)} className="h-1 w-full shrink-0" style={{ background: 'var(--bg-elevated)' }}>
         <div
           className="h-full transition-all duration-200"
           style={{ width: `${Math.round(exportProgress.percent)}%`, background: 'var(--accent)' }}
@@ -379,7 +380,7 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
     )}
 
     {exporting && exportProgress && (
-      <div className="absolute top-12 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 px-4 py-2 rounded-lg shadow-lg text-sm"
+      <div role="status" aria-live="polite" className="absolute top-12 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 px-4 py-2 rounded-lg shadow-lg text-sm"
            style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-default)', color: 'var(--text-primary)' }}>
         <span>{exporting} — {exportProgress.stage} {Math.round(exportProgress.percent)}%</span>
         <button
@@ -394,7 +395,7 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
     )}
 
     {saveError && (
-      <div className="absolute top-12 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 px-4 py-2 rounded-lg shadow-lg text-sm"
+      <div role="alert" aria-live="assertive" className="absolute top-12 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 px-4 py-2 rounded-lg shadow-lg text-sm"
            style={{ background: 'var(--accent-red)', color: '#fff' }}>
         <span>{saveError}</span>
         {saveConflict && <>
@@ -402,7 +403,7 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
           <button className="underline whitespace-nowrap" onClick={() => void saveAsCopy()}>Save as copy</button>
           <button className="underline whitespace-nowrap" onClick={() => void overwriteRemote()}>Overwrite</button>
         </>}
-        <button onClick={clearSaveError} className="ml-2 opacity-70 hover:opacity-100">&times;</button>
+        <button onClick={clearSaveError} aria-label="Dismiss save error" className="ml-2 opacity-70 hover:opacity-100">&times;</button>
       </div>
     )}
 
@@ -509,10 +510,12 @@ function ExportPreview({ triangles, size, name, onDownload, onCancel }: {
   triangles: number; size: number; name: string;
   onDownload: () => void; onCancel: () => void;
 }) {
+  const surface = useRef<HTMLDivElement>(null);
+  useDialogFocus(surface, onCancel);
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.5)' }} onClick={onCancel}>
-      <div className="rounded-xl p-5 w-72 shadow-xl" style={{ background: 'var(--bg-panel)', border: '1px solid var(--border-default)' }} onClick={(e) => e.stopPropagation()}>
-        <h3 className="text-sm font-semibold mb-3" style={{ color: 'var(--text-primary)' }}>Export Ready</h3>
+      <div ref={surface} role="dialog" aria-modal="true" aria-labelledby="export-ready-title" className="rounded-xl p-5 w-72 shadow-xl" style={{ background: 'var(--bg-panel)', border: '1px solid var(--border-default)' }} onClick={(e) => e.stopPropagation()}>
+        <h3 id="export-ready-title" className="text-sm font-semibold mb-3" style={{ color: 'var(--text-primary)' }}>Export Ready</h3>
         <div className="space-y-2 mb-4">
           <div className="flex justify-between text-[12px]">
             <span style={{ color: 'var(--text-muted)' }}>File</span>

@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { getCurrentProvider, useAuthStore } from '../../store/authStore';
 import { getStorageProvider } from '../../storage';
 import { decodeProjectDocument, MAX_PROJECT_JSON_CHARS } from '../../types/documentDecoder';
+import { useDialogFocus } from '../ui/useDialogFocus';
 
 interface Props {
   onDone: () => void;
@@ -10,6 +11,8 @@ interface Props {
 export function ImportProject({ onDone }: Props) {
   const [importing, setImporting] = useState(false);
   const [results, setResults] = useState<{ name: string; ok: boolean; error?: string }[]>([]);
+  const surface = useRef<HTMLDivElement>(null);
+  useDialogFocus(surface, onDone);
 
   const handleImport = async () => {
     const provider = getCurrentProvider();
@@ -54,9 +57,9 @@ export function ImportProject({ onDone }: Props) {
 
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={onDone}>
-      <div className="bg-zinc-900 border border-zinc-700 rounded-lg w-[400px] p-6 shadow-2xl"
+      <div ref={surface} role="dialog" aria-modal="true" aria-labelledby="import-project-title" className="bg-zinc-900 border border-zinc-700 rounded-lg w-[400px] p-6 shadow-2xl"
            onClick={(e) => e.stopPropagation()}>
-        <h2 className="text-sm font-medium text-zinc-200 mb-4">Import Local Projects</h2>
+        <h2 id="import-project-title" className="text-sm font-medium text-zinc-200 mb-4">Import Local Projects</h2>
 
         <p className="text-xs text-zinc-300 mb-4">
           Select one or more .json project files exported from Sinter. They'll be uploaded to your cloud storage.
@@ -71,7 +74,7 @@ export function ImportProject({ onDone }: Props) {
             {importing ? 'Importing...' : 'Choose Files to Import'}
           </button>
         ) : (
-          <div className="space-y-1 mb-4">
+          <div role="status" aria-live="polite" className="space-y-1 mb-4">
             {results.map((r, i) => (
               <div key={i} className="flex items-center gap-2 text-xs">
                 <span className={r.ok ? 'text-emerald-400' : 'text-red-400'}>

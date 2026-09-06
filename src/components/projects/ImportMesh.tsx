@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { useModelerStore } from '../../store/modelerStore';
 import { parseSTL, STLParseError } from '../../worker/sdf/stl';
 import type { SDFNodeUI } from '../../types/operations';
+import { useDialogFocus } from '../ui/useDialogFocus';
 
 /**
  * STL import (#87, layer 1).
@@ -55,6 +56,8 @@ export function ImportMesh({ onDone }: { onDone: () => void }) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const surface = useRef<HTMLDivElement>(null);
+  useDialogFocus(surface, onDone);
 
   const handleFile = async (file: File) => {
     setError(null);
@@ -83,9 +86,9 @@ export function ImportMesh({ onDone }: { onDone: () => void }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.5)' }}>
-      <div className="rounded-lg p-5 w-[420px] max-w-[90vw]"
+      <div ref={surface} role="dialog" aria-modal="true" aria-labelledby="import-stl-title" className="rounded-lg p-5 w-[420px] max-w-[90vw]"
            style={{ background: 'var(--bg-panel)', border: '1px solid var(--border-default)' }}>
-        <h2 className="text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>Import STL</h2>
+        <h2 id="import-stl-title" className="text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>Import STL</h2>
         <p className="text-[11px] mb-3" style={{ color: 'var(--text-muted)' }}>
           The mesh becomes an editable node you can subtract, intersect or pattern like any
           other shape. It is stored as a distance field, so fine detail is rounded to the

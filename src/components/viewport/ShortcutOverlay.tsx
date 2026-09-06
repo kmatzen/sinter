@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { useDialogFocus } from '../ui/useDialogFocus';
 
 const SHORTCUTS = [
   ['Click', 'Select the shape under the pointer'],
@@ -20,6 +21,9 @@ const SHORTCUTS = [
 
 export function ShortcutOverlay() {
   const [visible, setVisible] = useState(false);
+  const surface = useRef<HTMLDivElement>(null);
+  const close = useCallback(() => setVisible(false), []);
+  useDialogFocus(surface, close, visible);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -30,14 +34,22 @@ export function ShortcutOverlay() {
     return () => window.removeEventListener('keydown', handler);
   }, []);
 
-  if (!visible) return null;
+  if (!visible) return (
+    <button
+      onClick={() => setVisible(true)}
+      aria-label="Open keyboard shortcuts and accessibility help"
+      title="Keyboard shortcuts"
+      className="absolute bottom-3 right-3 z-20 w-8 h-8 rounded-full text-sm"
+      style={{ background: 'var(--bg-elevated)', color: 'var(--text-secondary)', border: '1px solid var(--border-default)' }}
+    >?</button>
+  );
 
   return (
     <div className="absolute inset-0 flex items-center justify-center z-50 pointer-events-none">
-      <div className="bg-zinc-900/95 border border-zinc-700 rounded-lg p-5 pointer-events-auto shadow-2xl">
+      <div ref={surface} role="dialog" aria-modal="true" aria-labelledby="shortcut-title" className="bg-zinc-900/95 border border-zinc-700 rounded-lg p-5 pointer-events-auto shadow-2xl">
         <div className="flex items-center justify-between mb-3">
-          <h3 className="text-sm font-medium text-zinc-200">Keyboard Shortcuts</h3>
-          <button onClick={() => setVisible(false)} className="text-zinc-300 hover:text-zinc-300 text-xs">
+          <h3 id="shortcut-title" className="text-sm font-medium text-zinc-200">Keyboard Shortcuts</h3>
+          <button onClick={close} aria-label="Close keyboard shortcuts" className="text-zinc-300 hover:text-zinc-300 text-xs">
             {'\u2715'}
           </button>
         </div>
@@ -52,6 +64,7 @@ export function ShortcutOverlay() {
           ))}
         </div>
         <p className="text-[10px] text-zinc-300 mt-3">Press ? to close</p>
+        <p className="text-[10px] text-zinc-300 mt-1">The node tree and property controls are the keyboard and screen-reader alternative to direct canvas manipulation.</p>
       </div>
     </div>
   );

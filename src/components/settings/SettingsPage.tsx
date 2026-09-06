@@ -1,20 +1,23 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useAuthStore } from '../../store/authStore';
 import { AiSettings } from './AiSettings';
+import { useDialogFocus } from '../ui/useDialogFocus';
 
 export function SettingsPage({ onClose }: { onClose: () => void }) {
   const user = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);
   const [avatarFailed, setAvatarFailed] = useState(false);
+  const surface = useRef<HTMLDivElement>(null);
+  useDialogFocus(surface, onClose);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.6)' }}
          onClick={onClose}>
-      <div className="w-full max-w-[520px] max-h-[80vh] overflow-y-auto rounded-lg" style={{ background: 'var(--bg-panel)', border: '1px solid var(--border-default)' }}
+      <div ref={surface} role="dialog" aria-modal="true" aria-labelledby="settings-title" className="w-full max-w-[520px] max-h-[80vh] overflow-y-auto rounded-lg" style={{ background: 'var(--bg-panel)', border: '1px solid var(--border-default)' }}
            onClick={(e) => e.stopPropagation()}>
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-          <span className="font-mono text-[11px] tracking-[0.15em] uppercase" style={{ color: 'var(--text-muted)' }}>Settings</span>
+          <span id="settings-title" className="font-mono text-[11px] tracking-[0.15em] uppercase" style={{ color: 'var(--text-muted)' }}>Settings</span>
           <button onClick={onClose} aria-label="Close settings" className="text-sm tap flex items-center justify-center" style={{ color: 'var(--text-muted)' }}>{'\u2715'}</button>
         </div>
 

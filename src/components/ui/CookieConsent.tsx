@@ -1,4 +1,6 @@
+import { useRef } from 'react';
 import { useConsentStore, type ConsentReason } from '../../store/consent';
+import { useDialogFocus } from './useDialogFocus';
 
 const COPY: Record<ConsentReason, { title: string; body: string; accept: string }> = {
   signin: {
@@ -25,6 +27,8 @@ export function CookieConsent() {
   const pendingReason = useConsentStore((s) => s.pendingReason);
   const accept = useConsentStore((s) => s.accept);
   const decline = useConsentStore((s) => s.decline);
+  const surface = useRef<HTMLDivElement>(null);
+  useDialogFocus(surface, decline, !!pendingReason);
 
   if (!pendingReason) return null;
   const copy = COPY[pendingReason];
@@ -32,10 +36,14 @@ export function CookieConsent() {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.6)' }}>
       <div
+        ref={surface}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="consent-title"
         className="rounded-lg p-6 max-w-md w-full"
         style={{ background: 'var(--bg-panel)', border: '1px solid var(--border-default)', boxShadow: 'var(--shadow-lg)' }}
       >
-        <h3 className="text-sm font-medium mb-3" style={{ color: 'var(--text-primary)' }}>{copy.title}</h3>
+        <h3 id="consent-title" className="text-sm font-medium mb-3" style={{ color: 'var(--text-primary)' }}>{copy.title}</h3>
         <p className="text-[12px] leading-relaxed mb-4" style={{ color: 'var(--text-secondary)' }}>
           {copy.body}{' '}
           <button

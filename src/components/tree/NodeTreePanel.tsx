@@ -2,6 +2,7 @@ import { useModelerStore } from '../../store/modelerStore';
 import { useTreeUiStore } from '../../store/treeUiStore';
 import { TreeNode } from './TreeNode';
 import { PartsPalette } from './PartsPalette';
+import { NODE_LABELS } from '../../types/operations';
 import { Sparkles, ChevronsDownUp, ChevronsUpDown, X } from 'lucide-react';
 
 /**
@@ -20,10 +21,23 @@ export function NodeTreeContent({ onClose }: { onClose?: () => void } = {}) {
   const collapseAll = useModelerStore((s) => s.collapseAll);
   const allExpanded = tree ? expandedNodes.size > 0 : false;
   const movingNodeId = useTreeUiStore((s) => s.movingNodeId);
+  const selectedNodeId = useModelerStore((s) => s.selectedNodeId);
   const cancelMove = useTreeUiStore((s) => s.cancelMove);
+  const selectedLabel = (() => {
+    const find = (node: typeof tree): string | null => {
+      if (!node) return null;
+      if (node.id === selectedNodeId) return NODE_LABELS[node.kind] || node.label;
+      for (const child of node.children) { const label = find(child); if (label) return label; }
+      return null;
+    };
+    return find(tree);
+  })();
 
   return (
     <>
+      <div className="sr-only" role="status" aria-live="polite">
+        {selectedLabel ? `Selected ${selectedLabel}` : 'No model node selected'}
+      </div>
       <div className="px-3 py-2.5 flex items-center justify-between" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
         <span className="font-mono text-[10px] tracking-[0.15em] uppercase" style={{ color: 'var(--text-muted)' }}>
           Node Tree
@@ -87,6 +101,8 @@ export function NodeTreeContent({ onClose }: { onClose?: () => void } = {}) {
       {/* Tree view */}
       <div
         data-testid="tree-nodes"
+        role="tree"
+        aria-label="Model node tree"
         className="flex-1 overflow-y-auto py-1"
         onDragOver={(e) => {
           if (e.dataTransfer.types.includes('application/sinter-node')) {

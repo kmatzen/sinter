@@ -22,6 +22,12 @@ export default defineConfig({
     baseURL: 'http://localhost:5174',
     headless: true,
     actionTimeout: 15000,
+    // CI uses the pinned Playwright bundle. Developers can point at an
+    // already-installed Chromium build when downloading browsers is not
+    // possible (for example, on a managed or offline workstation).
+    launchOptions: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH
+      ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH }
+      : undefined,
   },
   webServer: {
     command: 'npx vite --port 5174',

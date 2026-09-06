@@ -1,5 +1,6 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
 import { GripHorizontal, X } from 'lucide-react';
+import { useDialogFocus } from '../ui/useDialogFocus';
 
 interface Props {
   onClose: () => void;
@@ -43,6 +44,7 @@ function nearestSnap(h: number, snaps: number[]): number {
 export function BottomSheet({ onClose, children }: Props) {
   const sheetRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
+  useDialogFocus(sheetRef, onClose);
   /*
    * Tracked in state rather than read once at mount. The snap heights are
    * fractions of the viewport, and the viewport changes constantly on a phone —
@@ -169,13 +171,6 @@ export function BottomSheet({ onClose, children }: Props) {
     };
   }, []);
 
-  // Close on Escape
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [onClose]);
-
   return (
     <div className="lg:hidden fixed inset-0 z-50" onClick={onClose}>
       {/* Backdrop */}
@@ -190,6 +185,9 @@ export function BottomSheet({ onClose, children }: Props) {
       {/* Sheet */}
       <div
         ref={sheetRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="properties-sheet-title"
         className="absolute bottom-0 left-0 right-0 flex flex-col rounded-t-xl"
         style={{
           height: `${height}px`,
@@ -217,6 +215,7 @@ export function BottomSheet({ onClose, children }: Props) {
         */}
         <div className="px-4 pb-2 shrink-0 flex items-center justify-between gap-2">
           <span
+            id="properties-sheet-title"
             className="font-mono text-[10px] tracking-[0.15em] uppercase"
             style={{ color: 'var(--text-muted)' }}
           >

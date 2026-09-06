@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { lazy, Suspense } from 'react';
 
 /**
@@ -17,6 +17,7 @@ function HeroPlaceholder() {
 }
 import { ensureConsent } from '../../store/consent';
 import { LegalContent, legalTitle, type LegalDocument } from '../legal/LegalContent';
+import { useDialogFocus } from '../ui/useDialogFocus';
 
 export function LandingPage({ onLaunch }: { onLaunch: () => void }) {
   const handleLaunch = async () => {
@@ -276,9 +277,11 @@ const FEATURES = [
 ];
 
 function LegalModal({ kind, onClose }: { kind: LegalDocument; onClose: () => void }) {
+  const surface = useRef<HTMLDivElement>(null);
+  useDialogFocus(surface, onClose);
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.7)' }} onClick={onClose}>
-      <div role="dialog" aria-modal="true" aria-labelledby={`${kind}-title`} className="w-full max-w-2xl max-h-[80vh] overflow-y-auto rounded-lg p-8" style={{ background: 'var(--bg-panel)', border: '1px solid var(--border-default)' }} onClick={(event) => event.stopPropagation()}>
+      <div ref={surface} role="dialog" aria-modal="true" aria-labelledby={`${kind}-title`} className="w-full max-w-2xl max-h-[80vh] overflow-y-auto rounded-lg p-8" style={{ background: 'var(--bg-panel)', border: '1px solid var(--border-default)' }} onClick={(event) => event.stopPropagation()}>
         <div className="flex items-center justify-between mb-6">
           <h2 id={`${kind}-title`} className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>{legalTitle(kind)}</h2>
           <button onClick={onClose} aria-label={`Close ${legalTitle(kind)}`} className="text-lg" style={{ color: 'var(--text-muted)' }}>×</button>

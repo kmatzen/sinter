@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { triggerDownload } from '../../utils/download';
 import { useModalStore } from '../../store/modalStore';
 import { useAuthStore, getCurrentProvider } from '../../store/authStore';
@@ -7,6 +7,7 @@ import { getStorageProvider, type ProviderName, type ProjectMeta } from '../../s
 import { deleteLocalBackup, readLocalBackupJSON, useLocalBackupStore, writeLocalBackupJSON } from '../../store/localPersist';
 import { moveCloudProjectToLocal } from '../../storage/projectTransfer';
 import { decodeProjectDocument } from '../../types/documentDecoder';
+import { useDialogFocus } from '../ui/useDialogFocus';
 
 interface CloudProject extends ProjectMeta {
   source: 'cloud';
@@ -54,6 +55,8 @@ export function ProjectList({ onClose, onLoaded, onImport }: Props) {
   const loadProject = useProjectStore((s) => s.loadProject);
   const createProject = useProjectStore((s) => s.createProject);
   const loadLocalDocument = useProjectStore((s) => s.loadLocalDocument);
+  const surface = useRef<HTMLDivElement>(null);
+  useDialogFocus(surface, onClose);
 
   useEffect(() => {
     let cancelled = false;
@@ -248,12 +251,12 @@ export function ProjectList({ onClose, onLoaded, onImport }: Props) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.6)' }} onClick={onClose}>
-      <div className="w-[520px] max-h-[75vh] flex flex-col rounded-lg"
+      <div ref={surface} role="dialog" aria-modal="true" aria-labelledby="projects-title" className="w-[520px] max-h-[75vh] flex flex-col rounded-lg"
            style={{ background: 'var(--bg-panel)', border: '1px solid var(--border-default)' }}
            onClick={(e) => e.stopPropagation()}>
 
         <div className="flex items-center justify-between px-5 py-3" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-          <span className="font-mono text-[11px] tracking-[0.15em] uppercase" style={{ color: 'var(--text-muted)' }}>Projects</span>
+          <span id="projects-title" className="font-mono text-[11px] tracking-[0.15em] uppercase" style={{ color: 'var(--text-muted)' }}>Projects</span>
           <div className="flex gap-2">
             {onImport && (
               <button onClick={onImport} className="text-[11px] px-2.5 py-1 rounded font-medium"
@@ -265,7 +268,7 @@ export function ProjectList({ onClose, onLoaded, onImport }: Props) {
                     style={{ background: 'var(--accent)', color: 'var(--bg-deep)' }}>
               + New Project
             </button>
-            <button onClick={onClose} className="text-sm ml-1" style={{ color: 'var(--text-muted)' }}>{'✕'}</button>
+            <button onClick={onClose} aria-label="Close projects" className="text-sm ml-1" style={{ color: 'var(--text-muted)' }}>{'✕'}</button>
           </div>
         </div>
 
@@ -280,18 +283,19 @@ export function ProjectList({ onClose, onLoaded, onImport }: Props) {
               </div>
               {localProjectList.map((p) => (
                 <div key={p.id}
-                     onClick={() => selectLocal(p)}
                      className="flex items-center gap-3 px-3 py-2.5 rounded cursor-pointer group"
                      style={{ background: 'transparent' }}
                      onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
                      onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
+                  <button onClick={() => selectLocal(p)} aria-label={`Open ${p.name} from browser storage`} className="flex flex-1 min-w-0 items-center gap-3 text-left">
                   <div className="w-10 h-10 rounded flex items-center justify-center text-xs shrink-0"
                        style={{ background: 'var(--bg-elevated)', color: 'var(--text-muted)' }}>3D</div>
                   <div className="flex-1 min-w-0">
                     <div className="text-sm truncate" style={{ color: 'var(--text-primary)' }}>{p.name}</div>
                     <div className="text-[10px]" style={{ color: 'var(--text-muted)' }}>Stored in browser &middot; {formatDate(p.updated_at)}</div>
                   </div>
-                  <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                  </button>
+                  <div className="flex gap-1 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity">
                     {user && (
                       <button onClick={handleMoveToCloud}
                               className="text-[11px] px-2 py-1 rounded flex items-center gap-1"
@@ -324,11 +328,11 @@ export function ProjectList({ onClose, onLoaded, onImport }: Props) {
             )}
             {cloudProjects.map((p) => (
               <div key={p.externalId}
-                   onClick={() => selectCloud(p)}
                    className="flex items-center gap-3 px-3 py-2.5 rounded cursor-pointer group"
                    style={{ background: 'transparent' }}
                    onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
                    onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
+                <button onClick={() => selectCloud(p)} aria-label={`Open ${p.name} from ${p.provider === 'google' ? 'Google Drive' : 'GitHub Gists'}`} className="flex flex-1 min-w-0 items-center gap-3 text-left">
                 {p.thumbnail ? (
                   <img src={p.thumbnail} alt="" className="w-10 h-10 rounded object-cover shrink-0" style={{ background: 'var(--bg-elevated)' }} />
                 ) : (
@@ -341,7 +345,8 @@ export function ProjectList({ onClose, onLoaded, onImport }: Props) {
                     {p.provider === 'google' ? 'Google Drive' : 'GitHub Gist'} &middot; {formatDate(p.updatedAt)}
                   </div>
                 </div>
-                <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                </button>
+                <div className="flex gap-1 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity">
                   <button onClick={(e) => handleMoveToLocal(p, e)}
                           className="text-[11px] px-2 py-1 rounded flex items-center gap-1"
                           style={{ background: 'var(--accent-subtle)', color: 'var(--accent)' }}
@@ -367,7 +372,7 @@ export function ProjectList({ onClose, onLoaded, onImport }: Props) {
         </div>
 
         {toast && (
-          <div className="px-5 py-2.5 text-xs font-medium text-center"
+          <div role="status" aria-live="polite" className="px-5 py-2.5 text-xs font-medium text-center"
                style={{ borderTop: '1px solid var(--border-subtle)', color: 'var(--text-secondary)' }}>
             {toast}
           </div>

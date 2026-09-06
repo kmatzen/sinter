@@ -104,6 +104,11 @@ export function TreeNode({ node, depth, isLast = true, incompleteIds: incomplete
       {/* Node row */}
       <div
         ref={rowRef}
+        role="treeitem"
+        tabIndex={isSelected || (!selectedId && depth === 0) ? 0 : -1}
+        aria-selected={isSelected}
+        aria-expanded={hasChildren ? isExpanded : undefined}
+        aria-label={`${NODE_LABELS[node.kind] || node.kind}${isIncomplete ? ', incomplete' : ''}${node.enabled ? '' : ', disabled'}`}
         className="flex items-center gap-1 pr-1.5 h-[26px] tap-h cursor-pointer relative"
         style={{
           paddingLeft: `${leftPad}px`,
@@ -129,6 +134,25 @@ export function TreeNode({ node, depth, isLast = true, incompleteIds: incomplete
             return;
           }
           selectNode(node.id);
+        }}
+        onKeyDown={(event) => {
+          if (event.target !== event.currentTarget) return;
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            if (movingNodeId) {
+              if (movingNodeId !== node.id) moveNode(movingNodeId, node.id);
+              cancelMove();
+            } else selectNode(node.id);
+          } else if (event.key === 'ArrowRight' && hasChildren && !isExpanded) {
+            event.preventDefault(); toggleExpanded(node.id);
+          } else if (event.key === 'ArrowLeft' && hasChildren && isExpanded) {
+            event.preventDefault(); toggleExpanded(node.id);
+          } else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+            event.preventDefault();
+            const rows = [...event.currentTarget.closest('[role="tree"]')?.querySelectorAll<HTMLElement>('[role="treeitem"]') ?? []];
+            const index = rows.indexOf(event.currentTarget);
+            rows[index + (event.key === 'ArrowDown' ? 1 : -1)]?.focus();
+          }
         }}
         onMouseEnter={() => setHoveredNode(node.id)}
         onMouseLeave={() => setHoveredNode(null)}
