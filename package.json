@@ -15,7 +15,6 @@
     "test:e2e": "playwright test",
     "test:live": "vitest run src/llm/live.test.ts",
     "test:all": "vitest run && playwright test",
-    "migrate": "tsx server/migrate-to-static.ts",
     "bench": "tsx bench/mesh.bench.ts"
   },
   "dependencies": {
@@ -32,7 +31,6 @@
     "@tailwindcss/vite": "^4.1.4",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
-    "@types/better-sqlite3": "^7.6.13",
     "@types/jsdom": "^28.0.1",
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
@@ -40,8 +38,6 @@
     "@types/uuid": "^10.0.0",
     "@vitejs/plugin-react": "^4.3.4",
     "@vitest/coverage-v8": "^4.1.10",
-    "better-sqlite3": "^12.8.0",
-    "dotenv": "^17.4.2",
     "fast-check": "^4.9.0",
     "jsdom": "^29.0.2",
     "tailwindcss": "^4.1.4",

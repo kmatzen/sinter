@@ -87,6 +87,16 @@ test.describe('Landing Page', () => {
     await expect(page.locator('text=Acceptance of Terms')).not.toBeVisible();
   });
 
+  test('permanent legal URLs use the canonical copy', async ({ page }) => {
+    await page.goto('/privacy', { waitUntil: 'domcontentloaded' });
+    await expect(page.getByRole('heading', { name: 'Privacy Policy' })).toBeVisible();
+    await expect(page.getByText(/GitHub’s.*permission is broader/)).toBeVisible();
+
+    await page.goto('/terms', { waitUntil: 'domcontentloaded' });
+    await expect(page.getByRole('heading', { name: 'Terms of Service' })).toBeVisible();
+    await expect(page.getByText(/source is available under the non-commercial license/)).toBeVisible();
+  });
+
   test('Start Modeling enters the modeler', async ({ page }) => {
     const btn = page.locator('button:has-text("Start Modeling")').first();
     await btn.waitFor({ state: 'visible', timeout: 15000 });
