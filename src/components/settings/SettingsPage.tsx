@@ -59,6 +59,18 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
             <SectionLabel>AI Configuration</SectionLabel>
             <AiSettings />
           </div>
+
+          <div>
+            <SectionLabel>Build</SectionLabel>
+            <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
+              <dt style={{ color: 'var(--text-muted)' }}>Release</dt>
+              <dd className="font-mono" style={{ color: 'var(--text-secondary)' }}>{import.meta.env.RELEASE_ID}</dd>
+              <dt style={{ color: 'var(--text-muted)' }}>Commit</dt>
+              <dd className="font-mono" style={{ color: 'var(--text-secondary)' }} title={import.meta.env.BUILD_SHA}>
+                {import.meta.env.BUILD_SHA === 'development' ? 'development' : import.meta.env.BUILD_SHA.slice(0, 12)}
+              </dd>
+            </dl>
+          </div>
         </div>
       </div>
     </div>

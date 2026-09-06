@@ -80,6 +80,8 @@ export function buildDiagnosticReport(error: Error, componentStack = ''): string
   const report = {
     generatedAt: new Date().toISOString(),
     appVersion: import.meta.env.PACKAGE_VERSION || 'development',
+    release: import.meta.env.RELEASE_ID || 'development',
+    buildCommit: import.meta.env.BUILD_SHA || 'development',
     page: typeof location === 'undefined' ? '' : `${location.origin}${location.pathname}`,
     error: {
       category: errorCategory(error),

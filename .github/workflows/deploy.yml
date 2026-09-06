@@ -81,6 +81,8 @@ jobs:
         env:
           VITE_GOOGLE_CLIENT_ID: ${{ secrets.VITE_GOOGLE_CLIENT_ID }}
           VITE_GITHUB_CLIENT_ID: ${{ secrets.VITE_GITHUB_CLIENT_ID }}
+          VITE_BUILD_SHA: ${{ github.sha }}
+          VITE_RELEASE_ID: ${{ github.ref_type == 'tag' && github.ref_name || format('manual-{0}', github.run_number) }}
         run: npm run build
       - name: Publish to Cloudflare Pages
         uses: cloudflare/wrangler-action@v4
@@ -105,3 +107,22 @@ jobs:
           require_header strict-transport-security
           require_header permissions-policy
           require_header x-frame-options
+      - name: Verify production build identity
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+          EXPECTED_RELEASE: ${{ github.ref_type == 'tag' && github.ref_name || format('manual-{0}', github.run_number) }}
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --retry 6 --retry-delay 5 \
+            --output build.json https://sinter-3d.com/build.json
+          node -e '
+            const fs = require("node:fs");
+            const build = JSON.parse(fs.readFileSync("build.json", "utf8"));
+            if (build.commit !== process.env.EXPECTED_SHA) {
+              throw new Error(`custom domain serves ${build.commit}, expected ${process.env.EXPECTED_SHA}`);
+            }
+            if (build.release !== process.env.EXPECTED_RELEASE) {
+              throw new Error(`custom domain serves ${build.release}, expected ${process.env.EXPECTED_RELEASE}`);
+            }
+            console.log(`Verified ${build.release} (${build.commit}) on sinter-3d.com`);
+          '

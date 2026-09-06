@@ -29,6 +29,11 @@ The deploy workflow first finds the completed CI run for the exact commit and
 refuses to publish unless that run succeeded. A tag or manual selection is not
 itself evidence that the commit passed CI.
 
+Each build emits `/build.json` with its release identifier, package version,
+and full commit SHA. Settings shows the same release and abbreviated SHA. The
+deploy does not succeed until `https://sinter-3d.com/build.json` matches the
+exact commit and release that triggered the workflow.
+
 Required GitHub Actions secrets:
 
 - `CLOUDFLARE_API_TOKEN`, scoped to edit the Sinter Pages project
@@ -53,7 +58,10 @@ gh workflow run deploy.yml --ref <sha-or-tag>
 ```
 
 The target must have a successful CI run. After rollback, verify the custom
-domain, OAuth callback, project open/save, and sharing paths.
+domain, OAuth callback, project open/save, and sharing paths. The workflow's
+identity check proves the custom domain moved to the selected rollback commit;
+record the drill date, source release, target release, and verification result
+in the corresponding GitHub release notes.
 
 ## Local development
 
