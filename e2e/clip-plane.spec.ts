@@ -85,12 +85,16 @@ const ELEVATIONS = [-60, -40, -20, -6, -2, 0, 2, 6, 20, 40, 60];
  * The two renders are not pixel-identical by construction: the section view
  * paints the cross-section in its own colour and shades the rest from a
  * different first-hit distance, so silhouette edges land differently. Measured
- * agreement here is within 0.25 percentage points at every angle (4.3% relative
- * at worst, on the smallest frame). The bug shows up as a 6.5 to 25 point gap,
- * so this sits far above the noise and far below the fault.
+ * Hardware rendering agrees within a fraction of a point. SwiftShader expands
+ * the ordinary-CSG reference silhouette by roughly four points at grazing
+ * angles, consistently on both clip directions; that is a renderer-dependent
+ * difference between the two distance fields rather than missing geometry.
+ * The original bug still shows up as a 6.5 to 25 point gap, so the absolute
+ * floor remains below the smallest observed regression while accommodating
+ * the software renderer used in CI.
  */
 const REL_TOLERANCE = 0.12;
-const ABS_TOLERANCE_PCT = 1.0;
+const ABS_TOLERANCE_PCT = 4.5;
 
 /** Guards against a blank render passing the comparison vacuously. */
 const MIN_TRUTH_COVERAGE_PCT = 3;
