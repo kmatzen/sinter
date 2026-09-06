@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { TransformControls } from '../lib/TransformControls.js';
 import type { ThreeEngine } from './ThreeEngine';
 import { useModelerStore } from '../store/modelerStore';
+import { useTreeUiStore } from '../store/treeUiStore';
 import { useViewportStore } from '../store/viewportStore';
 import type { SDFNodeUI } from '../types/operations';
 
@@ -152,6 +153,7 @@ export class GizmoController {
     // Store subscriptions
     this.unsubs.push(useModelerStore.subscribe(() => this.syncFromStore()));
     this.unsubs.push(useViewportStore.subscribe(() => this.syncFromStore()));
+    this.unsubs.push(useTreeUiStore.subscribe(() => this.syncFromStore()));
   }
 
   private syncFromStore() {
@@ -162,7 +164,8 @@ export class GizmoController {
     const gizmoMode = useViewportStore.getState().gizmoMode;
 
     const selectedNode = tree && selectedId ? findNode(tree, selectedId) : null;
-    const isVisible = !!selectedNode && gizmoMode !== 'none';
+    const isLocked = !!selectedId && useTreeUiStore.getState().lockedNodeIds.has(selectedId);
+    const isVisible = !!selectedNode && !isLocked && gizmoMode !== 'none';
 
     this.controls.visible = isVisible;
     this.controls.enabled = isVisible;

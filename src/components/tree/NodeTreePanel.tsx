@@ -38,6 +38,9 @@ export function NodeTreeContent({ onClose }: { onClose?: () => void } = {}) {
   const movingNodeId = useTreeUiStore((s) => s.movingNodeId);
   const selectedNodeId = useModelerStore((s) => s.selectedNodeId);
   const cancelMove = useTreeUiStore((s) => s.cancelMove);
+  const hiddenCount = useTreeUiStore((s) => s.hiddenNodeIds.size);
+  const isolatedNodeId = useTreeUiStore((s) => s.isolatedNodeId);
+  const showAll = useTreeUiStore((s) => s.showAll);
   const selectedLabel = (() => {
     const find = (node: typeof tree): string | null => {
       if (!node) return null;
@@ -60,6 +63,16 @@ export function NodeTreeContent({ onClose }: { onClose?: () => void } = {}) {
           Node Tree
         </span>
         <div className="flex items-center gap-1">
+        {(hiddenCount > 0 || isolatedNodeId) && (
+          <button
+            onClick={showAll}
+            title="Show all nodes in viewport"
+            className="h-6 tap-h px-2 rounded text-[10px]"
+            style={{ background: 'var(--bg-elevated)', color: 'var(--accent-blue)', border: '1px solid var(--border-subtle)' }}
+          >
+            Show all
+          </button>
+        )}
         {tree && (
           <button
             onClick={allExpanded ? collapseAll : expandAll}

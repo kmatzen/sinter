@@ -7,6 +7,7 @@ import { applyNodeParamPatch, normalizeNodeParams, normalizeTreeParams } from '.
 import { decodeProjectDocument, decodeTree } from '../types/documentDecoder';
 import { FormulaError, parameterUnitFor, resolveTreeFormulas } from '../types/formulas';
 import { useViewportStore } from './viewportStore';
+import { useTreeUiStore } from './treeUiStore';
 
 export interface SDFDisplayData {
   glsl: string;
@@ -25,6 +26,8 @@ interface ModelerState {
   sdfDisplay: SDFDisplayData | null;
   /** Exact immutable tree object that produced sdfDisplay. */
   evaluatedTree: SDFNodeUI | null;
+  /** Viewport projection that produced sdfDisplay (may omit editor-hidden nodes). */
+  evaluatedViewTree: SDFNodeUI | null;
   /** Most recent tree revision whose evaluation succeeded, for recovery. */
   lastValidTree: SDFNodeUI | null;
   evaluating: boolean;
@@ -296,6 +299,7 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
   mesh: null,
   sdfDisplay: null,
   evaluatedTree: null,
+  evaluatedViewTree: null,
   lastValidTree: null,
   evaluating: false,
   error: null,
@@ -314,6 +318,10 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
   },
 
   resetDocument: (tree, projectName = 'Untitled', namedParameters = []) => {
+    // Locks, hides, isolate, and move mode refer to node ids from the old
+    // document. Carrying them into a replacement can blank or freeze a new
+    // project if an imported id happens to match (or isolate points nowhere).
+    useTreeUiStore.getState().resetViewState();
     namedParameters = cloneParameters(namedParameters);
     const normalized = resolveTreeFormulas(normalizeTreeParams(tree), namedParameters);
     const snapshot = normalized ? cloneTree(normalized) : null;
@@ -326,6 +334,7 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
       mesh: null,
       sdfDisplay: null,
       evaluatedTree: null,
+      evaluatedViewTree: null,
       lastValidTree: null,
       evaluating: false,
       error: null,

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useModelerStore } from '../../store/modelerStore';
+import { useTreeUiStore } from '../../store/treeUiStore';
 import { workerBridge } from '../../engine/workerBridge';
 import type { MeshFitResult } from '../../types/geometry';
 import { NODE_LABELS, NODE_KINDS, type NamedParameter, type ParameterUnit, type SDFNodeUI } from '../../types/operations';
@@ -207,6 +208,7 @@ export function PropertyContent() {
   const updateParams = useModelerStore((s) => s.updateNodeParams);
   const updateData = useModelerStore((s) => s.updateNodeData);
   const changeKind = useModelerStore((s) => s.changeNodeKind);
+  const isLocked = useTreeUiStore((s) => selectedId ? s.lockedNodeIds.has(selectedId) : false);
 
   const node = tree && selectedId ? findNode(tree, selectedId) : null;
 
@@ -218,6 +220,12 @@ export function PropertyContent() {
         </p>
       </div>
     );
+  }
+
+  if (isLocked) {
+    return <div role="status" className="m-3 rounded p-3 text-[11px]" style={{ background: 'var(--bg-surface)', color: 'var(--text-muted)' }}>
+      This node is locked. Unlock it in the node tree to edit its kind, parameters, or formulas.
+    </div>;
   }
 
   const update = (params: Record<string, number>) => updateParams(node.id, params);
