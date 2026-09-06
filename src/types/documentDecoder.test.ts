@@ -3,6 +3,10 @@ import fc from 'fast-check';
 import {
   DocumentDecodeError, MAX_DOCUMENT_DEPTH, decodeProjectDocument, decodeTree,
 } from './documentDecoder';
+import { toSDFNode } from '../worker/sdf/convert';
+import { evaluateSDF } from '../worker/sdf/evaluate';
+import { computeBounds } from '../worker/sdf/bounds';
+import { generateSDFFunction } from '../worker/sdf/codegen';
 
 const box = (id = 'box') => ({
   id, kind: 'box', label: 'Box',
@@ -61,6 +65,46 @@ describe('document decoder', () => {
     let binary = '';
     for (const byte of new Uint8Array(values.buffer)) binary += String.fromCharCode(byte);
     expect(() => decodeTree(mesh(btoa(binary)))).toThrow(/non-finite/);
+  });
+
+  it('validates text outline containers, metrics, tags, coordinates, and count', () => {
+    const text = (glyph: unknown) => ({
+      id: 'text', kind: 'text', label: 'Text', params: { size: 10, depth: 2 },
+      data: { text: 'A', glyphPaths: JSON.stringify(glyph) }, children: [], enabled: true,
+    });
+    const line = { type: 'L', x0: 0, y0: 0, x1: 5, y1: 10 };
+    expect(() => decodeTree(text({ segs: 'bad', bezs: [], w: 5, a: 10, d: 0 }))).toThrow(/outlines must be arrays/);
+    expect(() => decodeTree(text({ segs: [{ ...line, type: 'C' }], bezs: [], w: 5, a: 10, d: 0 }))).toThrow(/type must be L/);
+    expect(() => decodeTree(text({ segs: [{ ...line, x1: '5' }], bezs: [], w: 5, a: 10, d: 0 }))).toThrow(/x1 must be a bounded finite number/);
+    expect(() => decodeTree(text({ segs: [{ ...line, x1: Infinity }], bezs: [], w: 5, a: 10, d: 0 }))).toThrow(/x1 must be a bounded finite number/);
+    expect(() => decodeTree(text({ segs: [{ ...line, z0: 1 }], bezs: [], w: 5, a: 10, d: 0 }))).toThrow(/unsupported fields/);
+    expect(() => decodeTree(text({ segs: [line], bezs: [], w: -5, a: 10, d: 0 }))).toThrow(/positive glyph box/);
+    expect(() => decodeTree(text({ segs: [], bezs: [], w: 5, a: 10, d: 0 }))).toThrow(/outline count/);
+    expect(() => decodeTree(text({ segs: Array(20_001).fill(line), bezs: [], w: 5, a: 10, d: 0 }))).toThrow(/outline count/);
+  });
+
+  it('accepts generated glyph geometry that stays finite through every evaluator boundary', () => {
+    const glyphPaths = JSON.stringify({
+      segs: [
+        { type: 'L', x0: 0, y0: 0, x1: 5, y1: 0 },
+        { type: 'L', x0: 5, y0: 0, x1: 5, y1: 10 },
+        { type: 'L', x0: 5, y0: 10, x1: 0, y1: 10 },
+        { type: 'L', x0: 0, y0: 10, x1: 0, y1: 0 },
+      ],
+      bezs: [{ type: 'Q', x0: 0, y0: 0, x1: 2.5, y1: -1, x2: 5, y2: 0 }],
+      w: 5, a: 10, d: 0,
+    });
+    const decoded = decodeTree({
+      id: 'text', kind: 'text', label: 'Text', params: { size: 10, depth: 2 },
+      data: { text: 'A', glyphPaths }, children: [], enabled: true,
+    })!;
+    expect(decoded.data?.glyphPaths).toBe(glyphPaths);
+    const internal = toSDFNode(decoded)!;
+    expect(Number.isFinite(evaluateSDF(internal, [0, 0, 0]))).toBe(true);
+    expect([...computeBounds(internal).min, ...computeBounds(internal).max].every(Number.isFinite)).toBe(true);
+    const compiled = generateSDFFunction(internal);
+    expect(compiled.glsl).not.toMatch(/NaN|Infinity|undefined/);
+    expect(compiled.paramValues.every(Number.isFinite)).toBe(true);
   });
 
   it('fails safely for arbitrary JSON-like input', () => {

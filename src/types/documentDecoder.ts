@@ -13,6 +13,8 @@ const MAX_PROJECT_NAME_CHARS = 256;
 const MAX_THUMBNAIL_CHARS = 2 * 1024 * 1024;
 const MAX_TEXT_CHARS = 10_000;
 const MAX_GLYPH_CHARS = 2 * 1024 * 1024;
+const MAX_GLYPH_SEGMENTS = 20_000;
+const MAX_GLYPH_COORDINATE = 1_000_000;
 const MAX_GENERIC_DATA_CHARS = 8 * 1024 * 1024;
 const KNOWN_KINDS = new Set([...Object.keys(NODE_DEFAULTS), '_empty']);
 
@@ -80,6 +82,60 @@ function accountString(context: Context, value: string): void {
   }
 }
 
+function validateGlyphPayload(value: string, path: string): void {
+  let parsed: unknown;
+  try { parsed = JSON.parse(value); }
+  catch { throw new DocumentDecodeError(`${path} glyph data is invalid JSON`); }
+  const glyph = record(parsed, `${path}.data.glyphPaths`);
+  const allowed = new Set(['segs', 'bezs', 'w', 'a', 'd']);
+  for (const key of Object.keys(glyph)) {
+    if (!allowed.has(key)) throw new DocumentDecodeError(`${path}.data.glyphPaths.${key} is not supported`);
+  }
+  const metric = (key: 'w' | 'a' | 'd') => {
+    const number = glyph[key];
+    if (typeof number !== 'number' || !Number.isFinite(number) || Math.abs(number) > MAX_GLYPH_COORDINATE) {
+      throw new DocumentDecodeError(`${path}.data.glyphPaths.${key} must be a bounded finite number`);
+    }
+    return number;
+  };
+  const width = metric('w'), ascent = metric('a'), descent = metric('d');
+  if (width <= 0 || ascent <= descent) {
+    throw new DocumentDecodeError(`${path}.data.glyphPaths metrics do not describe a positive glyph box`);
+  }
+  const segments = glyph.segs ?? [];
+  const beziers = glyph.bezs ?? [];
+  if (!Array.isArray(segments) || !Array.isArray(beziers)) {
+    throw new DocumentDecodeError(`${path}.data.glyphPaths outlines must be arrays`);
+  }
+  if (segments.length + beziers.length === 0 || segments.length + beziers.length > MAX_GLYPH_SEGMENTS) {
+    throw new DocumentDecodeError(`${path}.data.glyphPaths outline count is empty or exceeds ${MAX_GLYPH_SEGMENTS}`);
+  }
+  const finiteCoordinate = (item: Record<string, unknown>, key: string, itemPath: string) => {
+    const number = item[key];
+    if (typeof number !== 'number' || !Number.isFinite(number) || Math.abs(number) > MAX_GLYPH_COORDINATE) {
+      throw new DocumentDecodeError(`${itemPath}.${key} must be a bounded finite number`);
+    }
+  };
+  segments.forEach((input, index) => {
+    const itemPath = `${path}.data.glyphPaths.segs[${index}]`;
+    const segment = record(input, itemPath);
+    if (Object.keys(segment).some((key) => !['type', 'x0', 'y0', 'x1', 'y1'].includes(key))) {
+      throw new DocumentDecodeError(`${itemPath} contains unsupported fields`);
+    }
+    if (segment.type !== 'L') throw new DocumentDecodeError(`${itemPath}.type must be L`);
+    for (const key of ['x0', 'y0', 'x1', 'y1']) finiteCoordinate(segment, key, itemPath);
+  });
+  beziers.forEach((input, index) => {
+    const itemPath = `${path}.data.glyphPaths.bezs[${index}]`;
+    const bezier = record(input, itemPath);
+    if (Object.keys(bezier).some((key) => !['type', 'x0', 'y0', 'x1', 'y1', 'x2', 'y2'].includes(key))) {
+      throw new DocumentDecodeError(`${itemPath} contains unsupported fields`);
+    }
+    if (bezier.type !== 'Q') throw new DocumentDecodeError(`${itemPath}.type must be Q`);
+    for (const key of ['x0', 'y0', 'x1', 'y1', 'x2', 'y2']) finiteCoordinate(bezier, key, itemPath);
+  });
+}
+
 function decodeData(kind: string, input: unknown, path: string, context: Context): Record<string, string> | undefined {
   if (input === undefined) return undefined;
   const raw = record(input, `${path}.data`);
@@ -97,8 +153,7 @@ function decodeData(kind: string, input: unknown, path: string, context: Context
     else if (key === 'text' && value.length > MAX_TEXT_CHARS) throw new DocumentDecodeError(`${path} text exceeds ${MAX_TEXT_CHARS} characters`);
     else if (key === 'glyphPaths') {
       if (value.length > MAX_GLYPH_CHARS) throw new DocumentDecodeError(`${path} glyph data is too large`);
-      try { record(JSON.parse(value), `${path}.data.glyphPaths`); }
-      catch (error) { if (error instanceof DocumentDecodeError) throw error; throw new DocumentDecodeError(`${path} glyph data is invalid JSON`); }
+      validateGlyphPayload(value, path);
     } else if (value.length > (allowed.has(key) ? MAX_LABEL_CHARS : MAX_GENERIC_DATA_CHARS)) {
       throw new DocumentDecodeError(`${path}.data.${key} is too long`);
     }
