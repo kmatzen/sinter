@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { ThreeEngine } from './ThreeEngine';
-import { useModelerStore } from '../store/modelerStore';
+import { useModelerStore, type SDFDisplayData } from '../store/modelerStore';
 import { useViewportStore } from '../store/viewportStore';
 
 const VERT = `
@@ -282,6 +282,45 @@ function textureKey(textures: { name: string; width: number; height: number; dat
   return textures.map((t) => `${t.name}:${t.width}x${t.height}:${hashBytes(t.data)}`).join('|');
 }
 
+export interface ShaderCapacity {
+  maxFragmentUniformComponents: number;
+  maxTextureImageUnits: number;
+}
+
+// Scalars/vectors/matrix used by buildFrag apart from the generated u_p array.
+// Samplers have their own independently queried limit.
+const FIXED_FRAGMENT_UNIFORM_COMPONENTS = 34;
+
+/** Return an actionable portability error before asking WebGL to link. */
+export function shaderCapacityError(
+  sdf: Pick<SDFDisplayData, 'paramCount' | 'textures'>,
+  capacity: ShaderCapacity,
+): string | null {
+  const requiredComponents = sdf.paramCount + FIXED_FRAGMENT_UNIFORM_COMPONENTS;
+  if (requiredComponents > capacity.maxFragmentUniformComponents) {
+    return `This model needs ${requiredComponents} fragment-uniform components, but this GPU supports ${capacity.maxFragmentUniformComponents}. Simplify or group repeated operations before previewing it.`;
+  }
+  const textureCount = sdf.textures?.length ?? 0;
+  if (textureCount > capacity.maxTextureImageUnits) {
+    return `This model needs ${textureCount} fragment textures, but this GPU supports ${capacity.maxTextureImageUnits}. Reduce imported mesh fields before previewing it.`;
+  }
+  return null;
+}
+
+function rendererCapacity(engine: ThreeEngine): ShaderCapacity | null {
+  const renderer = (engine as unknown as { renderer?: THREE.WebGLRenderer }).renderer;
+  if (!renderer?.getContext) return null;
+  const gl = renderer.getContext();
+  const webgl2 = typeof WebGL2RenderingContext !== 'undefined' && gl instanceof WebGL2RenderingContext;
+  const maxFragmentUniformComponents = webgl2
+    ? gl.getParameter((gl as WebGL2RenderingContext).MAX_FRAGMENT_UNIFORM_COMPONENTS)
+    : gl.getParameter(gl.MAX_FRAGMENT_UNIFORM_VECTORS) * 4;
+  return {
+    maxFragmentUniformComponents,
+    maxTextureImageUnits: gl.getParameter(gl.MAX_TEXTURE_IMAGE_UNITS),
+  };
+}
+
 export class SdfMesh {
   private engine: ThreeEngine;
   private mesh: THREE.Mesh | null = null;
@@ -335,6 +374,15 @@ export class SdfMesh {
       this.lastHasWarn = false;
       this.lastTextureKey = '';
       this.lastBBKey = '';
+      return;
+    }
+
+    const capacity = rendererCapacity(this.engine);
+    const capacityError = capacity && shaderCapacityError(sdf, capacity);
+    if (capacityError) {
+      // Clear the unrenderable display atomically so this subscription's
+      // re-entrant notification takes the ordinary release path exactly once.
+      useModelerStore.setState({ sdfDisplay: null, evaluatedTree: null, error: capacityError });
       return;
     }
 

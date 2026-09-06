@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import * as THREE from 'three';
-import { SdfMesh } from './SdfMesh';
+import { SdfMesh, shaderCapacityError } from './SdfMesh';
 import { useModelerStore, type SDFDisplayData } from '../store/modelerStore';
 import type { ThreeEngine } from './ThreeEngine';
 
@@ -36,6 +36,18 @@ function display(
 /** Minimal stand-in for ThreeEngine — SdfMesh only touches `scene`. */
 function fakeEngine() {
   return { scene: new THREE.Scene() } as unknown as ThreeEngine;
+}
+
+function constrainedEngine(uniformVectors: number, textureUnits: number) {
+  const context = {
+    MAX_FRAGMENT_UNIFORM_VECTORS: 1,
+    MAX_TEXTURE_IMAGE_UNITS: 2,
+    getParameter: (parameter: number) => parameter === 1 ? uniformVectors : textureUnits,
+  };
+  return {
+    scene: new THREE.Scene(),
+    renderer: { getContext: () => context },
+  } as unknown as ThreeEngine;
 }
 
 /** The material/geometry/textures SdfMesh is currently holding. */
@@ -123,6 +135,34 @@ describe('SdfMesh GPU resource lifecycle', () => {
     expect(engine.scene.children).toHaveLength(1);
     sdfMesh.dispose();
     expect(engine.scene.children).toHaveLength(0);
+  });
+});
+
+describe('shader capacity preflight', () => {
+  it('rejects a document-sized parameter array on minimum WebGL 2 limits', () => {
+    expect(shaderCapacityError(display('', 0, { paramCount: 1_999 }), {
+      maxFragmentUniformComponents: 1_024,
+      maxTextureImageUnits: 16,
+    })).toMatch(/needs 2033.*supports 1024/);
+  });
+
+  it('accounts for fixed uniforms and imported-field samplers', () => {
+    const capacity = { maxFragmentUniformComponents: 64, maxTextureImageUnits: 1 };
+    expect(shaderCapacityError(display('', 0, { paramCount: 31 }), capacity)).toMatch(/fragment-uniform/);
+    expect(shaderCapacityError(display('', 2, { paramCount: 1 }), capacity)).toMatch(/needs 2 fragment textures/);
+    expect(shaderCapacityError(display('', 1, { paramCount: 1 }), capacity)).toBeNull();
+  });
+
+  it('refuses an unsupported display before allocating GPU resources', () => {
+    const engine = constrainedEngine(16, 8); // 64 fragment-uniform components
+    useModelerStore.setState({ sdfDisplay: display('float sdf(vec3 p){return 1.0;}', 0, { paramCount: 31 }), error: null });
+
+    const sdfMesh = new SdfMesh(engine);
+
+    expect(engine.scene.children).toHaveLength(0);
+    expect(currentResources(sdfMesh).material).toBeNull();
+    expect(useModelerStore.getState().sdfDisplay).toBeNull();
+    expect(useModelerStore.getState().error).toMatch(/this GPU supports 64/i);
   });
 });
 
