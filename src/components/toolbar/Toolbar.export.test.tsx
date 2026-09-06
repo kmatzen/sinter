@@ -243,3 +243,30 @@ describe('Toolbar project versions', () => {
     expect(screen.getByRole('button', { name: 'Restore' })).toBeInTheDocument();
   });
 });
+
+describe('Toolbar compact-width actions', () => {
+  beforeEach(() => {
+    useModelerStore.setState({
+      tree: BOX, selectedNodeId: BOX.id, clipboard: BOX,
+      evaluatedTree: BOX, sdfDisplay: DISPLAY as any, evaluating: false,
+    });
+    useProjectStore.setState({ projectId: null, provider: null, shareUrl: null, saving: false });
+  });
+
+  afterEach(cleanup);
+
+  it('exposes copy, paste, and export resolution in the mobile overflow', () => {
+    render(<Toolbar />);
+    fireEvent.click(screen.getByTitle('More actions'));
+
+    expect(screen.getByText('Copy selected node')).toBeInTheDocument();
+    expect(screen.getByText('Paste node')).toBeInTheDocument();
+    // The always-mounted desktop selector is the first; opening the compact
+    // overflow adds the independently reachable mobile control.
+    expect(screen.getAllByLabelText('Export resolution')).toHaveLength(2);
+    expect(screen.getAllByRole('option', { name: 'Draft' })).toHaveLength(2);
+
+    fireEvent.click(screen.getByText('Copy selected node'));
+    expect(screen.getByText('Node copied!')).toBeInTheDocument();
+  });
+});
