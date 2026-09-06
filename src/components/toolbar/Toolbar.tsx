@@ -14,6 +14,7 @@ import { FolderOpen, Save, Undo2, Redo2, MessageSquare, FileDown, FilePlus, Shar
 import { useLocalBackupStore } from '../../store/localPersist';
 import { isTreeExportable } from '../../types/operations';
 import { useDialogFocus } from '../ui/useDialogFocus';
+import type { ExportDiagnostics } from '../../types/geometry';
 
 export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => void; onMobileProps?: () => void } = {}) {
   const projectName = useModelerStore((s) => s.projectName);
@@ -58,7 +59,7 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
   const [avatarFailed, setAvatarFailed] = useState(false);
   const [exporting, setExporting] = useState<string | null>(null);
   const [exportProgress, setExportProgress] = useState<{ stage: string; percent: number } | null>(null);
-  const [exportPreview, setExportPreview] = useState<{ blob: Blob; name: string; triangles: number; size: number } | null>(null);
+  const [exportPreview, setExportPreview] = useState<{ blob: Blob; name: string; triangles: number; size: number; diagnostics: ExportDiagnostics } | null>(null);
   const [dirty, setDirty] = useState(() => isCloudDirty());
   const overflowRef = useRef<HTMLDivElement>(null);
 
@@ -124,9 +125,9 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
     setExporting('STL');
     setExportProgress({ stage: 'Starting', percent: 0 });
     try {
-      const { blob, triangleCount: triangles } = await workerBridge.exportSTL(tree, onProgress, exportResolution);
+      const { blob, triangleCount: triangles, diagnostics } = await workerBridge.exportSTL(tree, onProgress, exportResolution);
       if (exportEpoch.current !== epoch) return;
-      setExportPreview({ blob, name: `${projectName}.stl`, triangles, size: blob.size });
+      setExportPreview({ blob, name: `${projectName}.stl`, triangles, size: blob.size, diagnostics });
     } catch (err: any) {
       if (!isCancelled(err)) setError(`STL export failed: ${err?.message || String(err)}`);
     } finally {
@@ -141,9 +142,9 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
     setExporting('3MF');
     setExportProgress({ stage: 'Starting', percent: 0 });
     try {
-      const { blob, triangleCount: triangles } = await workerBridge.export3MF(tree, onProgress, exportResolution);
+      const { blob, triangleCount: triangles, diagnostics } = await workerBridge.export3MF(tree, onProgress, exportResolution);
       if (exportEpoch.current !== epoch) return;
-      setExportPreview({ blob, name: `${projectName}.3mf`, triangles, size: blob.size });
+      setExportPreview({ blob, name: `${projectName}.3mf`, triangles, size: blob.size, diagnostics });
     } catch (err: any) {
       if (!isCancelled(err)) setError(`3MF export failed: ${err?.message || String(err)}`);
     } finally {
@@ -463,6 +464,7 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
         triangles={exportPreview.triangles}
         size={exportPreview.size}
         name={exportPreview.name}
+        diagnostics={exportPreview.diagnostics}
         onDownload={() => { triggerDownload(exportPreview.blob, exportPreview.name); setExportPreview(null); }}
         onCancel={() => setExportPreview(null)}
       />
@@ -520,8 +522,9 @@ function formatTriangles(n: number): string {
   return `${(n / 1_000_000).toFixed(1)}M`;
 }
 
-function ExportPreview({ triangles, size, name, onDownload, onCancel }: {
+function ExportPreview({ triangles, size, name, diagnostics, onDownload, onCancel }: {
   triangles: number; size: number; name: string;
+  diagnostics: ExportDiagnostics;
   onDownload: () => void; onCancel: () => void;
 }) {
   const surface = useRef<HTMLDivElement>(null);
@@ -535,6 +538,31 @@ function ExportPreview({ triangles, size, name, onDownload, onCancel }: {
             <span style={{ color: 'var(--text-muted)' }}>File</span>
             <span className="font-mono" style={{ color: 'var(--text-primary)' }}>{name}</span>
           </div>
+          <div className="flex justify-between text-[12px]">
+            <span style={{ color: 'var(--text-muted)' }}>Dimensions</span>
+            <span className="font-mono" style={{ color: 'var(--text-primary)' }}>
+              {diagnostics.dimensions.map((value) => value.toFixed(1)).join(' × ')} mm
+            </span>
+          </div>
+          <div className="flex justify-between text-[12px]">
+            <span style={{ color: 'var(--text-muted)' }}>Mesh validity</span>
+            <span className="font-medium" style={{ color: diagnostics.watertight ? 'var(--accent-green)' : 'var(--warning, #f59e0b)' }}>
+              {diagnostics.watertight ? 'Watertight' : 'Needs review'}
+            </span>
+          </div>
+          {!diagnostics.watertight && (
+            <p role="alert" className="text-[11px] leading-relaxed rounded p-2" style={{ color: 'var(--text-secondary)', background: 'var(--bg-elevated)' }}>
+              Measured on the exported mesh: {[
+                diagnostics.boundaryEdges && `${diagnostics.boundaryEdges} boundary edges`,
+                diagnostics.nonManifoldEdges && `${diagnostics.nonManifoldEdges} non-manifold edges`,
+                diagnostics.inconsistentEdges && `${diagnostics.inconsistentEdges} inconsistently wound edges`,
+                diagnostics.degenerateTriangles && `${diagnostics.degenerateTriangles} repeated-index triangles`,
+                diagnostics.zeroAreaTriangles && `${diagnostics.zeroAreaTriangles} zero-area triangles`,
+                diagnostics.invalidIndices && `${diagnostics.invalidIndices} invalid indices`,
+                diagnostics.nonFiniteVertices && `${diagnostics.nonFiniteVertices} non-finite vertices`,
+              ].filter(Boolean).join(', ')}. Download remains available for inspection.
+            </p>
+          )}
           <div className="flex justify-between text-[12px]">
             <span style={{ color: 'var(--text-muted)' }}>Triangles</span>
             <span className="font-mono" style={{ color: 'var(--text-primary)' }}>{formatTriangles(triangles)}</span>

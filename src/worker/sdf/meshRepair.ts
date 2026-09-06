@@ -22,6 +22,15 @@ export interface MeshDiagnostics {
   inconsistentEdges: number;
   /** Triangles with a repeated vertex index */
   degenerateTriangles: number;
+  /** Triangle indices that do not reference an existing vertex */
+  invalidIndices: number;
+  /** Vertices containing NaN or Infinity */
+  nonFiniteVertices: number;
+  /** Triangles whose three positions enclose effectively no area */
+  zeroAreaTriangles: number;
+  boundsMin: [number, number, number];
+  boundsMax: [number, number, number];
+  dimensions: [number, number, number];
   /** Closed, edge-manifold, consistently oriented */
   watertight: boolean;
 }
@@ -29,15 +38,40 @@ export interface MeshDiagnostics {
 export function analyzeMesh(mesh: MeshResult): MeshDiagnostics {
   const { positions, indices } = mesh;
   const numTris = indices.length / 3;
+  const vertexCount = positions.length / 3;
 
   // For each undirected edge, count how often it appears in each direction.
   // Key: lo * 2^32-ish namespace via string to stay safe for large meshes.
   const edges = new Map<string, { fwd: number; rev: number }>();
   let degenerateTriangles = 0;
+  let invalidIndices = 0;
+  let zeroAreaTriangles = 0;
+  let nonFiniteVertices = 0;
+  const boundsMin: [number, number, number] = [Infinity, Infinity, Infinity];
+  const boundsMax: [number, number, number] = [-Infinity, -Infinity, -Infinity];
+
+  for (let v = 0; v < vertexCount; v++) {
+    const x = positions[v * 3], y = positions[v * 3 + 1], z = positions[v * 3 + 2];
+    if (![x, y, z].every(Number.isFinite)) { nonFiniteVertices++; continue; }
+    boundsMin[0] = Math.min(boundsMin[0], x); boundsMax[0] = Math.max(boundsMax[0], x);
+    boundsMin[1] = Math.min(boundsMin[1], y); boundsMax[1] = Math.max(boundsMax[1], y);
+    boundsMin[2] = Math.min(boundsMin[2], z); boundsMax[2] = Math.max(boundsMax[2], z);
+  }
 
   for (let t = 0; t < numTris; t++) {
     const a = indices[t * 3], b = indices[t * 3 + 1], c = indices[t * 3 + 2];
     if (a === b || b === c || a === c) { degenerateTriangles++; continue; }
+    if (a >= vertexCount || b >= vertexCount || c >= vertexCount) { invalidIndices++; continue; }
+    const ax = positions[a * 3], ay = positions[a * 3 + 1], az = positions[a * 3 + 2];
+    const bx = positions[b * 3], by = positions[b * 3 + 1], bz = positions[b * 3 + 2];
+    const cx = positions[c * 3], cy = positions[c * 3 + 1], cz = positions[c * 3 + 2];
+    if (![ax, ay, az, bx, by, bz, cx, cy, cz].every(Number.isFinite)) continue;
+    const abx = bx - ax, aby = by - ay, abz = bz - az;
+    const acx = cx - ax, acy = cy - ay, acz = cz - az;
+    const nx = aby * acz - abz * acy;
+    const ny = abz * acx - abx * acz;
+    const nz = abx * acy - aby * acx;
+    if (nx * nx + ny * ny + nz * nz <= 1e-24) { zeroAreaTriangles++; continue; }
     for (const [u, v] of [[a, b], [b, c], [c, a]] as [number, number][]) {
       const lo = Math.min(u, v), hi = Math.max(u, v);
       const key = `${lo},${hi}`;
@@ -59,18 +93,29 @@ export function analyzeMesh(mesh: MeshResult): MeshDiagnostics {
   }
 
   return {
-    vertexCount: positions.length / 3,
+    vertexCount,
     triangleCount: numTris,
     boundaryEdges,
     nonManifoldEdges,
     inconsistentEdges,
     degenerateTriangles,
+    invalidIndices,
+    nonFiniteVertices,
+    zeroAreaTriangles,
+    boundsMin: Number.isFinite(boundsMin[0]) ? boundsMin : [0, 0, 0],
+    boundsMax: Number.isFinite(boundsMax[0]) ? boundsMax : [0, 0, 0],
+    dimensions: Number.isFinite(boundsMin[0])
+      ? [boundsMax[0] - boundsMin[0], boundsMax[1] - boundsMin[1], boundsMax[2] - boundsMin[2]]
+      : [0, 0, 0],
     watertight:
       numTris > 0 &&
       boundaryEdges === 0 &&
       nonManifoldEdges === 0 &&
       inconsistentEdges === 0 &&
-      degenerateTriangles === 0,
+      degenerateTriangles === 0 &&
+      invalidIndices === 0 &&
+      nonFiniteVertices === 0 &&
+      zeroAreaTriangles === 0,
   };
 }
 

@@ -19,7 +19,7 @@ import { export3MF } from './exporters';
 import { toSDFNode } from './sdf/convert';
 import { simplifyMesh } from './sdf/simplify';
 import { CLUSTER_ERROR_VOXELS, SIMPLIFY_ERROR_VOXELS, PROJECT_TOLERANCE_VOXELS } from './sdf/budgets';
-import { removeDegenerateTriangles, projectVerticesToSurface } from './sdf/meshRepair';
+import { analyzeMesh, removeDegenerateTriangles, projectVerticesToSurface } from './sdf/meshRepair';
 
 self.postMessage({ type: 'ready' });
 
@@ -197,8 +197,9 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
         if (!mesh) { self.postMessage({ type: 'error', rid, message: 'No geometry to export' }); return; }
         progress('Encoding STL', 95);
         const data = exportBinarySTL(mesh);
+        const diagnostics = analyzeMesh(mesh);
         self.postMessage({ type: 'exportResult', rid, format: 'stl' as const, data,
-          vertexCount: mesh.positions.length / 3, triangleCount: mesh.indices.length / 3 }, [data]);
+          vertexCount: mesh.positions.length / 3, triangleCount: mesh.indices.length / 3, diagnostics }, [data]);
         break;
       }
 
@@ -213,8 +214,9 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
         if (!mesh) { self.postMessage({ type: 'error', rid, message: 'No geometry to export' }); return; }
         progress('Encoding 3MF', 95);
         const data = export3MF(mesh);
+        const diagnostics = analyzeMesh(mesh);
         self.postMessage({ type: 'exportResult', rid, format: '3mf' as const, data,
-          vertexCount: mesh.positions.length / 3, triangleCount: mesh.indices.length / 3 }, [data]);
+          vertexCount: mesh.positions.length / 3, triangleCount: mesh.indices.length / 3, diagnostics }, [data]);
         break;
       }
     }

@@ -218,6 +218,7 @@ class WorkerBridge {
       blob: new Blob([msg.data], { type: req.mime }),
       vertexCount: msg.vertexCount,
       triangleCount: msg.triangleCount,
+      diagnostics: msg.diagnostics,
     } satisfies ExportArtifact);
   }
 

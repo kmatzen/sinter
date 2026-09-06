@@ -78,6 +78,23 @@ describe('analyzeMesh', () => {
     expect(d.degenerateTriangles).toBe(1);
     expect(d.watertight).toBe(false);
   });
+
+  it('rejects invalid indices, non-finite vertices, and geometric zero-area faces', () => {
+    const mesh: MeshResult = {
+      positions: new Float32Array([0, 0, 0, 1, 0, 0, 2, 0, 0, Number.NaN, 1, 0]),
+      normals: new Float32Array(12),
+      indices: new Uint32Array([0, 1, 2, 0, 1, 99, 0, 1, 3]),
+    };
+    const d = analyzeMesh(mesh);
+    expect(d.zeroAreaTriangles).toBe(1);
+    expect(d.invalidIndices).toBe(1);
+    expect(d.nonFiniteVertices).toBe(1);
+    expect(d.watertight).toBe(false);
+  });
+
+  it('reports actual finite mesh dimensions', () => {
+    expect(analyzeMesh(tetrahedron()).dimensions).toEqual([1, 1, 1]);
+  });
 });
 
 describe('removeDegenerateTriangles', () => {
