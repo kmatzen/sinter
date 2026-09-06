@@ -57,6 +57,7 @@ interface ModelerState {
   resetDocument: (tree: SDFNodeUI | null, projectName?: string, namedParameters?: NamedParameter[]) => void;
   selectNode: (id: string | null, mode?: 'replace' | 'toggle' | 'range') => void;
   updateNodeParams: (id: string, params: Record<string, number>) => void;
+  setEffectiveNodeTransform: (id: string, transform: EffectiveNodeTransform) => void;
   setNodeExpression: (id: string, key: string, expression: string | null) => void;
   setNamedParameters: (parameters: NamedParameter[]) => void;
   promoteNodeParam: (id: string, key: string, name: string, unit?: ParameterUnit) => void;
@@ -355,6 +356,81 @@ function ancestorTransform(tree: SDFNodeUI, id: string): THREE.Matrix4 {
   return matrix;
 }
 
+export interface EffectiveNodeTransform {
+  position: [number, number, number];
+  rotation: [number, number, number];
+  scale: [number, number, number];
+}
+
+function nodeTransformMatrix(node: SDFNodeUI): THREE.Matrix4 {
+  if (node.kind === 'translate') return new THREE.Matrix4().makeTranslation(node.params.x || 0, node.params.y || 0, node.params.z || 0);
+  if (node.kind === 'rotate') return new THREE.Matrix4().makeRotationFromEuler(new THREE.Euler(
+    (node.params.x || 0) * Math.PI / 180,
+    (node.params.y || 0) * Math.PI / 180,
+    (node.params.z || 0) * Math.PI / 180,
+  ));
+  if (node.kind === 'scale') return new THREE.Matrix4().makeScale(node.params.x || 1, node.params.y || 1, node.params.z || 1);
+  return new THREE.Matrix4();
+}
+
+function effectiveNodeMatrix(tree: SDFNodeUI, id: string): THREE.Matrix4 | null {
+  const path: SDFNodeUI[] = [];
+  const visit = (node: SDFNodeUI): boolean => {
+    path.push(node);
+    if (node.id === id) return true;
+    for (const child of node.children) if (visit(child)) return true;
+    path.pop();
+    return false;
+  };
+  if (!visit(tree)) return null;
+  return path.reduce((matrix, node) => matrix.multiply(nodeTransformMatrix(node)), new THREE.Matrix4());
+}
+
+export function effectiveNodeTransform(tree: SDFNodeUI, id: string): EffectiveNodeTransform | null {
+  const matrix = effectiveNodeMatrix(tree, id);
+  if (!matrix) return null;
+  const position = new THREE.Vector3();
+  const quaternion = new THREE.Quaternion();
+  const scale = new THREE.Vector3();
+  matrix.decompose(position, quaternion, scale);
+  const rotation = new THREE.Euler().setFromQuaternion(quaternion, 'XYZ');
+  return {
+    position: [position.x, position.y, position.z],
+    rotation: [rotation.x * 180 / Math.PI, rotation.y * 180 / Math.PI, rotation.z * 180 / Math.PI],
+    scale: [scale.x, scale.y, scale.z],
+  };
+}
+
+function matrixFromEffectiveTransform(transform: EffectiveNodeTransform): THREE.Matrix4 {
+  const position = new THREE.Vector3(...transform.position);
+  const rotation = new THREE.Quaternion().setFromEuler(new THREE.Euler(
+    transform.rotation[0] * Math.PI / 180,
+    transform.rotation[1] * Math.PI / 180,
+    transform.rotation[2] * Math.PI / 180,
+    'XYZ',
+  ));
+  return new THREE.Matrix4().compose(position, rotation, new THREE.Vector3(...transform.scale));
+}
+
+function wrapWithLocalDelta(node: SDFNodeUI, delta: THREE.Matrix4): SDFNodeUI {
+  const position = new THREE.Vector3();
+  const quaternion = new THREE.Quaternion();
+  const scale = new THREE.Vector3();
+  delta.decompose(position, quaternion, scale);
+  const rotation = new THREE.Euler().setFromQuaternion(quaternion, 'XYZ');
+  let result = node;
+  if (Math.abs(scale.x - 1) + Math.abs(scale.y - 1) + Math.abs(scale.z - 1) > 1e-10) result = {
+    ...createNode('scale', [result]), label: 'Precision Scale', params: { x: scale.x, y: scale.y, z: scale.z },
+  };
+  if (Math.abs(rotation.x) + Math.abs(rotation.y) + Math.abs(rotation.z) > 1e-10) result = {
+    ...createNode('rotate', [result]), label: 'Precision Rotate', params: { x: rotation.x * 180 / Math.PI, y: rotation.y * 180 / Math.PI, z: rotation.z * 180 / Math.PI },
+  };
+  if (position.lengthSq() > 1e-20) result = {
+    ...createNode('translate', [result]), label: 'Precision Move', params: { x: position.x, y: position.y, z: position.z },
+  };
+  return result;
+}
+
 function translateRootsInWorld(tree: SDFNodeUI, deltas: Map<string, THREE.Vector3>): SDFNodeUI {
   const visit = (node: SDFNodeUI): SDFNodeUI => {
     const worldDelta = deltas.get(node.id);
@@ -485,6 +561,21 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
     if (error) { set({ error }); return; }
     try { set(commit(get(), resolveTreeFormulas(newTree, namedParameters), { error: null })); }
     catch (formulaError) { set({ error: formulaError instanceof Error ? formulaError.message : 'Formula is invalid' }); }
+  },
+  setEffectiveNodeTransform: (id, transform) => {
+    const state = get();
+    if (!state.tree) return;
+    const node = findNode(state.tree, id);
+    const current = effectiveNodeMatrix(state.tree, id);
+    if (!node || !current || transform.scale.some((value) => !Number.isFinite(value) || Math.abs(value) < 1e-6)) return;
+    const desired = matrixFromEffectiveTransform(transform);
+    const worldDelta = desired.clone().multiply(current.clone().invert());
+    if (worldDelta.equals(new THREE.Matrix4())) return;
+    const ancestor = ancestorTransform(state.tree, id);
+    const localDelta = ancestor.clone().invert().multiply(worldDelta).multiply(ancestor);
+    const replacement = wrapWithLocalDelta(node, localDelta);
+    const tree = updateInTree(state.tree, id, () => replacement);
+    set(commit(state, tree, { selectedNodeId: id, selectedNodeIds: state.selectedNodeIds, expandedNodes: new Set([...state.expandedNodes, replacement.id]) }));
   },
 
   setNodeExpression: (id, key, expression) => {

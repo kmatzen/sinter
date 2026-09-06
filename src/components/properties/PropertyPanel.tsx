@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useModelerStore } from '../../store/modelerStore';
+import { effectiveNodeTransform, useModelerStore, type EffectiveNodeTransform } from '../../store/modelerStore';
 import { useTreeUiStore } from '../../store/treeUiStore';
 import { workerBridge } from '../../engine/workerBridge';
 import type { MeshFitResult } from '../../types/geometry';
@@ -203,6 +203,32 @@ function FormulaBindings({ node }: { node: SDFNodeUI }) {
   );
 }
 
+function EffectiveTransformEditor({ tree, node }: { tree: SDFNodeUI; node: SDFNodeUI }) {
+  const setTransform = useModelerStore((state) => state.setEffectiveNodeTransform);
+  const transform = effectiveNodeTransform(tree, node.id);
+  if (!transform) return null;
+  const update = (group: keyof EffectiveNodeTransform, axis: number, value: number) => {
+    const next: EffectiveNodeTransform = {
+      position: [...transform.position], rotation: [...transform.rotation], scale: [...transform.scale],
+    };
+    next[group][axis] = value;
+    setTransform(node.id, next);
+  };
+  return (
+    <details open className="mx-2 mb-3 rounded" style={{ border: '1px solid var(--border-subtle)' }}>
+      <summary className="cursor-pointer select-none px-2 py-2 text-[11px]" style={{ color: 'var(--text-secondary)' }}>Effective transform · world</summary>
+      <div className="pb-2">
+        <SectionLabel>Position</SectionLabel>
+        {(['X', 'Y', 'Z'] as const).map((axis, index) => <NumberInput key={`p${axis}`} label={axis} value={transform.position[index]} unit="mm" onChange={(value) => update('position', index, value)} />)}
+        <SectionLabel>Rotation</SectionLabel>
+        {(['X', 'Y', 'Z'] as const).map((axis, index) => <NumberInput key={`r${axis}`} label={axis} value={transform.rotation[index]} unit="deg" onChange={(value) => update('rotation', index, value)} />)}
+        <SectionLabel>Scale</SectionLabel>
+        {(['X', 'Y', 'Z'] as const).map((axis, index) => <NumberInput key={`s${axis}`} label={axis} value={transform.scale[index]} min={0.01} step={0.1} unit="x" onChange={(value) => update('scale', index, value)} />)}
+      </div>
+    </details>
+  );
+}
+
 /** Inner content — reused by desktop sidebar and mobile overlay */
 export function PropertyContent() {
   const selectedId = useModelerStore((s) => s.selectedNodeId);
@@ -236,6 +262,7 @@ export function PropertyContent() {
   return (
     <div className="py-2">
       <NamedParametersPanel />
+      <EffectiveTransformEditor tree={tree!} node={node} />
       {NODE_KINDS.booleans.includes(node.kind as any) && (
         <KindSwitcher kinds={[...NODE_KINDS.booleans]} current={node.kind} onChange={(k) => changeKind(node.id, k)} />
       )}
