@@ -29,6 +29,7 @@ export class STLParseError extends Error {
 const BINARY_HEADER = 84;
 const BINARY_TRIANGLE = 50;
 const MAX_ABS_COORDINATE = 1e9;
+export const MAX_STL_TRIANGLES = 60_000;
 
 function validatePositions(positions: ArrayLike<number>): void {
   if (positions.length === 0) throw new STLParseError('No triangles found — is this an STL file?');
@@ -47,6 +48,14 @@ function validatePositions(positions: ArrayLike<number>): void {
   if (min.every((value, axis) => value === max[axis])) {
     throw new STLParseError('All vertices coincide; the STL has no usable geometry');
   }
+  let hasArea = false;
+  for (let i = 0; i < positions.length; i += 9) {
+    const abx = positions[i + 3] - positions[i], aby = positions[i + 4] - positions[i + 1], abz = positions[i + 5] - positions[i + 2];
+    const acx = positions[i + 6] - positions[i], acy = positions[i + 7] - positions[i + 1], acz = positions[i + 8] - positions[i + 2];
+    const nx = aby * acz - abz * acy, ny = abz * acx - abx * acz, nz = abx * acy - aby * acx;
+    if (nx * nx + ny * ny + nz * nz > 0) { hasArea = true; break; }
+  }
+  if (!hasArea) throw new STLParseError('Every triangle is degenerate; the STL has no usable surface');
 }
 
 export function isBinarySTL(buffer: ArrayBuffer): boolean {
@@ -70,6 +79,9 @@ function parseBinary(buffer: ArrayBuffer): RawMesh {
   if (buffer.byteLength < BINARY_HEADER) throw new STLParseError('File is too short to be an STL');
   const view = new DataView(buffer);
   const count = view.getUint32(80, true);
+  if (count > MAX_STL_TRIANGLES) {
+    throw new STLParseError(`The STL contains ${count.toLocaleString()} triangles; the supported limit is ${MAX_STL_TRIANGLES.toLocaleString()}`);
+  }
   const needed = BINARY_HEADER + count * BINARY_TRIANGLE;
   if (needed > buffer.byteLength) {
     throw new STLParseError(
@@ -102,43 +114,57 @@ function parseAscii(buffer: ArrayBuffer): RawMesh {
   const positions: number[] = [];
   const normals: number[] = [];
 
-  // Deliberately token-driven rather than line-driven: ASCII STL has no
-  // required line structure, and exporters differ on indentation, on whether
-  // "outer loop" is present, and on line endings.
+  // Token-driven rather than line-driven because ASCII STL has no required
+  // line layout. Facet boundaries still matter: collecting any three stray
+  // `vertex` tokens silently invents geometry that the document did not
+  // declare, and extra vertices in a facet must not spill into the next one.
   const tokens = text.split(/\s+/);
   let i = 0;
-  let pending = 0;
+  let inFacet = false;
+  let facetVertices: number[] = [];
+  let facetNormal: number[] = [0, 0, 0];
+  const numberAt = (index: number, context: string) => {
+    const value = Number(tokens[index]);
+    if (!Number.isFinite(value)) throw new STLParseError(`${context} is missing or not finite`);
+    return value;
+  };
   while (i < tokens.length) {
-    const tok = tokens[i];
+    const tok = tokens[i].toLowerCase();
     if (tok === 'facet') {
-      if (tokens[i + 1] === 'normal') {
-        normals.push(Number(tokens[i + 2]), Number(tokens[i + 3]), Number(tokens[i + 4]));
+      if (inFacet) throw new STLParseError('A facet begins before the previous facet ends');
+      inFacet = true;
+      facetVertices = [];
+      if (tokens[i + 1]?.toLowerCase() === 'normal') {
+        facetNormal = [numberAt(i + 2, 'Facet normal X'), numberAt(i + 3, 'Facet normal Y'), numberAt(i + 4, 'Facet normal Z')];
         i += 5;
-      } else {
-        normals.push(0, 0, 0);
-        i += 1;
-      }
-      pending = 0;
+      } else { facetNormal = [0, 0, 0]; i++; }
       continue;
     }
     if (tok === 'vertex') {
-      positions.push(Number(tokens[i + 1]), Number(tokens[i + 2]), Number(tokens[i + 3]));
-      pending++;
+      if (!inFacet) throw new STLParseError('A vertex appears outside a facet');
+      facetVertices.push(numberAt(i + 1, 'Vertex X'), numberAt(i + 2, 'Vertex Y'), numberAt(i + 3, 'Vertex Z'));
+      if (facetVertices.length > 9) throw new STLParseError('A facet contains more than three vertices');
       i += 4;
+      continue;
+    }
+    if (tok === 'endfacet') {
+      if (!inFacet) throw new STLParseError('An endfacet appears without a matching facet');
+      if (facetVertices.length !== 9) throw new STLParseError(`A facet contains ${facetVertices.length / 3} vertices instead of 3`);
+      positions.push(...facetVertices);
+      normals.push(...facetNormal);
+      if (positions.length / 9 > MAX_STL_TRIANGLES) {
+        throw new STLParseError(`The STL exceeds the supported limit of ${MAX_STL_TRIANGLES.toLocaleString()} triangles`);
+      }
+      inFacet = false;
+      i++;
       continue;
     }
     i++;
   }
-
-  if (positions.length % 9 !== 0) {
-    throw new STLParseError(`Truncated final facet: ${positions.length / 3} vertices is not a whole number of triangles`);
-  }
-  // A file can declare more facets than it gives normals for, or vice versa.
+  if (inFacet) throw new STLParseError('The final facet is missing endfacet');
   const triangleCount = positions.length / 9;
-  const outNormals = new Float32Array(triangleCount * 3);
-  outNormals.set(normals.slice(0, triangleCount * 3));
 
   validatePositions(positions);
 
-  return { positions: new Float32Array(positions), normals: outNormals, triangleCount };
+  return { positions: new Float32Array(positions), normals: new Float32Array(normals), triangleCount };
 }

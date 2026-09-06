@@ -282,4 +282,31 @@ endsolid test`;
     const mesh = parseSTL(new TextEncoder().encode(text).buffer as ArrayBuffer);
     expect(mesh.triangleCount).toBe(1);
   });
+
+  it('rejects vertices outside facets instead of inventing triangles', () => {
+    const text = 'solid bad vertex 0 0 0 vertex 1 0 0 vertex 0 1 0 endsolid bad';
+    expect(() => parseSTL(new TextEncoder().encode(text).buffer as ArrayBuffer)).toThrow(/outside a facet/);
+  });
+
+  it('rejects facets with the wrong number of vertices', () => {
+    const text = `solid bad facet normal 0 0 1 outer loop
+      vertex 0 0 0 vertex 1 0 0 vertex 0 1 0 vertex 1 1 0
+      endloop endfacet endsolid bad`;
+    expect(() => parseSTL(new TextEncoder().encode(text).buffer as ArrayBuffer)).toThrow(/more than three vertices/);
+  });
+
+  it('rejects an unterminated ASCII facet', () => {
+    const text = 'solid bad facet normal 0 0 1 vertex 0 0 0 vertex 1 0 0 vertex 0 1 0';
+    expect(() => parseSTL(new TextEncoder().encode(text).buffer as ArrayBuffer)).toThrow(/missing endfacet/);
+  });
+
+  it('rejects an all-degenerate triangle set', () => {
+    expect(() => parseSTL(binarySTL([[0, 0, 0, 1, 0, 0, 2, 0, 0]]))).toThrow(/Every triangle is degenerate/);
+  });
+
+  it('rejects oversized binary declarations before allocating vertex arrays', () => {
+    const buf = new ArrayBuffer(84);
+    new DataView(buf).setUint32(80, 60_001, true);
+    expect(() => parseSTL(buf)).toThrow(/supported limit/);
+  });
 });

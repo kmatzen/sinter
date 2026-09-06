@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { useModelerStore } from '../../store/modelerStore';
-import { parseSTL, STLParseError } from '../../worker/sdf/stl';
+import { MAX_STL_TRIANGLES, parseSTL, STLParseError } from '../../worker/sdf/stl';
 import type { SDFNodeUI } from '../../types/operations';
 import { useDialogFocus } from '../ui/useDialogFocus';
 
@@ -24,8 +24,6 @@ import { useDialogFocus } from '../ui/useDialogFocus';
  * a user who exported at that density chose it, and quietly throwing most of
  * it away is worse than saying no.
  */
-const MAX_TRIANGLES = 60_000;
-
 function toBase64(floats: Float32Array): string {
   const bytes = new Uint8Array(floats.buffer, floats.byteOffset, floats.byteLength);
   let bin = '';
@@ -68,9 +66,9 @@ export function ImportMesh({ onDone }: { onDone: () => void }) {
         setError('That file has no triangles in it.');
         return;
       }
-      if (mesh.triangleCount > MAX_TRIANGLES) {
+      if (mesh.triangleCount > MAX_STL_TRIANGLES) {
         setError(
-          `${mesh.triangleCount.toLocaleString()} triangles is over the ${MAX_TRIANGLES.toLocaleString()} limit. ` +
+          `${mesh.triangleCount.toLocaleString()} triangles is over the ${MAX_STL_TRIANGLES.toLocaleString()} limit. ` +
           'Decimate it in your mesh editor first — the model is stored in the project file, so it has to stay small enough to save.',
         );
         return;
