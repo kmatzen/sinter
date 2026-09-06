@@ -1,4 +1,4 @@
-import { useRef, useEffect } from 'react';
+import { useRef, useEffect, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { OutlinePass } from '../../engine/OutlinePass';
@@ -92,6 +92,16 @@ void main() {
 }
 `;
 
+export const HERO_MAX_PIXEL_RATIO = 1.5;
+
+export function clampHeroPixelRatio(pixelRatio: number): number {
+  return Math.min(Math.max(pixelRatio, 1), HERO_MAX_PIXEL_RATIO);
+}
+
+export function shouldAnimateHero(intersecting: boolean, documentVisible: boolean, reducedMotion: boolean): boolean {
+  return intersecting && documentVisible && !reducedMotion;
+}
+
 class HeroDemoEngine {
   private renderer: THREE.WebGLRenderer;
   private scene: THREE.Scene;
@@ -109,12 +119,18 @@ class HeroDemoEngine {
   private idleTimer: ReturnType<typeof setTimeout> | null = null;
   private container: HTMLDivElement;
   private resizeObserver: ResizeObserver;
+  private intersectionObserver: IntersectionObserver | null = null;
+  private motionQuery: MediaQueryList;
+  private intersecting = true;
+  private documentVisible = !document.hidden;
+  private reducedMotion: boolean;
+  private running = false;
 
   constructor(container: HTMLDivElement) {
     this.container = container;
 
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, stencil: true });
-    this.renderer.setPixelRatio(window.devicePixelRatio);
+    this.renderer.setPixelRatio(clampHeroPixelRatio(window.devicePixelRatio));
     this.renderer.setSize(container.clientWidth, container.clientHeight);
     container.appendChild(this.renderer.domElement);
 
@@ -173,7 +189,21 @@ class HeroDemoEngine {
     this.resizeObserver = new ResizeObserver(() => this.resize());
     this.resizeObserver.observe(container);
 
-    this.animate();
+    this.motionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+    this.reducedMotion = this.motionQuery.matches;
+    this.motionQuery.addEventListener('change', this.handleMotionChange);
+    document.addEventListener('visibilitychange', this.handleVisibilityChange);
+
+    if ('IntersectionObserver' in window) {
+      this.intersectionObserver = new IntersectionObserver(([entry]) => {
+        this.intersecting = entry?.isIntersecting ?? false;
+        this.updateAnimationState();
+      });
+      this.intersectionObserver.observe(container);
+    }
+
+    this.renderFrame(0);
+    this.updateAnimationState();
   }
 
   private resize() {
@@ -184,6 +214,7 @@ class HeroDemoEngine {
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(w, h);
     this.outlinePass.resize(w, h);
+    if (!this.running) this.renderFrame(0);
   }
 
   private getAutoPos(t: number): THREE.Vector3 {
@@ -192,11 +223,30 @@ class HeroDemoEngine {
     return new THREE.Vector3(radius * Math.cos(angle), 14 + Math.sin(t * 0.15) * 2, radius * Math.sin(angle));
   }
 
-  private animate = () => {
-    if (this.disposed) return;
-    this.animId = requestAnimationFrame(this.animate);
+  private handleVisibilityChange = () => {
+    this.documentVisible = !document.hidden;
+    this.updateAnimationState();
+  };
 
-    const t = this.clock.getElapsedTime();
+  private handleMotionChange = (event: MediaQueryListEvent) => {
+    this.reducedMotion = event.matches;
+    this.updateAnimationState();
+  };
+
+  private updateAnimationState() {
+    const animate = shouldAnimateHero(this.intersecting, this.documentVisible, this.reducedMotion);
+    if (animate && !this.running) {
+      this.running = true;
+      this.clock.start();
+      this.animId = requestAnimationFrame(this.animate);
+    } else if (!animate && this.running) {
+      this.running = false;
+      cancelAnimationFrame(this.animId);
+      this.renderFrame(0);
+    }
+  }
+
+  private renderFrame(t: number) {
 
     // Auto-orbit with blend-back
     if (!this.userActive) {
@@ -226,32 +276,52 @@ class HeroDemoEngine {
 
     // Render with outline
     this.outlinePass.render();
+  }
+
+  private animate = () => {
+    if (this.disposed || !this.running) return;
+    this.renderFrame(this.clock.getElapsedTime());
+    this.animId = requestAnimationFrame(this.animate);
   };
 
   dispose() {
     this.disposed = true;
+    this.running = false;
     cancelAnimationFrame(this.animId);
     if (this.idleTimer) clearTimeout(this.idleTimer);
     this.resizeObserver.disconnect();
+    this.intersectionObserver?.disconnect();
+    this.motionQuery.removeEventListener('change', this.handleMotionChange);
+    document.removeEventListener('visibilitychange', this.handleVisibilityChange);
     this.controls.dispose();
     this.outlinePass.dispose();
     this.renderer.dispose();
-    this.container.removeChild(this.renderer.domElement);
+    if (this.renderer.domElement.parentNode === this.container) this.container.removeChild(this.renderer.domElement);
   }
 }
 
 export function HeroDemo() {
   const containerRef = useRef<HTMLDivElement>(null);
+  const [unavailable, setUnavailable] = useState(false);
 
   useEffect(() => {
     if (!containerRef.current) return;
-    const engine = new HeroDemoEngine(containerRef.current);
-    return () => engine.dispose();
+    let engine: HeroDemoEngine | null = null;
+    try {
+      engine = new HeroDemoEngine(containerRef.current);
+    } catch (error) {
+      // The marketing preview is optional. A missing/partial WebGL
+      // implementation must not take down the landing page or race the user
+      // entering the real editor through the global recovery boundary.
+      console.warn('Interactive landing preview unavailable:', error);
+      setUnavailable(true);
+    }
+    return () => engine?.dispose();
   }, []);
 
   return (
     <div className="w-full h-[280px] md:h-[320px] relative">
-      <div ref={containerRef} className="w-full h-full" />
+      <div ref={containerRef} className="w-full h-full" aria-label={unavailable ? 'Sinter geometry preview unavailable' : 'Interactive preview of Sinter geometry'} role="img" />
       <div className="absolute inset-0 pointer-events-none" style={{
         background: 'radial-gradient(ellipse at 50% 50%, transparent 40%, var(--bg-deep) 80%)',
       }} />

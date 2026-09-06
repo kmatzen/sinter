@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { useModelerStore } from '../../store/modelerStore';
 import { workerBridge } from '../../engine/workerBridge';
 import type { MeshFitResult } from '../../types/geometry';
-import { NODE_LABELS, NODE_KINDS, type SDFNodeUI } from '../../types/operations';
+import { NODE_LABELS, NODE_KINDS, type NamedParameter, type ParameterUnit, type SDFNodeUI } from '../../types/operations';
+import { parameterUnitFor, resolveNamedParameters } from '../../types/formulas';
 import { NumberInput } from './NumberInput';
 
 function findNode(tree: SDFNodeUI, id: string): SDFNodeUI | null {
@@ -19,7 +20,7 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
     <div
       className="text-[10px] tracking-[0.08em] uppercase pt-3 pb-1 px-2 first:pt-0"
-      style={{ color: 'var(--text-muted)', opacity: 0.7 }}
+      style={{ color: 'var(--text-muted)' }}
     >
       {children}
     </div>
@@ -125,6 +126,80 @@ function setAxisParams(axis: 'x' | 'y' | 'z'): Record<string, number> {
   return { axisX: axis === 'x' ? 1 : 0, axisY: axis === 'y' ? 1 : 0, axisZ: axis === 'z' ? 1 : 0 };
 }
 
+function ParameterDefinitionRow({ parameter, value, all, onApply }: { parameter: NamedParameter; value: number; all: NamedParameter[]; onApply: (next: NamedParameter[]) => void }) {
+  const [expression, setExpression] = useState(parameter.expression);
+  const [unit, setUnit] = useState<ParameterUnit>(parameter.unit);
+  return (
+    <div className="rounded p-2 space-y-1.5" style={{ background: 'var(--bg-surface)' }}>
+      <div className="flex items-center gap-2">
+        <code className="text-[11px] flex-1 truncate" style={{ color: 'var(--accent)' }}>{parameter.name} = {value}</code>
+        <select aria-label={`Unit for ${parameter.name}`} value={unit} onChange={(event) => setUnit(event.target.value as ParameterUnit)} className="text-[10px] tap-h rounded px-1 py-0.5" style={{ background: 'var(--bg-deep)', border: '1px solid var(--border-subtle)' }}>
+          <option value="mm">mm</option><option value="deg">deg</option><option value="unitless">unitless</option>
+        </select>
+        <button aria-label={`Delete parameter ${parameter.name}`} onClick={() => onApply(all.filter((item) => item.name !== parameter.name))} className="text-[10px] tap-h" style={{ color: 'var(--accent-red)' }}>Delete</button>
+      </div>
+      <div className="flex gap-1">
+        <input aria-label={`Expression for ${parameter.name}`} value={expression} maxLength={512} onChange={(event) => setExpression(event.target.value)} className="min-w-0 flex-1 tap-h rounded px-2 py-1 text-[11px] font-mono" style={{ background: 'var(--bg-deep)', border: '1px solid var(--border-subtle)' }} />
+        <button disabled={!expression.trim()} onClick={() => onApply(all.map((item) => item.name === parameter.name ? { ...item, expression, unit } : item))} className="text-[10px] tap-h rounded px-2 disabled:opacity-40" style={{ border: '1px solid var(--border-default)' }}>Apply</button>
+      </div>
+    </div>
+  );
+}
+
+function NamedParametersPanel() {
+  const parameters = useModelerStore((state) => state.namedParameters);
+  const setParameters = useModelerStore((state) => state.setNamedParameters);
+  const [name, setName] = useState('');
+  const [expression, setExpression] = useState('');
+  const [unit, setUnit] = useState<ParameterUnit>('mm');
+  const resolved = new Map(resolveNamedParameters(parameters).map((item) => [item.name, item.value]));
+  const add = () => {
+    if (!name.trim() || !expression.trim()) return;
+    setParameters([...parameters, { name: name.trim(), expression: expression.trim(), unit }]);
+    setName(''); setExpression('');
+  };
+  return (
+    <details className="mx-2 mb-3 rounded" style={{ border: '1px solid var(--border-subtle)' }}>
+      <summary className="cursor-pointer select-none px-2 py-2 text-[11px]" style={{ color: 'var(--text-secondary)' }}>Named parameters ({parameters.length})</summary>
+      <div className="px-2 pb-2 space-y-2">
+        {parameters.map((parameter) => <ParameterDefinitionRow key={`${parameter.name}:${parameter.expression}:${parameter.unit}`} parameter={parameter} value={resolved.get(parameter.name)!} all={parameters} onApply={setParameters} />)}
+        <div className="grid grid-cols-[1fr_1fr_auto] gap-1">
+          <input aria-label="New parameter name" placeholder="name" value={name} maxLength={64} onChange={(event) => setName(event.target.value)} className="min-w-0 tap-h rounded px-2 py-1 text-[11px] font-mono" style={{ background: 'var(--bg-deep)', border: '1px solid var(--border-subtle)' }} />
+          <input aria-label="New parameter expression" placeholder="value/formula" value={expression} maxLength={512} onChange={(event) => setExpression(event.target.value)} className="min-w-0 tap-h rounded px-2 py-1 text-[11px] font-mono" style={{ background: 'var(--bg-deep)', border: '1px solid var(--border-subtle)' }} />
+          <select aria-label="New parameter unit" value={unit} onChange={(event) => setUnit(event.target.value as ParameterUnit)} className="text-[10px] tap-h rounded px-1" style={{ background: 'var(--bg-deep)', border: '1px solid var(--border-subtle)' }}><option value="mm">mm</option><option value="deg">deg</option><option value="unitless">—</option></select>
+        </div>
+        <button disabled={!name.trim() || !expression.trim()} onClick={add} className="w-full tap-h rounded py-1 text-[11px] disabled:opacity-40" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-default)' }}>Add parameter</button>
+      </div>
+    </details>
+  );
+}
+
+function FormulaBindings({ node }: { node: SDFNodeUI }) {
+  const setExpression = useModelerStore((state) => state.setNodeExpression);
+  const promote = useModelerStore((state) => state.promoteNodeParam);
+  const keys = Object.keys(node.params).filter((key) => !['mirrorX', 'mirrorY', 'mirrorZ', 'axis', 'flip', 'axisX', 'axisY', 'axisZ'].includes(key));
+  const [key, setKey] = useState(keys[0] ?? '');
+  const [formula, setFormula] = useState('');
+  const [promoteName, setPromoteName] = useState('');
+  if (!keys.length) return null;
+  return (
+    <details className="mx-2 mt-3 rounded" style={{ border: '1px solid var(--border-subtle)' }}>
+      <summary className="cursor-pointer select-none px-2 py-2 text-[11px]" style={{ color: 'var(--text-secondary)' }}>Driven properties ({Object.keys(node.expressions ?? {}).length})</summary>
+      <div className="px-2 pb-2 space-y-2">
+        {Object.entries(node.expressions ?? {}).map(([property, source]) => (
+          <div key={property} className="text-[10px] rounded p-2" style={{ background: 'var(--bg-surface)' }}>
+            <div className="flex gap-2"><code className="flex-1" style={{ color: 'var(--accent)' }}>{property} = {source}</code><button onClick={() => setExpression(node.id, property, null)} style={{ color: 'var(--accent-red)' }}>Use literal</button></div>
+            <div style={{ color: 'var(--text-muted)' }}>Resolved: {node.params[property]} {parameterUnitFor(node.kind, property) === 'unitless' ? '' : parameterUnitFor(node.kind, property)}</div>
+          </div>
+        ))}
+        <select aria-label="Property to drive" value={key} onChange={(event) => setKey(event.target.value)} className="w-full rounded px-2 py-1 text-[11px]" style={{ background: 'var(--bg-deep)', border: '1px solid var(--border-subtle)' }}>{keys.map((item) => <option key={item} value={item}>{item}</option>)}</select>
+        <div className="flex gap-1"><input aria-label="Property formula" placeholder="formula" value={formula} onChange={(event) => setFormula(event.target.value)} className="min-w-0 flex-1 rounded px-2 py-1 text-[11px] font-mono" style={{ background: 'var(--bg-deep)', border: '1px solid var(--border-subtle)' }} /><button disabled={!formula.trim()} onClick={() => { setExpression(node.id, key, formula); setFormula(''); }} className="rounded px-2 text-[10px] disabled:opacity-40" style={{ border: '1px solid var(--border-default)' }}>Drive</button></div>
+        <div className="flex gap-1"><input aria-label="Promoted parameter name" placeholder="parameter name" value={promoteName} onChange={(event) => setPromoteName(event.target.value)} className="min-w-0 flex-1 rounded px-2 py-1 text-[11px] font-mono" style={{ background: 'var(--bg-deep)', border: '1px solid var(--border-subtle)' }} /><button disabled={!promoteName.trim()} onClick={() => { promote(node.id, key, promoteName.trim()); setPromoteName(''); }} className="rounded px-2 text-[10px] disabled:opacity-40" style={{ border: '1px solid var(--border-default)' }}>Promote</button></div>
+      </div>
+    </details>
+  );
+}
+
 /** Inner content — reused by desktop sidebar and mobile overlay */
 export function PropertyContent() {
   const selectedId = useModelerStore((s) => s.selectedNodeId);
@@ -150,6 +225,7 @@ export function PropertyContent() {
 
   return (
     <div className="py-2">
+      <NamedParametersPanel />
       {NODE_KINDS.booleans.includes(node.kind as any) && (
         <KindSwitcher kinds={[...NODE_KINDS.booleans]} current={node.kind} onChange={(k) => changeKind(node.id, k)} />
       )}
@@ -157,6 +233,7 @@ export function PropertyContent() {
         <KindSwitcher kinds={[...NODE_KINDS.primitives]} current={node.kind} onChange={(k) => changeKind(node.id, k)} />
       )}
       <NodeEditor node={node} onUpdate={update} onUpdateStr={updateStr} />
+      <FormulaBindings key={node.id} node={node} />
     </div>
   );
 }
@@ -409,6 +486,11 @@ function NodeEditor({ node, onUpdate, onUpdateStr }: { node: SDFNodeUI; onUpdate
           <div className="px-2 mb-2 text-[11px] truncate" style={{ color: 'var(--text-secondary)' }}
                title={node.data?.meshName || 'Imported mesh'}>
             {node.data?.meshName || 'Imported mesh'}
+          </div>
+          <div role="status" className="mx-2 mb-2 px-2 py-1.5 rounded text-[10px] leading-snug"
+               style={{ background: 'var(--bg-elevated)', color: 'var(--accent-orange, #d9a441)' }}>
+            Closed-manifold edges verified. Self-intersections are not checked;
+            boolean and export results use ray-parity approximation.
           </div>
           <SectionLabel>Field Resolution</SectionLabel>
           <NumberInput

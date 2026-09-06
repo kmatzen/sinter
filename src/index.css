@@ -1,4 +1,18 @@
 @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+:focus-visible {
+  outline: 2px solid var(--accent, #78a8ff);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}
 @import "tailwindcss";
 
 :root {
@@ -224,3 +238,19 @@ div:hover > .group-hover-actions { opacity: 1; }
 
 /* Prevent browser gestures on the 3D viewport canvas */
 canvas { touch-action: none; }
+
+/* A short landscape phone cannot spare 55% of its height for a bottom sheet.
+   Dock properties at the side instead, retaining most of the viewport and the
+   full editing height. The drag handle is meaningless in this arrangement. */
+@media (orientation: landscape) and (max-height: 500px) and (max-width: 1023px) {
+  .mobile-properties-sheet {
+    top: 0;
+    bottom: 0;
+    left: auto;
+    right: 0;
+    width: min(45vw, 360px);
+    height: 100% !important;
+    border-radius: 0.75rem 0 0 0.75rem;
+  }
+  .mobile-properties-handle { display: none; }
+}

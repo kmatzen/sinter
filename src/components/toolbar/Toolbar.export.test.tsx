@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, cleanup, act } from '@testing-library/react';
 import type { SDFNodeUI } from '../../types/operations';
+import type { ExportArtifact } from '../../types/geometry';
 
 /**
  * The bridge is a module-level singleton that spawns two real Workers on
@@ -33,6 +34,7 @@ vi.mock('../../engine/workerBridge', () => {
 import { Toolbar } from './Toolbar';
 import { useModelerStore } from '../../store/modelerStore';
 import { useViewportStore } from '../../store/viewportStore';
+import { useProjectStore } from '../../store/projectStore';
 
 function deferred<T>() {
   let resolve!: (v: T) => void;
@@ -41,23 +43,29 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
-/**
- * A blob whose header read is a promise we control. The real component reads
- * the STL triangle count with `await blob.slice(80, 84).arrayBuffer()`, and
- * that await is the window this suite is about — see the `exportEpoch` comment
- * in Toolbar.tsx.
- */
-function pendingBlob(size: number, header: Promise<ArrayBuffer>) {
-  return { size, slice: () => ({ arrayBuffer: () => header }) } as unknown as Blob;
+function artifact(size: number, triangleCount: number): ExportArtifact {
+  return {
+    blob: { size } as Blob, vertexCount: triangleCount * 3, triangleCount,
+    achievedTolerance: 0.025,
+    componentCount: 2,
+    conformance: {
+      status: 'verified', tolerance: 0.025,
+      meshToSourceMax: 0.01, meshToSourceRms: 0.005,
+      sourceToMeshMax: 0.02, sourceToMeshRms: 0.008,
+      maxDeviation: 0.02, rmsDeviation: 0.007, meshSamples: 40, sourceSamples: 60,
+    },
+    diagnostics: {
+      watertight: true, boundaryEdges: 0, nonManifoldEdges: 0, inconsistentEdges: 0,
+      degenerateTriangles: 0, invalidIndices: 0, nonFiniteVertices: 0, zeroAreaTriangles: 0,
+      dimensions: [10, 20, 30],
+    },
+  };
 }
 
-function triangleHeader(count: number): ArrayBuffer {
-  const buf = new ArrayBuffer(4);
-  new DataView(buf).setUint32(0, count, true);
-  return buf;
-}
-
-const BOX: SDFNodeUI = { id: 'n1', kind: 'box', params: { w: 10, h: 10, d: 10 }, children: [] } as unknown as SDFNodeUI;
+const BOX: SDFNodeUI = {
+  id: 'n1', kind: 'box', label: 'Box', params: { width: 10, height: 10, depth: 10 }, children: [], enabled: true,
+};
+const DISPLAY = { glsl: 'sdf', paramCount: 0, paramValues: [], textures: [], bbMin: [-1, -1, -1], bbMax: [1, 1, 1], hasWarn: false };
 
 /** Let queued microtasks run and React commit whatever they scheduled. */
 const flush = () => act(async () => { await new Promise((r) => setTimeout(r, 0)); });
@@ -65,7 +73,7 @@ const flush = () => act(async () => { await new Promise((r) => setTimeout(r, 0))
 describe('Toolbar export cancellation', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    useModelerStore.setState({ tree: BOX, evaluating: false });
+    useModelerStore.setState({ tree: BOX, evaluatedTree: BOX, sdfDisplay: DISPLAY as any, evaluating: false });
   });
 
   afterEach(() => {
@@ -80,12 +88,19 @@ describe('Toolbar export cancellation', () => {
   }
 
   it('offers the download when an export completes untouched', async () => {
-    const job = deferred<Blob>();
+    const job = deferred<ExportArtifact>();
     exportSTL.mockReturnValue(job.promise);
     await startExport();
 
-    job.resolve(pendingBlob(1024, Promise.resolve(triangleHeader(12))));
+    job.resolve(artifact(1024, 12));
     await waitFor(() => expect(screen.getByText('Download')).toBeInTheDocument());
+    expect(screen.getByText('Watertight')).toBeInTheDocument();
+    expect(screen.getByText('10.0 × 20.0 × 30.0 mm')).toBeInTheDocument();
+    expect(screen.getByText('≤ 0.0250 mm')).toBeInTheDocument();
+    expect(screen.getByText('Verified components')).toBeInTheDocument();
+    expect(screen.getByText('Verified samples')).toBeInTheDocument();
+    expect(screen.getByText('Maximum deviation')).toBeInTheDocument();
+    expect(screen.getByText('2')).toBeInTheDocument();
   });
 
   // The regression. The cancel button is on screen for the whole of
@@ -96,22 +111,17 @@ describe('Toolbar export cancellation', () => {
   // is handed the download they just declined. This is the exact interleaving
   // that failed in CI.
   it('suppresses the preview when cancelled after the worker replied', async () => {
-    const job = deferred<Blob>();
-    const header = deferred<ArrayBuffer>();
+    const job = deferred<ExportArtifact>();
     exportSTL.mockReturnValue(job.promise);
     await startExport();
 
-    // Worker replies. The component resumes and blocks on the header read.
-    job.resolve(pendingBlob(603_996, header.promise));
-    await flush();
-
-    // The window is real: cancel is still offered, and nothing is in flight.
+    // Resolve and cancel in the same turn, before React commits the preview.
+    job.resolve(artifact(603_996, 11_800));
     const cancel = screen.getByTitle('Cancel export');
     expect(cancel).toBeInTheDocument();
     fireEvent.click(cancel);
     expect(cancelExport).toHaveBeenCalledTimes(1);
 
-    header.resolve(triangleHeader(11_800));
     await flush();
 
     expect(screen.queryByText('Download')).not.toBeInTheDocument();
@@ -119,7 +129,7 @@ describe('Toolbar export cancellation', () => {
   });
 
   it('suppresses the preview when the bridge rejects the export', async () => {
-    const job = deferred<Blob>();
+    const job = deferred<ExportArtifact>();
     exportSTL.mockReturnValue(job.promise);
     const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
     await startExport();
@@ -136,10 +146,28 @@ describe('Toolbar export cancellation', () => {
     errorLog.mockRestore();
   });
 
+  it('surfaces a real export failure in application state', async () => {
+    const job = deferred<ExportArtifact>();
+    exportSTL.mockReturnValue(job.promise);
+    await startExport();
+    job.reject(new Error('worker ran out of memory'));
+    await flush();
+    expect(useModelerStore.getState().error).toBe('STL export failed: worker ran out of memory');
+  });
+
+  it('does not export when the displayed geometry belongs to another tree revision', () => {
+    useModelerStore.setState({ evaluatedTree: { ...BOX } });
+    render(<Toolbar />);
+    const button = screen.getByTitle('Export STL');
+    expect(button).toBeDisabled();
+    fireEvent.click(button);
+    expect(exportSTL).not.toHaveBeenCalled();
+  });
+
   // The epoch is per-cancel, not a latch: a cancelled export must not poison
   // the next one.
   it('still offers the download for the export started after a cancel', async () => {
-    const first = deferred<Blob>();
+    const first = deferred<ExportArtifact>();
     exportSTL.mockReturnValue(first.promise);
     await startExport();
 
@@ -149,12 +177,12 @@ describe('Toolbar export cancellation', () => {
     first.reject(cancelled);
     await flush();
 
-    const second = deferred<Blob>();
+    const second = deferred<ExportArtifact>();
     exportSTL.mockReturnValue(second.promise);
     fireEvent.click(screen.getByTitle('Export STL'));
     await waitFor(() => expect(screen.getByTitle('Cancel export')).toBeInTheDocument());
 
-    second.resolve(pendingBlob(2048, Promise.resolve(triangleHeader(40))));
+    second.resolve(artifact(2048, 40));
     await waitFor(() => expect(screen.getByText('Download')).toBeInTheDocument());
   });
 
@@ -167,20 +195,20 @@ describe('Toolbar export cancellation', () => {
    */
   it('exports at the resolution the user picked', async () => {
     useViewportStore.getState().setResolution(128);
-    const job = deferred<Blob>();
+    const job = deferred<ExportArtifact>();
     exportSTL.mockReturnValue(job.promise);
     await startExport();
 
     expect(exportSTL).toHaveBeenCalledWith(BOX, expect.any(Function), 128);
 
-    job.resolve(pendingBlob(1024, Promise.resolve(triangleHeader(12))));
+    job.resolve(artifact(1024, 12));
     await flush();
     useViewportStore.getState().setResolution(256);
   });
 
   it('exports 3MF at the resolution the user picked', async () => {
     useViewportStore.getState().setResolution(384);
-    const job = deferred<Blob>();
+    const job = deferred<ExportArtifact>();
     export3MF.mockReturnValue(job.promise);
     render(<Toolbar />);
     fireEvent.click(screen.getByTitle('Export 3MF'));
@@ -188,22 +216,70 @@ describe('Toolbar export cancellation', () => {
 
     expect(export3MF).toHaveBeenCalledWith(BOX, expect.any(Function), 384);
 
-    job.resolve({ size: 2048 } as Blob);
-    await flush();
+    job.resolve(artifact(2048, 7));
+    await waitFor(() => expect(screen.getByText('7')).toBeInTheDocument());
     useViewportStore.getState().setResolution(256);
   });
 
   it('suppresses the 3MF preview when cancelled after the worker replied', async () => {
-    const job = deferred<Blob>();
+    const job = deferred<ExportArtifact>();
     export3MF.mockReturnValue(job.promise);
     render(<Toolbar />);
     fireEvent.click(screen.getByTitle('Export 3MF'));
     await waitFor(() => expect(screen.getByTitle('Cancel export')).toBeInTheDocument());
 
     fireEvent.click(screen.getByTitle('Cancel export'));
-    job.resolve({ size: 4096 } as Blob);
+    job.resolve(artifact(4096, 31));
     await flush();
 
     expect(screen.queryByText('Download')).not.toBeInTheDocument();
+  });
+});
+
+describe('Toolbar project versions', () => {
+  beforeEach(() => {
+    useModelerStore.setState({ tree: BOX, evaluatedTree: BOX, sdfDisplay: DISPLAY as any, evaluating: false });
+    useProjectStore.setState({
+      projectId: 'cloud-id', provider: 'google', saving: false,
+      checkpoints: [{ id: 'v1', name: 'Before experiment', createdAt: '2026-09-06T12:00:00Z', tree: BOX }],
+    });
+  });
+
+  afterEach(cleanup);
+
+  it('exposes named versions, retention, and restore controls', () => {
+    render(<Toolbar />);
+    fireEvent.click(screen.getByTitle('Project versions'));
+    expect(screen.getByRole('dialog', { name: 'Project versions' })).toBeInTheDocument();
+    expect(screen.getByText('Before experiment')).toBeInTheDocument();
+    expect(screen.getByText(/10 newest versions/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Restore' })).toBeInTheDocument();
+  });
+});
+
+describe('Toolbar compact-width actions', () => {
+  beforeEach(() => {
+    useModelerStore.setState({
+      tree: BOX, selectedNodeId: BOX.id, clipboard: BOX,
+      evaluatedTree: BOX, sdfDisplay: DISPLAY as any, evaluating: false,
+    });
+    useProjectStore.setState({ projectId: null, provider: null, shareUrl: null, saving: false });
+  });
+
+  afterEach(cleanup);
+
+  it('exposes copy, paste, and export resolution in the mobile overflow', () => {
+    render(<Toolbar />);
+    fireEvent.click(screen.getByTitle('More actions'));
+
+    expect(screen.getByText('Copy selected node')).toBeInTheDocument();
+    expect(screen.getByText('Paste node')).toBeInTheDocument();
+    // The always-mounted desktop selector is the first; opening the compact
+    // overflow adds the independently reachable mobile control.
+    expect(screen.getAllByLabelText('Export resolution')).toHaveLength(2);
+    expect(screen.getAllByRole('option', { name: 'Draft' })).toHaveLength(2);
+
+    fireEvent.click(screen.getByText('Copy selected node'));
+    expect(screen.getByText('Node copied!')).toBeInTheDocument();
   });
 });

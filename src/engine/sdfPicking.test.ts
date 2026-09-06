@@ -71,6 +71,16 @@ describe('attributePath', () => {
     expect(attributePath(shell, [20, 0, 0])).toEqual([shell.id, pattern.id, hole.id]);
   });
 
+  it('uses the evaluator window for wide, offset linear-pattern children', () => {
+    const wide = node('box', { width: 10, height: 10, depth: 10 });
+    const shiftedWide = node('translate', { x: 37.5, y: 0, z: 0 }, [wide]);
+    const small = node('sphere', { radius: 2 });
+    const shiftedSmall = node('translate', { x: 10, y: 0, z: 0 }, [small]);
+    const child = node('union', {}, [shiftedWide, shiftedSmall]);
+    const pattern = node('linearPattern', { axisX: 1, axisY: 0, axisZ: 0, count: 3, spacing: 20 }, [child]);
+    expect(attributePoint(pattern, [42.5, 0, 0])).toBe(wide.id);
+  });
+
   it('selects an imported mesh instead of clearing the selection', () => {
     // `mesh` takes no children and compiles to a leaf field, but was absent
     // from the leaf set — so the descent fell through every branch to the

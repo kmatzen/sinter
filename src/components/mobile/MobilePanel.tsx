@@ -1,5 +1,6 @@
-import { useEffect } from 'react';
+import { useRef } from 'react';
 import { X } from 'lucide-react';
+import { useDialogFocus } from '../ui/useDialogFocus';
 
 interface Props {
   /**
@@ -15,14 +16,8 @@ interface Props {
 
 /** Full-height slide-over panel for mobile viewports */
 export function MobilePanel({ title, side, onClose, children }: Props) {
-  // BottomSheet has always closed on Escape and this did not. Two mobile
-  // containers with different dismiss rules is the kind of inconsistency that
-  // surfaces the moment someone attaches a keyboard to a tablet.
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [onClose]);
+  const surface = useRef<HTMLDivElement>(null);
+  useDialogFocus(surface, onClose);
 
   return (
     <div className="lg:hidden fixed inset-0 z-50 flex" onClick={onClose}>
@@ -31,6 +26,10 @@ export function MobilePanel({ title, side, onClose, children }: Props) {
 
       {/* Panel */}
       <div
+        ref={surface}
+        role="dialog"
+        aria-modal="true"
+        aria-label={title || 'Model tools'}
         className={`relative flex flex-col w-[85vw] max-w-[320px] h-full pb-safe ${side === 'right' ? 'ml-auto pr-safe' : 'pl-safe'}`}
         style={{ background: 'var(--bg-panel)' }}
         onClick={(e) => e.stopPropagation()}

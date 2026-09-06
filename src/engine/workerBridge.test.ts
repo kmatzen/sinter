@@ -58,7 +58,9 @@ function sdfResponse(rid: number, glsl: string) {
 }
 
 const exportResult = (rid: number) => ({
-  type: 'exportResult', rid, format: 'stl', data: new ArrayBuffer(8),
+  type: 'exportResult', rid, format: 'stl', data: new ArrayBuffer(8), vertexCount: 6, triangleCount: 2,
+  diagnostics: { watertight: true, boundaryEdges: 0, nonManifoldEdges: 0, inconsistentEdges: 0, degenerateTriangles: 0, invalidIndices: 0, nonFiniteVertices: 0, zeroAreaTriangles: 0, dimensions: [1, 2, 3] },
+  conformance: { status: 'verified', tolerance: 0.1, meshToSourceMax: 0.02, meshToSourceRms: 0.01, sourceToMeshMax: 0.03, sourceToMeshRms: 0.02, maxDeviation: 0.03, rmsDeviation: 0.015, meshSamples: 20, sourceSamples: 30 },
 });
 
 let bridge: typeof import('./workerBridge').workerBridge;
@@ -107,7 +109,8 @@ describe('WorkerBridge channels', () => {
     // And the export still completes afterwards.
     exportWorker.emit(exportResult(exportWorker.sent[0].rid));
     await flush();
-    expect(exported.value).toBeInstanceOf(Blob);
+    expect(exported.value?.blob).toBeInstanceOf(Blob);
+    expect(exported.value?.triangleCount).toBe(2);
   });
 
   it('routes both export formats to the export worker, one at a time', async () => {
@@ -141,7 +144,7 @@ describe('WorkerBridge channels', () => {
 
     exportWorker.emit(exportResult(exportWorker.sent[0].rid));
     await flush();
-    expect(exported.value).toBeInstanceOf(Blob);
+    expect(exported.value?.blob).toBeInstanceOf(Blob);
   });
 
   it('rejects queued requests on a crashed worker too', async () => {
@@ -209,7 +212,7 @@ describe('WorkerBridge correlation ids', () => {
 
     // The old design left this pending forever — Toolbar's await never returned.
     expect(exported.settled).toBe(true);
-    expect(exported.value).toBeInstanceOf(Blob);
+    expect(exported.value?.blob).toBeInstanceOf(Blob);
 
     evalWorker.emit(sdfResponse(evalWorker.sent[0].rid, 'GLSL'));
     await flush();
@@ -326,7 +329,7 @@ describe('WorkerBridge admission control (#51)', () => {
     expect(queuedExport.settled).toBe(false);
     exportWorker.emit(exportResult(exportWorker.sent[0].rid));
     await flush();
-    expect(exported.value).toBeInstanceOf(Blob);
+    expect(exported.value?.blob).toBeInstanceOf(Blob);
     expect(exportWorker.sent).toHaveLength(2);
   });
 });
@@ -409,7 +412,7 @@ describe('WorkerBridge export cancellation (#51)', () => {
 
     fresh.emit(exportResult(fresh.sent[0].rid));
     await flush();
-    expect(next.value).toBeInstanceOf(Blob);
+    expect(next.value?.blob).toBeInstanceOf(Blob);
   });
 
   it('is a no-op when nothing is exporting', async () => {

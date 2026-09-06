@@ -14,6 +14,7 @@ import { startAutoSave } from './store/projectStore';
 import { startLocalAutoSave } from './store/localPersist';
 import { AppModals } from './components/ui/AppModals';
 import { handleModelerKeyDown } from './modelerShortcuts';
+import { CommandPalette } from './components/commands/CommandPalette';
 
 /**
  * The editor, in its own module so it can be loaded on demand.
@@ -69,12 +70,27 @@ function ModelerApp() {
 
   useEffect(() => {
     startAutoSave();
-    startLocalAutoSave();
+    void startLocalAutoSave();
   }, []);
 
   useEffect(() => {
     window.addEventListener('keydown', handleModelerKeyDown);
     return () => window.removeEventListener('keydown', handleModelerKeyDown);
+  }, []);
+
+  useEffect(() => {
+    // A mobile drawer left mounted while crossing to desktop is hidden by
+    // CSS, but without clearing its state it springs back open on the next
+    // rotation. Reconcile at the same 1024px boundary the layout classes use.
+    const reconcileLayout = () => {
+      if (!isMobile()) setMobilePanel(null);
+    };
+    window.addEventListener('resize', reconcileLayout);
+    window.addEventListener('orientationchange', reconcileLayout);
+    return () => {
+      window.removeEventListener('resize', reconcileLayout);
+      window.removeEventListener('orientationchange', reconcileLayout);
+    };
   }, []);
 
   return (
@@ -93,6 +109,7 @@ function ModelerApp() {
       </div>
       <ChatDrawer />
       <AppModals />
+      <CommandPalette />
 
       {/* No `title` on the panel — NodeTreeContent renders its own header, and
           carries the close button now that the panel no longer duplicates it. */}

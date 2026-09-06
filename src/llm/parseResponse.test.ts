@@ -35,6 +35,15 @@ describe('parseResponse', () => {
     expect(result!.action).toBe('modify');
   });
 
+  it('rejects malformed, non-finite, and excessive modifications', () => {
+    expect(parseResponse('{"action":"modify","changes":[]}')).toBeNull();
+    expect(parseResponse('{"action":"modify","changes":[{"update":"n","params":{"width":null}}]}')).toBeNull();
+    expect(parseResponse(JSON.stringify({
+      action: 'modify', changes: Array.from({ length: 101 }, () => ({ remove: 'n' })),
+    }))).toBeNull();
+    expect(parseResponse('{"action":"modify","changes":[{"remove":42}]}')).toBeNull();
+  });
+
   it('parses bare tree node as replace', () => {
     const response = `{ "kind": "sphere", "params": { "radius": 10 }, "children": [] }`;
     const result = parseResponse(response);

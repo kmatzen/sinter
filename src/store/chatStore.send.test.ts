@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import type { SDFNodeUI } from '../types/operations';
 
 /**
  * `chatStore.sendMessage` — the path from a typed prompt to a changed model.
@@ -26,6 +27,10 @@ const captureMultiView = vi.fn();
 
 vi.mock('../llm/llmService', () => ({
   streamLLMMessage: (...args: unknown[]) => streamLLMMessage(...args),
+  maxTokensFor: () => 4096,
+  budgetMessages: (messages: unknown[]) => ({
+    messages, approximateTokens: 100, imageCount: 0, trimmedMessages: 0,
+  }),
 }));
 
 vi.mock('../engine/engineRef', () => ({
@@ -76,24 +81,106 @@ describe('chatStore.sendMessage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     captureMultiView.mockReturnValue(null);
-    useChatStore.setState({ messages: [], isLoading: false, apiKey: 'k', provider: 'anthropic' });
-    useModelerStore.setState({ tree: null });
     vi.stubGlobal('localStorage', makeStorageStub());
+    useChatStore.getState().switchConversation(`test:${crypto.randomUUID()}`);
+    useChatStore.setState({
+      messages: [], isLoading: false, pendingProposal: null, proposalError: null,
+      requestEstimate: null, attachViewport: true, apiKey: 'k', provider: 'anthropic',
+    });
+    useModelerStore.getState().resetDocument(null, 'Untitled');
   });
 
   afterEach(() => {
     useModelerStore.setState({ tree: null });
   });
 
-  it('applies a replace action to the tree', async () => {
+  it('previews a replace action and applies it only after confirmation', async () => {
     respondWith([replaceWith('sphere', { radius: 12 })]);
 
     await useChatStore.getState().sendMessage('make a ball');
 
     expect(streamLLMMessage).toHaveBeenCalledTimes(1);
+    expect(useModelerStore.getState().tree).toBeNull();
+    expect(useChatStore.getState().pendingProposal?.summary).toEqual(['Replace the model']);
+    useChatStore.getState().applyProposal();
     const tree = useModelerStore.getState().tree!;
     expect(tree.kind).toBe('sphere');
     expect(tree.params.radius).toBe(12);
+  });
+
+  it('applies a multi-change proposal atomically as one undo entry', async () => {
+    const base: SDFNodeUI = {
+      id: 'u', kind: 'union', label: 'Union', params: { smooth: 0 }, enabled: true,
+      children: [
+        { id: 'a', kind: 'box', label: 'Box', params: { width: 10, height: 10, depth: 10 }, children: [], enabled: true },
+        { id: 'b', kind: 'sphere', label: 'Sphere', params: { radius: 5 }, children: [], enabled: true },
+      ],
+    };
+    useModelerStore.getState().resetDocument(base, 'Model');
+    respondWith([JSON.stringify({ action: 'modify', changes: [
+      { update: 'a', params: { width: 20 } },
+      { update: 'b', params: { radius: 8 } },
+    ] })]);
+
+    await useChatStore.getState().sendMessage('resize both');
+    expect(useModelerStore.getState().tree?.children[0].params.width).toBe(10);
+    const beforeHistory = useModelerStore.getState().history.length;
+    useChatStore.getState().applyProposal();
+    expect(useModelerStore.getState().tree?.children[0].params.width).toBe(20);
+    expect(useModelerStore.getState().tree?.children[1].params.radius).toBe(8);
+    expect(useModelerStore.getState().history).toHaveLength(beforeHistory + 1);
+  });
+
+  it('rejects a mixed proposal entirely when a later operation is invalid', async () => {
+    const base = { id: 'a', kind: 'box', label: 'Box', params: { width: 10, height: 10, depth: 10 }, children: [], enabled: true };
+    useModelerStore.getState().resetDocument(base, 'Model');
+    respondWith([JSON.stringify({ action: 'modify', changes: [
+      { update: 'a', params: { width: 20 } },
+      { addChild: 'a', node: { kind: 'sphere', params: { radius: 2 }, children: [] } },
+    ] })]);
+
+    await useChatStore.getState().sendMessage('make invalid changes');
+
+    expect(useModelerStore.getState().tree?.params.width).toBe(10);
+    expect(useChatStore.getState().pendingProposal).toBeNull();
+    expect(lastMessage().actionError).toMatch(/no empty child input/);
+  });
+
+  it('refuses to apply a proposal after the user edits its base model', async () => {
+    const base = { id: 'a', kind: 'box', label: 'Box', params: { width: 10, height: 10, depth: 10 }, children: [], enabled: true };
+    useModelerStore.getState().resetDocument(base, 'Model');
+    respondWith([JSON.stringify({ action: 'modify', changes: [{ update: 'a', params: { width: 20 } }] })]);
+    await useChatStore.getState().sendMessage('resize it');
+    useModelerStore.getState().updateNodeParams('a', { height: 30 });
+
+    useChatStore.getState().applyProposal();
+
+    expect(useModelerStore.getState().tree?.params.width).toBe(10);
+    expect(useModelerStore.getState().tree?.params.height).toBe(30);
+    expect(useChatStore.getState().proposalError).toMatch(/changed after/);
+  });
+
+  it('refuses a proposal after formula definitions change even when geometry is numerically equal', async () => {
+    const base = { id: 'a', kind: 'box', label: 'Box', params: { width: 10, height: 10, depth: 10 }, expressions: { width: 'w' }, children: [], enabled: true };
+    useModelerStore.getState().resetDocument(base, 'Model', [{ name: 'w', expression: '10', unit: 'mm' }]);
+    respondWith([JSON.stringify({ action: 'modify', changes: [{ update: 'a', params: { height: 20 } }] })]);
+    await useChatStore.getState().sendMessage('make it taller');
+    useModelerStore.getState().setNamedParameters([{ name: 'w', expression: '5 + 5', unit: 'mm' }]);
+
+    useChatStore.getState().applyProposal();
+
+    expect(useModelerStore.getState().tree?.params.height).toBe(10);
+    expect(useChatStore.getState().proposalError).toMatch(/changed after/);
+  });
+
+  it('treats an explicit AI numeric update as replacing that property formula', async () => {
+    const base = { id: 'a', kind: 'box', label: 'Box', params: { width: 10, height: 10, depth: 10 }, expressions: { width: 'w' }, children: [], enabled: true };
+    useModelerStore.getState().resetDocument(base, 'Model', [{ name: 'w', expression: '10', unit: 'mm' }]);
+    respondWith([JSON.stringify({ action: 'modify', changes: [{ update: 'a', params: { width: 20 } }] })]);
+    await useChatStore.getState().sendMessage('set width literally to 20');
+    useChatStore.getState().applyProposal();
+    expect(useModelerStore.getState().tree?.params.width).toBe(20);
+    expect(useModelerStore.getState().tree?.expressions).toBeUndefined();
   });
 
   it('streams tokens into the assistant message as they arrive', async () => {
@@ -111,6 +198,49 @@ describe('chatStore.sendMessage', () => {
     // Each token was visible before the next arrived, which is what makes the
     // reply appear progressively rather than in one jump at the end.
     expect(seen).toEqual(['Here', 'Here you', 'Here you go']);
+  });
+
+  it('switches projects without carrying the previous transcript', () => {
+    const projectA = useChatStore.getState().conversationKey;
+    useChatStore.setState({ messages: [{ role: 'user', content: 'project A secret' }] });
+    useChatStore.getState().switchConversation('project:b');
+    expect(messages()).toEqual([]);
+    useChatStore.setState({ messages: [{ role: 'user', content: 'project B' }] });
+    useChatStore.getState().switchConversation(projectA);
+    expect(messages()).toEqual([{ role: 'user', content: 'project A secret' }]);
+  });
+
+  it('stops a stream on project switch and ignores its late tokens', async () => {
+    streamLLMMessage.mockImplementation((_req: { signal: AbortSignal }, onToken: (text: string) => void) =>
+      new Promise((_resolve, reject) => {
+        _req.signal.addEventListener('abort', () => {
+          onToken('late token');
+          reject(new DOMException('Aborted', 'AbortError'));
+        });
+      }));
+    const pending = useChatStore.getState().sendMessage('project A request');
+    await vi.waitFor(() => expect(useChatStore.getState().isLoading).toBe(true));
+
+    useChatStore.getState().switchConversation('project:b');
+    await pending;
+
+    expect(messages()).toEqual([]);
+    expect(useChatStore.getState().isLoading).toBe(false);
+  });
+
+  it('stops generation and leaves the request retryable', async () => {
+    streamLLMMessage.mockImplementationOnce((req: { signal: AbortSignal }) =>
+      new Promise((_resolve, reject) => req.signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')))));
+    const pending = useChatStore.getState().sendMessage('try this');
+    await vi.waitFor(() => expect(useChatStore.getState().isLoading).toBe(true));
+    useChatStore.getState().stopGeneration();
+    await pending;
+    expect(lastMessage().content).toMatch(/stopped/i);
+    expect(lastMessage().parseFailed).toBe(true);
+
+    respondWith([replaceWith('sphere', { radius: 3 })]);
+    await useChatStore.getState().retryLast();
+    expect(useChatStore.getState().pendingProposal?.tree?.kind).toBe('sphere');
   });
 
   /**
@@ -214,6 +344,15 @@ describe('chatStore.sendMessage', () => {
       const sent = streamLLMMessage.mock.calls[0][0] as { messages: { images?: string[] }[] };
       expect(sent.messages[sent.messages.length - 1].images).toBeUndefined();
     });
+
+    it('lets the user disable viewport attachments for a request', async () => {
+      useModelerStore.setState({ tree: { id: 'b', kind: 'box', label: 'Box', params: { width: 1, height: 1, depth: 1 }, children: [], enabled: true } });
+      useChatStore.setState({ attachViewport: false });
+      respondWith([replaceWith('sphere', { radius: 2 })]);
+      await useChatStore.getState().sendMessage('no images');
+      expect(captureMultiView).not.toHaveBeenCalled();
+      expect(useChatStore.getState().requestEstimate?.imageCount).toBe(0);
+    });
   });
 
   /**
@@ -231,6 +370,8 @@ describe('chatStore.sendMessage', () => {
     const saved = localStorage.getItem('sinter_chat_messages')!;
     expect(saved).toBeTruthy();
     expect(saved).not.toContain('base64');
-    expect(JSON.parse(saved)).toHaveLength(2);
+    const persisted = JSON.parse(saved);
+    expect(persisted.version).toBe(2);
+    expect(persisted.conversations[useChatStore.getState().conversationKey]).toHaveLength(2);
   });
 });

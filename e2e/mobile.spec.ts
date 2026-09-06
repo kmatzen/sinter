@@ -134,6 +134,33 @@ test('the property sheet opens far enough to edit in, and closes without a swipe
   await expect(sheet).toBeHidden();
 });
 
+test('tablet portrait stays mobile and rotation does not resurrect a stale drawer', async ({ page }) => {
+  await page.setViewportSize({ width: 768, height: 1024 });
+  await enterModeler(page);
+  await expect(page.locator('[aria-label="Node tree"]')).toBeVisible();
+  await page.locator('[aria-label="Node tree"]').click();
+  await expect(page.getByRole('dialog', { name: 'Model tools' })).toBeVisible();
+
+  await page.setViewportSize({ width: 1024, height: 768 });
+  await expect(page.getByRole('dialog', { name: 'Model tools' })).toBeHidden();
+  await page.setViewportSize({ width: 768, height: 1024 });
+  await expect(page.getByRole('dialog', { name: 'Model tools' })).toBeHidden();
+});
+
+test('short landscape phones dock properties beside the viewport', async ({ page }) => {
+  await page.setViewportSize({ width: 750, height: 342 });
+  await enterModeler(page);
+  await page.locator('[aria-label="Node tree"]').click();
+  await overlay(page).locator('[title="Add Box"]').click();
+  await page.locator('[aria-label="Close node tree"]').click();
+  await page.locator('[aria-label="Properties"]').click();
+
+  const box = await overlay(page).locator('.mobile-properties-sheet').boundingBox();
+  expect(box!.height).toBeGreaterThan(330);
+  expect(box!.width).toBeLessThan(360);
+  expect(box!.x).toBeGreaterThan(390);
+});
+
 test('the chat drawer carries its own way out', async ({ page }) => {
   await enterModeler(page);
 
@@ -193,6 +220,25 @@ test('nothing on screen is smaller than a fingertip', async ({ page }) => {
   // Overflow menu — where every desktop-only action lives on mobile
   await page.locator('[aria-label="More actions"]').click();
   expect(describeTargets(await undersizedTargets(page))).toBe('');
+});
+
+test('mobile overflow exposes resolution, copy, paste, and help', async ({ page }) => {
+  await enterModeler(page);
+  await page.locator('[aria-label="Node tree"]').click();
+  await overlay(page).locator('[title="Add Box"]').click();
+  await page.locator('[aria-label="Close node tree"]').click();
+
+  await page.locator('[aria-label="More actions"]').click();
+  await expect(page.getByRole('combobox', { name: 'Export resolution' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Copy selected node' })).toBeEnabled();
+  await page.getByRole('button', { name: 'Copy selected node' }).click();
+  await expect(page.getByRole('button', { name: 'Node copied!' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Paste node' })).toBeEnabled();
+
+  // Help is a direct viewport control rather than a keyboard-only secret.
+  await page.locator('[aria-label="More actions"]').click();
+  await page.getByRole('button', { name: /keyboard shortcuts and accessibility help/i }).click();
+  await expect(page.getByRole('dialog', { name: 'Keyboard Shortcuts' })).toBeVisible();
 });
 
 test('text entry does not zoom the page', async ({ page }) => {

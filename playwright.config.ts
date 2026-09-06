@@ -1,5 +1,9 @@
 import { defineConfig } from '@playwright/test';
 
+const localChromium = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH
+  ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH }
+  : undefined;
+
 export default defineConfig({
   testDir: './e2e',
   // CI runs this suite on a two-core runner rendering through SwiftShader, where
@@ -32,8 +36,8 @@ export default defineConfig({
   projects: [
     {
       name: 'chromium',
-      use: { browserName: 'chromium' },
-      testIgnore: [/viewport-golden\.spec\.ts/, /mobile\.spec\.ts/],
+      use: { browserName: 'chromium', launchOptions: localChromium },
+      testIgnore: [/viewport-golden\.spec\.ts/, /mobile\.spec\.ts/, /cross-browser\.spec\.ts/],
     },
     {
       /*
@@ -45,7 +49,17 @@ export default defineConfig({
        */
       name: 'mobile',
       testMatch: /mobile\.spec\.ts/,
-      use: { browserName: 'chromium' },
+      use: { browserName: 'chromium', launchOptions: localChromium },
+    },
+    {
+      name: 'firefox-smoke',
+      testMatch: /cross-browser\.spec\.ts/,
+      use: { browserName: 'firefox' },
+    },
+    {
+      name: 'webkit-smoke',
+      testMatch: /cross-browser\.spec\.ts/,
+      use: { browserName: 'webkit' },
     },
     {
       // Golden images run against SwiftShader everywhere, not against whatever

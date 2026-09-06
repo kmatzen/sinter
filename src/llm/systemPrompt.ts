@@ -1,13 +1,24 @@
-import type { SDFNodeUI } from '../types/operations';
+import type { NamedParameter, SDFNodeUI } from '../types/operations';
 
-export function buildSystemPrompt(currentTree?: SDFNodeUI | null): string {
+export function buildSystemPrompt(currentTree?: SDFNodeUI | null, parameters: NamedParameter[] = []): string {
+  // Binary mesh fields and generated glyph paths are already visible in the
+  // attached render and can be megabytes. Sending them as text consumes the
+  // model context without adding useful semantic information.
+  const serializedTree = currentTree ? JSON.stringify(currentTree, (key, value) => {
+    if (key === 'meshPositions' || key === 'glyphPaths') return `[omitted ${String(value).length} characters]`;
+    if (key === 'text' && typeof value === 'string' && value.length > 2_000) return `${value.slice(0, 2_000)}…`;
+    return value;
+  }, 2) : '';
+  const boundedTree = serializedTree.length > 200_000
+    ? `${serializedTree.slice(0, 200_000)}\n[tree context truncated]`
+    : serializedTree;
   const treeContext = currentTree
-    ? `\n\n## Current Model Tree\n\`\`\`json\n${JSON.stringify(currentTree, null, 2)}\n\`\`\``
+    ? `\n\n## Current Named Parameters\n\`\`\`json\n${JSON.stringify(parameters, null, 2)}\n\`\`\`\n\n## Current Model Tree\n\`\`\`json\n${boundedTree}\n\`\`\``
     : '';
 
   return `You are a parametric 3D modeling assistant using SDF (Signed Distance Field) operations, optimized for 3D printing.
 
-You build models as a tree of SDF nodes. Each node has: id, kind, label, params, children, enabled.
+You build models as a tree of SDF nodes. Each node has: id, kind, label, params, optional expressions, children, enabled. Expressions reference document-level named parameters; params contains the resolved numeric snapshot. Preserve existing expressions unless the user explicitly asks to replace the relationship.
 
 When the user sends a message, you may also receive images showing the current model from multiple angles (current viewport, front, right, top). Use these to understand the model's current appearance and the user's intent.
 

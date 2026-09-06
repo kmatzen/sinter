@@ -87,6 +87,16 @@ test.describe('Landing Page', () => {
     await expect(page.locator('text=Acceptance of Terms')).not.toBeVisible();
   });
 
+  test('permanent legal URLs use the canonical copy', async ({ page }) => {
+    await page.goto('/privacy', { waitUntil: 'domcontentloaded' });
+    await expect(page.getByRole('heading', { name: 'Privacy Policy' })).toBeVisible();
+    await expect(page.getByText(/GitHub’s.*permission is broader/)).toBeVisible();
+
+    await page.goto('/terms', { waitUntil: 'domcontentloaded' });
+    await expect(page.getByRole('heading', { name: 'Terms of Service' })).toBeVisible();
+    await expect(page.getByText(/source is available under the non-commercial license/)).toBeVisible();
+  });
+
   test('Start Modeling enters the modeler', async ({ page }) => {
     const btn = page.locator('button:has-text("Start Modeling")').first();
     await btn.waitFor({ state: 'visible', timeout: 15000 });
@@ -159,9 +169,9 @@ test.describe('Modeler: Node operations', () => {
   test('selecting a node shows property panel', async ({ page }) => {
     await addShape(page, 'Box');
     await page.locator(`text=50\u00d730\u00d750`).click();
-    await expect(page.locator('text=Width')).toBeVisible();
-    await expect(page.locator('text=Height')).toBeVisible();
-    await expect(page.locator('text=Depth')).toBeVisible();
+    await expect(page.getByText('Width', { exact: true })).toBeVisible();
+    await expect(page.getByText('Height', { exact: true })).toBeVisible();
+    await expect(page.getByText('Depth', { exact: true })).toBeVisible();
   });
 
   test('can modify parameters via input', async ({ page }) => {

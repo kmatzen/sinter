@@ -88,10 +88,18 @@ describe('NodeTree.tla — WithinCapacity', () => {
   // and yes to the second, so they fall to the `targetExpected === 0` branch
   // (:467) and are given a child that `toSDFNode` never reads.
   it('unions rather than parents when a shape is dropped on an imported mesh', () => {
+    const tetra = new Float32Array([
+      0, 0, 0, 0, 1, 0, 1, 0, 0,
+      0, 0, 0, 1, 0, 0, 0, 0, 1,
+      1, 0, 0, 0, 1, 0, 0, 0, 1,
+      0, 1, 0, 0, 0, 0, 0, 0, 1,
+    ]);
+    let binary = '';
+    for (const byte of new Uint8Array(tetra.buffer)) binary += String.fromCharCode(byte);
     getState().addNodeFromData(null, {
       kind: 'mesh',
       params: { resolution: 48 },
-      data: { meshName: 'part.stl', meshPositions: 'AAAA' },
+      data: { meshName: 'part.stl', meshPositions: btoa(binary) },
     });
     const meshId = getState().tree!.id;
 

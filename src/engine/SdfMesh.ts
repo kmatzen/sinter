@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { ThreeEngine } from './ThreeEngine';
-import { useModelerStore } from '../store/modelerStore';
+import { useModelerStore, type SDFDisplayData } from '../store/modelerStore';
 import { useViewportStore } from '../store/viewportStore';
 
 const VERT = `
@@ -35,6 +35,8 @@ function buildFrag(sdfFunc: string, paramCount: number, hasWarn: boolean): strin
 precision highp float;
 uniform float u_p[${paramCount}];
 uniform vec3 u_cameraPos;
+uniform vec3 u_cameraDir;
+uniform float u_orthographic;
 uniform vec3 u_lightDir;
 uniform vec3 u_bbMin;
 uniform vec3 u_bbMax;
@@ -71,7 +73,7 @@ ${sdfFunc}
  * Scaling with t keeps the offset at a fixed fraction of a pixel at any zoom.
  */
 vec3 calcNormal(vec3 p, float t) {
-  float e = max(t * u_pixelRadius * 0.35, u_stepFloor);
+  float e = max((u_orthographic > 0.5 ? 1.0 : t) * u_pixelRadius * 0.35, u_stepFloor);
   const vec2 k = vec2(1.0, -1.0);
   return normalize(
     k.xyy * sdf(p + k.xyy * e) +
@@ -84,8 +86,13 @@ vec3 calcNormal(vec3 p, float t) {
 ${SHARED_GLSL}
 
 void main() {
-  vec3 ro = u_cameraPos;
-  vec3 rd = normalize(-vViewDir);
+  vec3 rd = u_orthographic > 0.5 ? u_cameraDir : normalize(-vViewDir);
+  // With an orthographic camera every ray is parallel. The rasterized back
+  // face gives this pixel's exit point, so backing up by two box diagonals
+  // reconstructs a ray origin in front of the model without a fake pinhole.
+  vec3 ro = u_orthographic > 0.5
+    ? vWorldPos - rd * (length(u_bbMax - u_bbMin) * 2.0 + 1.0)
+    : u_cameraPos;
   vec2 tb = boxIntersect(ro, rd, u_bbMin, u_bbMax);
   float tStart = max(tb.x, 0.0);
   float tEnd = tb.y;
@@ -172,7 +179,7 @@ void main() {
   // reason, and zooming into a small feature did not tighten it. Half a pixel
   // at the current distance is the quantity that actually matters: there is
   // nothing to resolve below it, and it costs steps to try.
-  float minStep = max(tStart * u_pixelRadius * 0.5, u_stepFloor);
+  float minStep = max((u_orthographic > 0.5 ? 1.0 : tStart) * u_pixelRadius * 0.5, u_stepFloor);
 
   // Enhanced sphere tracing (Keinert et al. 2014): over-relax the marching
   // step by omega, and back off if the over-relaxed step overshot the field's
@@ -188,7 +195,7 @@ void main() {
   float stepLength = 0.0;
   for (int i = 0; i < 1024; i++) {
     p = ro + rd * t;
-    minStep = max(t * u_pixelRadius * 0.5, u_stepFloor);
+    minStep = max((u_orthographic > 0.5 ? 1.0 : t) * u_pixelRadius * 0.5, u_stepFloor);
     float radius = abs(sdf(p));
     bool sorFail = (omega > 1.0) && (radius + prevRadius < stepLength);
     if (sorFail) {
@@ -282,6 +289,48 @@ function textureKey(textures: { name: string; width: number; height: number; dat
   return textures.map((t) => `${t.name}:${t.width}x${t.height}:${hashBytes(t.data)}`).join('|');
 }
 
+export interface ShaderCapacity {
+  maxFragmentUniformComponents: number;
+  maxTextureImageUnits: number;
+}
+
+export const MAX_GENERATED_SHADER_CHARS = 250_000;
+
+// Scalars/vectors/matrix used by buildFrag apart from the generated u_p array.
+// Samplers have their own independently queried limit.
+const FIXED_FRAGMENT_UNIFORM_COMPONENTS = 38;
+
+/** Return an actionable portability error before asking WebGL to link. */
+export function shaderCapacityError(
+  sdf: Pick<SDFDisplayData, 'glsl' | 'paramCount' | 'textures'>,
+  capacity: ShaderCapacity,
+): string | null {
+  const requiredComponents = sdf.paramCount + FIXED_FRAGMENT_UNIFORM_COMPONENTS;
+  if (requiredComponents > capacity.maxFragmentUniformComponents) {
+    return `Viewport unavailable: this model needs ${requiredComponents} fragment-uniform components, but this GPU supports ${capacity.maxFragmentUniformComponents}. Simplify or group repeated operations; CPU export remains available.`;
+  }
+  const textureCount = sdf.textures?.length ?? 0;
+  if (textureCount > capacity.maxTextureImageUnits) {
+    return `Viewport unavailable: this model needs ${textureCount} fragment textures, but this GPU supports ${capacity.maxTextureImageUnits}. Reduce imported mesh fields; CPU export remains available.`;
+  }
+  if (sdf.glsl.length > MAX_GENERATED_SHADER_CHARS) return `Viewport unavailable: generated shader source is ${sdf.glsl.length.toLocaleString()} characters, above the supported ${MAX_GENERATED_SHADER_CHARS.toLocaleString()}-character budget. Simplify the model; CPU export remains available.`;
+  return null;
+}
+
+function rendererCapacity(engine: ThreeEngine): ShaderCapacity | null {
+  const renderer = (engine as unknown as { renderer?: THREE.WebGLRenderer }).renderer;
+  if (!renderer?.getContext) return null;
+  const gl = renderer.getContext();
+  const webgl2 = typeof WebGL2RenderingContext !== 'undefined' && gl instanceof WebGL2RenderingContext;
+  const maxFragmentUniformComponents = webgl2
+    ? gl.getParameter((gl as WebGL2RenderingContext).MAX_FRAGMENT_UNIFORM_COMPONENTS)
+    : gl.getParameter(gl.MAX_FRAGMENT_UNIFORM_VECTORS) * 4;
+  return {
+    maxFragmentUniformComponents,
+    maxTextureImageUnits: gl.getParameter(gl.MAX_TEXTURE_IMAGE_UNITS),
+  };
+}
+
 export class SdfMesh {
   private engine: ThreeEngine;
   private mesh: THREE.Mesh | null = null;
@@ -291,6 +340,8 @@ export class SdfMesh {
   private lastHasWarn = false;
   private lastTextureKey = '';
   private lastBBKey = '';
+  private renderedSdf: SDFDisplayData | null = null;
+  private rebuilding = false;
   private unsubs: (() => void)[] = [];
 
   constructor(engine: ThreeEngine) {
@@ -324,6 +375,7 @@ export class SdfMesh {
     }
     this.mesh = null;
     this.material = null;
+    this.renderedSdf = null;
   }
 
   private onStoreChange() {
@@ -338,6 +390,16 @@ export class SdfMesh {
       return;
     }
 
+    const capacity = rendererCapacity(this.engine);
+    const capacityError = capacity && shaderCapacityError(sdf, capacity);
+    if (capacityError) {
+      // Keep both the current CPU evaluation and the last known-good material.
+      // The former remains exportable/editable; the latter makes the failed
+      // viewport update visibly non-destructive.
+      if (useModelerStore.getState().error !== capacityError) useModelerStore.setState({ error: capacityError });
+      return;
+    }
+
     // Rebuild when anything baked into the material changes. hasWarn selects
     // the fragment source via buildFrag, and the textures become uniforms, so
     // neither can be left out of the key without rendering a stale material.
@@ -348,18 +410,26 @@ export class SdfMesh {
       sdf.hasWarn !== this.lastHasWarn ||
       texKey !== this.lastTextureKey
     ) {
+      const previousKey = [this.lastGlsl, this.lastParamCount, this.lastHasWarn, this.lastTextureKey] as const;
       this.lastGlsl = sdf.glsl;
       this.lastParamCount = sdf.paramCount;
       this.lastHasWarn = sdf.hasWarn;
       this.lastTextureKey = texKey;
-      this.rebuild(sdf);
+      let rebuilt = false;
+      this.rebuilding = true;
+      try { rebuilt = this.rebuild(sdf); }
+      finally { this.rebuilding = false; }
+      if (!rebuilt) {
+        [this.lastGlsl, this.lastParamCount, this.lastHasWarn, this.lastTextureKey] = previousKey;
+      }
+    } else if (this.material && !this.rebuilding) {
+      // Parameter values and bounds are dynamic uniforms/geometry and do not
+      // require a new program, but update() must read the accepted new values.
+      this.renderedSdf = sdf;
     }
   }
 
-  private rebuild(sdf: { glsl: string; paramCount: number; paramValues: number[]; textures: any[]; bbMin: [number,number,number]; bbMax: [number,number,number]; hasWarn: boolean }) {
-    // Dispose the previous build before allocating its replacement.
-    this.releaseGpu();
-
+  private rebuild(sdf: { glsl: string; paramCount: number; paramValues: number[]; textures: any[]; bbMin: [number,number,number]; bbMax: [number,number,number]; hasWarn: boolean }): boolean {
     const initialParams = new Float32Array(sdf.paramCount);
     for (let i = 0; i < sdf.paramValues.length; i++) initialParams[i] = sdf.paramValues[i];
 
@@ -385,12 +455,14 @@ export class SdfMesh {
     const clipAxis = useViewportStore.getState().clipAxis;
     const clipPosition = useViewportStore.getState().clipPosition;
 
-    this.material = new THREE.ShaderMaterial({
+    const nextMaterial = new THREE.ShaderMaterial({
       vertexShader: VERT,
       fragmentShader: buildFrag(sdf.glsl, sdf.paramCount, sdf.hasWarn),
       uniforms: {
         u_p: { value: initialParams },
         u_cameraPos: { value: new THREE.Vector3() },
+        u_cameraDir: { value: new THREE.Vector3(0, 0, -1) },
+        u_orthographic: { value: 0 },
         u_lightDir: { value: new THREE.Vector3(0.5, 0.8, 0.4).normalize() },
         u_bbMin: { value: new THREE.Vector3(...sdf.bbMin) },
         u_bbMax: { value: new THREE.Vector3(...sdf.bbMax) },
@@ -421,8 +493,30 @@ export class SdfMesh {
     const geo = new THREE.BoxGeometry(diag, diag, diag);
     geo.translate(cx, cy, cz);
 
-    this.mesh = new THREE.Mesh(geo, this.material);
-    this.engine.scene.add(this.mesh);
+    const nextMesh = new THREE.Mesh(geo, nextMaterial);
+    const renderer = this.engine.renderer;
+    if (typeof renderer?.compile === 'function') {
+      const staging = new THREE.Scene();
+      staging.add(nextMesh);
+      let shaderError = false;
+      const previousHandler = renderer.debug.onShaderError;
+      renderer.debug.onShaderError = (...args) => { shaderError = true; previousHandler?.(...args); };
+      try { renderer.compile(staging, this.engine.camera); }
+      catch { shaderError = true; }
+      finally { renderer.debug.onShaderError = previousHandler; }
+      if (shaderError) {
+        geo.dispose(); nextMaterial.dispose();
+        const message = 'Viewport shader failed to compile on this GPU. The prior preview is preserved; simplify the model or use CPU export.';
+        if (useModelerStore.getState().error !== message) useModelerStore.setState({ error: message });
+        return false;
+      }
+    }
+    this.releaseGpu();
+    this.material = nextMaterial;
+    this.mesh = nextMesh;
+    this.renderedSdf = sdf as SDFDisplayData;
+    this.engine.scene.add(nextMesh);
+    return true;
   }
 
   update() {
@@ -431,6 +525,8 @@ export class SdfMesh {
     const cam = this.engine.camera;
 
     u.u_cameraPos.value.copy(cam.position);
+    cam.getWorldDirection(u.u_cameraDir.value);
+    u.u_orthographic.value = cam instanceof THREE.OrthographicCamera ? 1 : 0;
     u.u_projView.value.copy(cam.projectionMatrix).multiply(cam.matrixWorldInverse);
 
     const vs = useViewportStore.getState();
@@ -439,7 +535,7 @@ export class SdfMesh {
     u.u_clipAxis.value = vs.clipAxis === 'x' ? 0 : vs.clipAxis === 'z' ? 2 : 1;
     u.u_clipFlip.value = vs.clipFlip ? 1.0 : 0.0;
 
-    const sdf = useModelerStore.getState().sdfDisplay;
+    const sdf = this.renderedSdf;
     if (sdf) {
       const [x0, y0, z0] = sdf.bbMin;
       const [x1, y1, z1] = sdf.bbMax;
@@ -457,7 +553,9 @@ export class SdfMesh {
       const size = new THREE.Vector2();
       this.engine.renderer.getSize(size);
       const heightPx = Math.max(1, size.y * this.engine.renderer.getPixelRatio());
-      u.u_pixelRadius.value = (2 * Math.tan((cam.fov * Math.PI) / 360)) / heightPx;
+      u.u_pixelRadius.value = cam instanceof THREE.OrthographicCamera
+        ? (cam.top - cam.bottom) / cam.zoom / heightPx
+        : (2 * Math.tan((cam.fov * Math.PI) / 360)) / heightPx;
       // A ray that starts inside the bounding box has t = 0, where a purely
       // relative threshold is zero and the march would spend its whole budget
       // creeping. Tied to the model rather than to a constant so it means the

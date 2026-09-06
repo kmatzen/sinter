@@ -1,43 +1,46 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { useDialogFocus } from '../ui/useDialogFocus';
+import { shortcutHelpCommands, TOGGLE_SHORTCUT_HELP_EVENT } from '../../commands/editorCommands';
 
-const SHORTCUTS = [
+const POINTER_SHORTCUTS = [
   ['Click', 'Select the shape under the pointer'],
   ['Alt+Click', 'Select the operation above that shape'],
-  ['W', 'Move tool'],
-  ['E', 'Rotate tool'],
-  ['R', 'Scale tool'],
-  ['Esc', 'Deselect tool'],
-  ['Delete', 'Remove selected node'],
-  ['Ctrl+C', 'Copy node'],
-  ['Ctrl+V', 'Paste node'],
-  ['Ctrl+D', 'Duplicate node'],
-  ['Ctrl+S', 'Save project'],
   ['Shift (hold)', 'Disable snap while dragging'],
-  ['Ctrl+Z', 'Undo'],
-  ['Ctrl+Shift+Z', 'Redo'],
-  ['?', 'Toggle this help'],
+];
+
+const SHORTCUTS = [
+  ...POINTER_SHORTCUTS,
+  ...shortcutHelpCommands.map((command) => [command.shortcut!.replace(/Mod/g, 'Ctrl/⌘').replace('Escape', 'Esc'), command.shortcutDescription!] as string[]),
 ];
 
 export function ShortcutOverlay() {
   const [visible, setVisible] = useState(false);
+  const surface = useRef<HTMLDivElement>(null);
+  const close = useCallback(() => setVisible(false), []);
+  useDialogFocus(surface, close, visible);
 
   useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if ((e.target as HTMLElement)?.tagName === 'INPUT' || (e.target as HTMLElement)?.tagName === 'TEXTAREA') return;
-      if (e.key === '?') setVisible((v) => !v);
-    };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
+    const handler = () => setVisible((v) => !v);
+    window.addEventListener(TOGGLE_SHORTCUT_HELP_EVENT, handler);
+    return () => window.removeEventListener(TOGGLE_SHORTCUT_HELP_EVENT, handler);
   }, []);
 
-  if (!visible) return null;
+  if (!visible) return (
+    <button
+      onClick={() => setVisible(true)}
+      aria-label="Open keyboard shortcuts and accessibility help"
+      title="Keyboard shortcuts"
+      className="absolute bottom-3 right-3 z-20 w-8 h-8 tap rounded-full text-sm"
+      style={{ background: 'var(--bg-elevated)', color: 'var(--text-secondary)', border: '1px solid var(--border-default)' }}
+    >?</button>
+  );
 
   return (
     <div className="absolute inset-0 flex items-center justify-center z-50 pointer-events-none">
-      <div className="bg-zinc-900/95 border border-zinc-700 rounded-lg p-5 pointer-events-auto shadow-2xl">
+      <div ref={surface} role="dialog" aria-modal="true" aria-labelledby="shortcut-title" className="bg-zinc-900/95 border border-zinc-700 rounded-lg p-5 pointer-events-auto shadow-2xl">
         <div className="flex items-center justify-between mb-3">
-          <h3 className="text-sm font-medium text-zinc-200">Keyboard Shortcuts</h3>
-          <button onClick={() => setVisible(false)} className="text-zinc-300 hover:text-zinc-300 text-xs">
+          <h3 id="shortcut-title" className="text-sm font-medium text-zinc-200">Keyboard Shortcuts</h3>
+          <button onClick={close} aria-label="Close keyboard shortcuts" className="text-zinc-300 hover:text-zinc-300 text-xs">
             {'\u2715'}
           </button>
         </div>
@@ -52,6 +55,7 @@ export function ShortcutOverlay() {
           ))}
         </div>
         <p className="text-[10px] text-zinc-300 mt-3">Press ? to close</p>
+        <p className="text-[10px] text-zinc-300 mt-1">The node tree and property controls are the keyboard and screen-reader alternative to direct canvas manipulation.</p>
       </div>
     </div>
   );

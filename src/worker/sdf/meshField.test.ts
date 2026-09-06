@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
+import fc from 'fast-check';
 import { bakeMeshField, sampleMeshField, meshBounds } from './meshField';
-import { parseSTL, isBinarySTL, STLParseError } from './stl';
+import { parseSTL, isBinarySTL, STLParseError, validateSTLTopology } from './stl';
 
 /** Axis-aligned box as a closed triangle soup, outward-facing. */
 function boxMesh(hx: number, hy: number, hz: number): Float32Array {
@@ -206,27 +207,29 @@ describe('STL parsing', () => {
   }
 
   const TRI = [0, 0, 0, 1, 0, 0, 0, 1, 0];
+  const TETRA = [
+    [0, 0, 0, 0, 1, 0, 1, 0, 0],
+    [0, 0, 0, 1, 0, 0, 0, 0, 1],
+    [1, 0, 0, 0, 1, 0, 0, 0, 1],
+    [0, 1, 0, 0, 0, 0, 0, 0, 1],
+  ];
 
   it('reads a binary file', () => {
-    const mesh = parseSTL(binarySTL([TRI, TRI]));
-    expect(mesh.triangleCount).toBe(2);
-    expect(Array.from(mesh.positions.slice(0, 9))).toEqual(TRI);
+    const mesh = parseSTL(binarySTL(TETRA));
+    expect(mesh.triangleCount).toBe(4);
+    expect(Array.from(mesh.positions.slice(0, 9))).toEqual(TETRA[0]);
   });
 
   it('reads an ascii file', () => {
-    const text = `solid test
-  facet normal 0 0 1
-    outer loop
-      vertex 0 0 0
-      vertex 1 0 0
-      vertex 0 1 0
-    endloop
-  endfacet
-endsolid test`;
+    const text = `solid test\n${TETRA.map((triangle) => `facet normal 0 0 1 outer loop
+      vertex ${triangle[0]} ${triangle[1]} ${triangle[2]}
+      vertex ${triangle[3]} ${triangle[4]} ${triangle[5]}
+      vertex ${triangle[6]} ${triangle[7]} ${triangle[8]}
+      endloop endfacet`).join('\n')}\nendsolid test`;
     const mesh = parseSTL(new TextEncoder().encode(text).buffer as ArrayBuffer);
-    expect(mesh.triangleCount).toBe(1);
-    expect(Array.from(mesh.positions)).toEqual(TRI);
-    expect(Array.from(mesh.normals)).toEqual([0, 0, 1]);
+    expect(mesh.triangleCount).toBe(4);
+    expect(Array.from(mesh.positions.slice(0, 9))).toEqual(TETRA[0]);
+    expect(Array.from(mesh.normals.slice(0, 3))).toEqual([0, 0, 1]);
   });
 
   /**
@@ -235,16 +238,36 @@ endsolid test`;
    * arithmetic is the only sound test, so it has to win.
    */
   it('reads a binary file whose header starts with the word solid', () => {
-    const buf = binarySTL([TRI]);
+    const buf = binarySTL(TETRA);
     new Uint8Array(buf).set(new TextEncoder().encode('solid produced by something'), 0);
     expect(isBinarySTL(buf)).toBe(true);
-    expect(parseSTL(buf).triangleCount).toBe(1);
+    expect(parseSTL(buf).triangleCount).toBe(4);
   });
 
   it('rejects a binary file whose triangle count overruns the data', () => {
     const buf = binarySTL([TRI]);
     new DataView(buf).setUint32(80, 5000, true);
     expect(() => parseSTL(buf)).toThrow(STLParseError);
+  });
+
+  it('rejects non-finite coordinates in binary files', () => {
+    const triangle = [...TRI];
+    triangle[4] = Number.NaN;
+    expect(() => parseSTL(binarySTL([triangle]))).toThrow(/not finite/);
+  });
+
+  it('rejects unsafe coordinate magnitudes', () => {
+    const triangle = [...TRI];
+    triangle[3] = 2e9;
+    expect(() => parseSTL(binarySTL([triangle]))).toThrow(/modeling envelope/);
+  });
+
+  it('rejects meshes whose vertices all coincide', () => {
+    expect(() => parseSTL(binarySTL([[1, 2, 3, 1, 2, 3, 1, 2, 3]]))).toThrow(/coincide/);
+  });
+
+  it('rejects a zero-triangle binary file', () => {
+    expect(() => parseSTL(binarySTL([]))).toThrow(/No triangles/);
   });
 
   it('rejects a file with no triangles in it', () => {
@@ -259,7 +282,80 @@ endsolid test`;
 
   it('tolerates an ascii file with no normals and unusual whitespace', () => {
     const text = 'solid\nfacet\nvertex 0 0 0\n\t vertex 1 0 0\n   vertex 0 1 0\nendfacet\nendsolid';
-    const mesh = parseSTL(new TextEncoder().encode(text).buffer as ArrayBuffer);
-    expect(mesh.triangleCount).toBe(1);
+    expect(() => parseSTL(new TextEncoder().encode(text).buffer as ArrayBuffer)).toThrow(/not a closed/);
+  });
+
+  it('rejects vertices outside facets instead of inventing triangles', () => {
+    const text = 'solid bad vertex 0 0 0 vertex 1 0 0 vertex 0 1 0 endsolid bad';
+    expect(() => parseSTL(new TextEncoder().encode(text).buffer as ArrayBuffer)).toThrow(/outside a facet/);
+  });
+
+  it('rejects facets with the wrong number of vertices', () => {
+    const text = `solid bad facet normal 0 0 1 outer loop
+      vertex 0 0 0 vertex 1 0 0 vertex 0 1 0 vertex 1 1 0
+      endloop endfacet endsolid bad`;
+    expect(() => parseSTL(new TextEncoder().encode(text).buffer as ArrayBuffer)).toThrow(/more than three vertices/);
+  });
+
+  it('rejects an unterminated ASCII facet', () => {
+    const text = 'solid bad facet normal 0 0 1 vertex 0 0 0 vertex 1 0 0 vertex 0 1 0';
+    expect(() => parseSTL(new TextEncoder().encode(text).buffer as ArrayBuffer)).toThrow(/missing endfacet/);
+  });
+
+  it('rejects an all-degenerate triangle set', () => {
+    expect(() => parseSTL(binarySTL([[0, 0, 0, 1, 0, 0, 2, 0, 0]]))).toThrow(/Every triangle is degenerate/);
+  });
+
+  it('rejects an open sheet before it can acquire an arbitrary interior', () => {
+    expect(() => parseSTL(binarySTL([TRI]))).toThrow(/boundary edge/);
+  });
+
+  it('rejects duplicate facets', () => {
+    expect(() => parseSTL(binarySTL([...TETRA, TETRA[0]]))).toThrow(/duplicates another facet/);
+  });
+
+  it('rejects inconsistent winding', () => {
+    const reversed = TETRA.map((triangle) => [...triangle]);
+    reversed[0] = [...reversed[0].slice(0, 3), ...reversed[0].slice(6, 9), ...reversed[0].slice(3, 6)];
+    expect(() => parseSTL(binarySTL(reversed))).toThrow(/inconsistently oriented/);
+  });
+
+  it('rejects a non-manifold edge', () => {
+    const extra = [0, 0, 0, 1, 0, 0, 0, -1, 0];
+    expect(() => parseSTL(binarySTL([...TETRA, extra]))).toThrow(/non-manifold edge/);
+  });
+
+  it('welds round-off copies and accepts disconnected closed shells', () => {
+    const shifted = TETRA.map((triangle) => triangle.map((value, i) => value + (i % 3 === 0 ? 3 : 0)));
+    const noisy = [...TETRA, ...shifted].flat();
+    noisy[9] += 2e-7;
+    const topology = validateSTLTopology(noisy);
+    expect(topology.componentCount).toBe(2);
+    expect(topology.vertexCount).toBe(8);
+    expect(topology.selfIntersections).toBe('unchecked');
+  });
+
+  it('reports the explicit limitation for geometrically intersecting closed shells', () => {
+    const crossing = TETRA.map((triangle) => triangle.map((value, i) => value + (i % 3 === 0 ? 0.25 : 0.1)));
+    const topology = validateSTLTopology([...TETRA, ...crossing].flat());
+    expect(topology.componentCount).toBe(2);
+    expect(topology.selfIntersections).toBe('unchecked');
+  });
+
+  it('rejects oversized binary declarations before allocating vertex arrays', () => {
+    const buf = new ArrayBuffer(84);
+    new DataView(buf).setUint32(80, 60_001, true);
+    expect(() => parseSTL(buf)).toThrow(/supported limit/);
+  });
+
+  it('fails arbitrary bounded input only with a parser error', () => {
+    fc.assert(fc.property(fc.uint8Array({ maxLength: 2_048 }), (bytes) => {
+      try {
+        const copy = Uint8Array.from(bytes);
+        parseSTL(copy.buffer);
+      } catch (error) {
+        expect(error).toBeInstanceOf(STLParseError);
+      }
+    }), { numRuns: 500 });
   });
 });

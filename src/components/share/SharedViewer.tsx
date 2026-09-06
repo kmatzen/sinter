@@ -3,6 +3,7 @@ import { ThreeEngine } from '../../engine/ThreeEngine';
 import { useModelerStore } from '../../store/modelerStore';
 import { useEvaluator } from '../../engine/useEvaluator';
 import { getStorageProvider, parseShareHash, type ProviderName } from '../../storage';
+import { useProjectStore } from '../../store/projectStore';
 
 export function SharedViewer({ onOpenEditor }: { onOpenEditor: () => void }) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -27,8 +28,7 @@ export function SharedViewer({ onOpenEditor }: { onOpenEditor: () => void }) {
         const body = await storage.read(null, id);
         if (cancelled) return;
         const tree = body?.tree ?? null;
-        const store = useModelerStore.getState();
-        store.setTree(tree as Parameters<typeof store.setTree>[0]);
+        useProjectStore.getState().loadLocalDocument('Shared project', tree, body.parameters, body.views, body.measurements);
         // Provider doesn't return the project name on anonymous read.
         // Best-effort fallback: leave it as "Shared project".
         setProjectName('Shared project');

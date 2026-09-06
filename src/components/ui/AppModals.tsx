@@ -1,4 +1,6 @@
+import { useCallback, useRef } from 'react';
 import { useModalStore } from '../../store/modalStore';
+import { useDialogFocus } from './useDialogFocus';
 
 export function AppModals() {
   return (
@@ -13,7 +15,13 @@ function ConfirmDialog() {
   const visible = useModalStore((s) => s.confirmVisible);
   const message = useModalStore((s) => s.confirmMessage);
   const action = useModalStore((s) => s.confirmAction);
+  const confirmLabel = useModalStore((s) => s.confirmLabel);
+  const secondaryLabel = useModalStore((s) => s.confirmSecondaryLabel);
+  const secondaryAction = useModalStore((s) => s.confirmSecondaryAction);
   const hide = useModalStore((s) => s.hideConfirm);
+  const surface = useRef<HTMLDivElement>(null);
+  const close = useCallback(() => hide(), [hide]);
+  useDialogFocus(surface, close, visible);
 
   if (!visible) return null;
 
@@ -21,10 +29,10 @@ function ConfirmDialog() {
     <div className="fixed inset-0 z-[100] flex items-center justify-center"
          style={{ background: 'rgba(0,0,0,0.6)' }}
          onClick={hide}>
-      <div className="w-[360px] rounded-lg p-6"
+      <div ref={surface} role="alertdialog" aria-modal="true" aria-describedby="confirm-message" className="w-[360px] rounded-lg p-6"
            style={{ background: 'var(--bg-panel)', border: '1px solid var(--border-default)', boxShadow: 'var(--shadow-lg)' }}
            onClick={(e) => e.stopPropagation()}>
-        <p className="text-sm mb-6 leading-relaxed" style={{ color: 'var(--text-primary)' }}>
+        <p id="confirm-message" className="text-sm mb-6 leading-relaxed" style={{ color: 'var(--text-primary)' }}>
           {message}
         </p>
         <div className="flex gap-2 justify-end">
@@ -33,10 +41,17 @@ function ConfirmDialog() {
                   style={{ background: 'var(--bg-elevated)', color: 'var(--text-secondary)', border: '1px solid var(--border-subtle)' }}>
             Cancel
           </button>
+          {secondaryLabel && (
+            <button onClick={() => { secondaryAction?.(); hide(); }}
+                    className="text-xs px-4 py-2 rounded font-medium"
+                    style={{ background: 'var(--accent)', color: 'var(--bg-deep)' }}>
+              {secondaryLabel}
+            </button>
+          )}
           <button onClick={() => { action?.(); hide(); }}
                   className="text-xs px-4 py-2 rounded font-medium"
                   style={{ background: 'var(--accent-red)', color: 'white' }}>
-            Delete
+            {confirmLabel}
           </button>
         </div>
       </div>
@@ -50,7 +65,7 @@ function Toast() {
   if (!message) return null;
 
   return (
-    <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[100]">
+    <div role="status" aria-live="polite" className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[100]">
       <div className="px-4 py-2.5 rounded-lg text-sm font-medium shadow-lg"
            style={{ background: 'var(--bg-elevated)', color: 'var(--text-primary)', border: '1px solid var(--border-default)', boxShadow: 'var(--shadow-lg)' }}>
         {message}

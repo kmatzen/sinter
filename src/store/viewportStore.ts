@@ -1,6 +1,36 @@
 import { create } from 'zustand';
+import type { MeasurementAnchor, PinnedMeasurement } from '../types/measurement';
+import type { NamedProjectView } from '../types/view';
+
+const GIZMO_SPACE_KEY = 'sinter_gizmo_space';
+const MEASUREMENT_UNIT_KEY = 'sinter_measurement_unit';
+const MEASUREMENT_PRECISION_KEY = 'sinter_measurement_precision';
+
+function initialGizmoSpace(): 'world' | 'local' {
+  try { return localStorage.getItem(GIZMO_SPACE_KEY) === 'local' ? 'local' : 'world'; }
+  catch { return 'world'; }
+}
+
+function initialMeasurementUnit(): 'mm' | 'in' {
+  try { return localStorage.getItem(MEASUREMENT_UNIT_KEY) === 'in' ? 'in' : 'mm'; } catch { return 'mm'; }
+}
+
+function initialMeasurementPrecision(): number {
+  try {
+    const raw = localStorage.getItem(MEASUREMENT_PRECISION_KEY);
+    if (raw === null) return 2;
+    const value = Number(raw);
+    return Number.isInteger(value) && value >= 0 && value <= 6 ? value : 2;
+  } catch { return 2; }
+}
 
 interface ViewportState {
+  namedViews: NamedProjectView[];
+  setNamedViews: (views: NamedProjectView[]) => void;
+  addNamedView: (view: NamedProjectView) => void;
+  removeNamedView: (id: string) => void;
+  projection: 'perspective' | 'orthographic';
+  setProjection: (projection: 'perspective' | 'orthographic') => void;
   // Gizmo
   gizmoMode: 'none' | 'translate' | 'rotate' | 'scale';
   setGizmoMode: (mode: 'none' | 'translate' | 'rotate' | 'scale') => void;
@@ -63,13 +93,39 @@ interface ViewportState {
    */
   hoverSource: 'viewport' | 'ui' | null;
   setHoveredNode: (id: string | null, source?: 'viewport' | 'ui') => void;
+
+  measurementMode: boolean;
+  measurementPoints: MeasurementAnchor[];
+  pinnedMeasurements: PinnedMeasurement[];
+  measurementUnit: 'mm' | 'in';
+  measurementPrecision: number;
+  toggleMeasurementMode: () => void;
+  addMeasurementPoint: (anchor: MeasurementAnchor) => void;
+  clearMeasurement: () => void;
+  removeMeasurementPoint: () => void;
+  pinMeasurement: () => void;
+  removePinnedMeasurement: (id: string) => void;
+  setPinnedMeasurements: (measurements: PinnedMeasurement[]) => void;
+  resetMeasurementSession: () => void;
+  setMeasurementUnit: (unit: 'mm' | 'in') => void;
+  setMeasurementPrecision: (precision: number) => void;
 }
 
 export const useViewportStore = create<ViewportState>((set) => ({
+  namedViews: [],
+  setNamedViews: (namedViews) => set({ namedViews }),
+  addNamedView: (view) => set((state) => ({ namedViews: [...state.namedViews.filter((item) => item.id !== view.id), view].slice(-20) })),
+  removeNamedView: (id) => set((state) => ({ namedViews: state.namedViews.filter((item) => item.id !== id) })),
+  projection: 'perspective',
+  setProjection: (projection) => set({ projection }),
   gizmoMode: 'translate',
   setGizmoMode: (mode) => set({ gizmoMode: mode }),
-  gizmoSpace: 'world',
-  toggleGizmoSpace: () => set((s) => ({ gizmoSpace: s.gizmoSpace === 'world' ? 'local' : 'world' })),
+  gizmoSpace: initialGizmoSpace(),
+  toggleGizmoSpace: () => set((s) => {
+    const gizmoSpace = s.gizmoSpace === 'world' ? 'local' : 'world';
+    try { localStorage.setItem(GIZMO_SPACE_KEY, gizmoSpace); } catch { /* preference persistence is best effort */ }
+    return { gizmoSpace };
+  }),
   dragging: false,
   setDragging: (v) => set({ dragging: v }),
   snapEnabled: false,
@@ -95,5 +151,30 @@ export const useViewportStore = create<ViewportState>((set) => ({
     const next = id === null ? null : source;
     if (s.hoveredNodeId === id && s.hoverSource === next) return s;
     return { hoveredNodeId: id, hoverSource: next };
+  }),
+  measurementMode: false,
+  measurementPoints: [],
+  pinnedMeasurements: [],
+  measurementUnit: initialMeasurementUnit(),
+  measurementPrecision: initialMeasurementPrecision(),
+  toggleMeasurementMode: () => set((state) => ({ measurementMode: !state.measurementMode, measurementPoints: [] })),
+  addMeasurementPoint: (anchor) => set((state) => ({ measurementPoints: [...state.measurementPoints, anchor].slice(-3) })),
+  clearMeasurement: () => set({ measurementPoints: [] }),
+  removeMeasurementPoint: () => set((state) => ({ measurementPoints: state.measurementPoints.slice(0, -1) })),
+  pinMeasurement: () => set((state) => state.measurementPoints.length < 1 ? state : ({
+    pinnedMeasurements: [...state.pinnedMeasurements, { id: crypto.randomUUID(), anchors: state.measurementPoints, createdAt: new Date().toISOString() }].slice(-20),
+    measurementPoints: [],
+  })),
+  removePinnedMeasurement: (id) => set((state) => ({ pinnedMeasurements: state.pinnedMeasurements.filter((item) => item.id !== id) })),
+  setPinnedMeasurements: (pinnedMeasurements) => set({ pinnedMeasurements, measurementPoints: [] }),
+  resetMeasurementSession: () => set({ measurementMode: false, measurementPoints: [] }),
+  setMeasurementUnit: (measurementUnit) => set(() => {
+    try { localStorage.setItem(MEASUREMENT_UNIT_KEY, measurementUnit); } catch { /* preference persistence is best effort */ }
+    return { measurementUnit };
+  }),
+  setMeasurementPrecision: (input) => set(() => {
+    const measurementPrecision = Math.max(0, Math.min(6, Math.round(input)));
+    try { localStorage.setItem(MEASUREMENT_PRECISION_KEY, String(measurementPrecision)); } catch { /* preference persistence is best effort */ }
+    return { measurementPrecision };
   }),
 }));

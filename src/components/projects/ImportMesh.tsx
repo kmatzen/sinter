@@ -1,8 +1,9 @@
 import { useRef, useState } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { useModelerStore } from '../../store/modelerStore';
-import { parseSTL, STLParseError } from '../../worker/sdf/stl';
+import { MAX_STL_TRIANGLES, parseSTL, STLParseError, STL_TOPOLOGY_STATUS, type RawMesh } from '../../worker/sdf/stl';
 import type { SDFNodeUI } from '../../types/operations';
+import { useDialogFocus } from '../ui/useDialogFocus';
 
 /**
  * STL import (#87, layer 1).
@@ -23,8 +24,6 @@ import type { SDFNodeUI } from '../../types/operations';
  * a user who exported at that density chose it, and quietly throwing most of
  * it away is worse than saying no.
  */
-const MAX_TRIANGLES = 60_000;
-
 function toBase64(floats: Float32Array): string {
   const bytes = new Uint8Array(floats.buffer, floats.byteOffset, floats.byteLength);
   let bin = '';
@@ -43,7 +42,7 @@ export function buildMeshNode(name: string, positions: Float32Array, resolution 
     kind: 'mesh',
     label: name.replace(/\.stl$/i, '').slice(0, 40) || 'Imported Mesh',
     params: { resolution },
-    data: { meshPositions: toBase64(positions), meshName: name },
+    data: { meshPositions: toBase64(positions), meshName: name, meshTopology: STL_TOPOLOGY_STATUS },
     children: [],
     enabled: true,
   };
@@ -54,10 +53,14 @@ export function ImportMesh({ onDone }: { onDone: () => void }) {
   const selectedId = useModelerStore((s) => s.selectedNodeId);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [pending, setPending] = useState<{ file: File; mesh: RawMesh } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const surface = useRef<HTMLDivElement>(null);
+  useDialogFocus(surface, onDone);
 
   const handleFile = async (file: File) => {
     setError(null);
+    setPending(null);
     setBusy(true);
     try {
       const mesh = parseSTL(await file.arrayBuffer());
@@ -65,15 +68,14 @@ export function ImportMesh({ onDone }: { onDone: () => void }) {
         setError('That file has no triangles in it.');
         return;
       }
-      if (mesh.triangleCount > MAX_TRIANGLES) {
+      if (mesh.triangleCount > MAX_STL_TRIANGLES) {
         setError(
-          `${mesh.triangleCount.toLocaleString()} triangles is over the ${MAX_TRIANGLES.toLocaleString()} limit. ` +
+          `${mesh.triangleCount.toLocaleString()} triangles is over the ${MAX_STL_TRIANGLES.toLocaleString()} limit. ` +
           'Decimate it in your mesh editor first — the model is stored in the project file, so it has to stay small enough to save.',
         );
         return;
       }
-      addNodeFromData(selectedId, buildMeshNode(file.name, mesh.positions));
-      onDone();
+      setPending({ file, mesh });
     } catch (err) {
       setError(err instanceof STLParseError ? err.message : `Could not read that file: ${String(err)}`);
     } finally {
@@ -83,9 +85,9 @@ export function ImportMesh({ onDone }: { onDone: () => void }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.5)' }}>
-      <div className="rounded-lg p-5 w-[420px] max-w-[90vw]"
+      <div ref={surface} role="dialog" aria-modal="true" aria-labelledby="import-stl-title" className="rounded-lg p-5 w-[420px] max-w-[90vw]"
            style={{ background: 'var(--bg-panel)', border: '1px solid var(--border-default)' }}>
-        <h2 className="text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>Import STL</h2>
+        <h2 id="import-stl-title" className="text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>Import STL</h2>
         <p className="text-[11px] mb-3" style={{ color: 'var(--text-muted)' }}>
           The mesh becomes an editable node you can subtract, intersect or pattern like any
           other shape. It is stored as a distance field, so fine detail is rounded to the
@@ -118,6 +120,27 @@ export function ImportMesh({ onDone }: { onDone: () => void }) {
           <div role="alert" className="text-[11px] mb-3 px-2 py-1.5 rounded"
                style={{ background: 'var(--bg-elevated)', color: 'var(--accent-red, #e06c6c)' }}>
             {error}
+          </div>
+        )}
+
+        {pending && (
+          <div className="text-[11px] mb-3 px-2 py-2 rounded" style={{ background: 'var(--bg-elevated)', color: 'var(--text-secondary)' }}>
+            <div style={{ color: 'var(--text-primary)' }}>
+              Closed manifold · {pending.mesh.topology.componentCount} shell{pending.mesh.topology.componentCount === 1 ? '' : 's'}
+            </div>
+            <div className="mt-1" style={{ color: 'var(--accent-orange, #d9a441)' }}>
+              Self-intersections cannot currently be ruled out. Import uses ray-parity approximation and the mesh will remain visibly marked.
+            </div>
+            <button
+              onClick={() => {
+                addNodeFromData(selectedId, buildMeshNode(pending.file.name, pending.mesh.positions));
+                onDone();
+              }}
+              className="w-full px-3 py-2 rounded text-[12px] font-medium mt-2"
+              style={{ background: 'var(--accent)', color: 'var(--bg-deep)' }}
+            >
+              Import approximately
+            </button>
           </div>
         )}
 

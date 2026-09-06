@@ -1,4 +1,6 @@
-import type { StorageProvider, ProjectMeta, ProjectFileBody } from './types';
+import type { StorageProvider, ProjectMeta } from './types';
+import { StorageConflictError } from './types';
+import { decodeProjectFileBody, MAX_PROJECT_JSON_CHARS } from '../types/documentDecoder';
 
 const API = 'https://api.github.com';
 const DESC_PREFIX = 'sinter:';
@@ -31,25 +33,37 @@ function nameFromGist(gist: { description?: string | null; files?: Record<string
   return 'Untitled';
 }
 
-async function getGistFilename(token: string | null, externalId: string): Promise<{ filename: string; raw: any }> {
+interface GistFile {
+  content?: string;
+  truncated?: boolean;
+  raw_url?: string;
+}
+
+function selectProjectFile(files: Record<string, GistFile> | undefined): { filename: string; file: GistFile } {
+  const matches = Object.entries(files ?? {}).filter(([name]) => name.startsWith(FILE_PREFIX));
+  if (matches.length === 0) throw new Error('Gist does not contain a Sinter project file');
+  if (matches.length > 1) throw new Error('Gist contains multiple Sinter project files; remove the duplicate before continuing');
+  const [filename, file] = matches[0];
+  return { filename, file };
+}
+
+async function getGistProject(token: string | null, externalId: string): Promise<{ filename: string; file: GistFile; revision: string }> {
   const headers = token
     ? authHeaders(token)
     : { Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' };
   const res = await fetch(`${API}/gists/${externalId}`, { headers });
   if (!res.ok) throw new Error(`GitHub API error (${res.status}): ${await res.text()}`);
   const data = await res.json();
-  const filename = Object.keys(data.files || {})[0];
-  if (!filename) throw new Error('Gist has no files');
-  return { filename, raw: data };
+  return { ...selectProjectFile(data.files), revision: res.headers.get('etag') ?? data.updated_at ?? '' };
 }
 
 export const githubStorage: StorageProvider = {
-  async list(token) {
+  async list(token, signal) {
     const projects: ProjectMeta[] = [];
     let page = 1;
     // Paginate (max 100 per page). Stop when an empty page comes back.
     for (;;) {
-      const res = await fetch(`${API}/gists?per_page=100&page=${page}`, { headers: authHeaders(token) });
+      const res = await fetch(`${API}/gists?per_page=100&page=${page}`, { headers: authHeaders(token), signal });
       if (!res.ok) throw new Error(`GitHub list failed (${res.status})`);
       const gists = (await res.json()) as Array<{
         id: string;
@@ -75,9 +89,7 @@ export const githubStorage: StorageProvider = {
   },
 
   async read(token, externalId) {
-    const { raw } = await getGistFilename(token, externalId);
-    const file = Object.values(raw.files || {})[0] as { content?: string; truncated?: boolean; raw_url?: string };
-    if (!file) throw new Error('Project file not found in gist');
+    const { file, revision } = await getGistProject(token, externalId);
     let content = file.content || '';
     if (file.truncated && file.raw_url) {
       const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
@@ -85,7 +97,8 @@ export const githubStorage: StorageProvider = {
       if (!rawRes.ok) throw new Error('Failed to fetch raw gist content');
       content = await rawRes.text();
     }
-    return JSON.parse(content) as ProjectFileBody;
+    if (content.length > MAX_PROJECT_JSON_CHARS) throw new Error('GitHub project exceeds the supported document size');
+    return { ...decodeProjectFileBody(JSON.parse(content)), revision };
   },
 
   async create(token, name, body) {
@@ -101,26 +114,31 @@ export const githubStorage: StorageProvider = {
     });
     if (!res.ok) throw new Error(`GitHub create failed (${res.status}): ${await res.text()}`);
     const data = await res.json();
-    return { externalId: data.id };
+    return { externalId: data.id, revision: res.headers.get('etag') ?? data.updated_at ?? '' };
   },
 
-  async update(token, externalId, body) {
-    const { filename } = await getGistFilename(token, externalId);
+  async update(token, externalId, body, expectedRevision) {
+    const { filename, revision } = await getGistProject(token, externalId);
+    if (expectedRevision && revision !== expectedRevision) throw new StorageConflictError();
     const res = await fetch(`${API}/gists/${externalId}`, {
       method: 'PATCH',
-      headers: authHeaders(token),
+      headers: { ...authHeaders(token), ...(revision ? { 'If-Match': revision } : {}) },
       body: JSON.stringify({ files: { [filename]: { content: JSON.stringify(body) } } }),
     });
+    if (res.status === 409 || res.status === 412) throw new StorageConflictError();
     if (!res.ok) throw new Error(`GitHub update failed (${res.status}): ${await res.text()}`);
+    return { revision: res.headers.get('etag') ?? (await res.json()).updated_at ?? revision };
   },
 
-  async rename(token, externalId, name) {
+  async rename(token, externalId, name, expectedRevision) {
     const res = await fetch(`${API}/gists/${externalId}`, {
       method: 'PATCH',
-      headers: authHeaders(token),
+      headers: { ...authHeaders(token), ...(expectedRevision ? { 'If-Match': expectedRevision } : {}) },
       body: JSON.stringify({ description: `${DESC_PREFIX}${name}` }),
     });
+    if (res.status === 409 || res.status === 412) throw new StorageConflictError();
     if (!res.ok) throw new Error(`GitHub rename failed (${res.status}): ${await res.text()}`);
+    return { revision: res.headers.get('etag') ?? (await res.json()).updated_at ?? expectedRevision };
   },
 
   async delete(token, externalId) {

@@ -1,6 +1,7 @@
 import type { SDFNodeUI } from '../../types/operations';
-import type { SDFNode, MeshFieldData } from './types';
+import type { SDFNode } from './types';
 import { bakeMeshField } from './meshField';
+import { MeshFieldCache } from './meshFieldCache';
 
 /**
  * Baked mesh fields, keyed by the mesh data and the resolution asked for.
@@ -9,20 +10,10 @@ import { bakeMeshField } from './meshField';
  * part — and `toSDFNode` runs on every evaluate. Without this, dragging any
  * unrelated slider would re-bake every imported mesh in the tree.
  *
- * Unbounded on purpose: the key includes the mesh, so the only way to grow it
- * is to import more meshes, and a tree holds its own meshes alive anyway.
+ * The full payload is verified on hash hits and retained memory is bounded, so
+ * this optimization can neither redefine geometry identity nor grow forever.
  */
-const fieldCache = new Map<string, MeshFieldData>();
-
-/** FNV-1a, so the cache key is not the whole megabyte of base64. */
-function hashString(s: string): string {
-  let h = 0x811c9dc5;
-  for (let i = 0; i < s.length; i++) {
-    h ^= s.charCodeAt(i) & 0xff;
-    h = Math.imul(h, 0x01000193);
-  }
-  return (h >>> 0).toString(36) + ':' + s.length;
-}
+const fieldCache = new MeshFieldCache(64 * 1024 * 1024);
 
 export function decodeMeshPositions(b64: string): Float32Array {
   const floats = decodeBase64Floats(b64);
@@ -55,7 +46,11 @@ export function toSDFNode(ui: SDFNodeUI): SDFNode | null {
   if (!ui.enabled) return null;
 
   const p = ui.params;
-  const children = ui.children.map(toSDFNode).filter((c): c is SDFNode => c !== null);
+  // Keep child positions: for subtract, slot A and slot B are not
+  // interchangeable. Filtering nulls used to turn a lone cutter into a
+  // positive solid while the UI correctly called the tree incomplete.
+  const compiledChildren = ui.children.map(toSDFNode);
+  const children = compiledChildren.filter((c): c is SDFNode => c !== null);
 
   switch (ui.kind) {
     case 'box': return { kind: 'box', size: [p.width, p.height, p.depth] };
@@ -70,16 +65,13 @@ export function toSDFNode(ui: SDFNodeUI): SDFNode | null {
       const b64 = ui.data?.meshPositions;
       if (!b64) return null;
       const res = Math.max(8, Math.min(96, Math.round(p.resolution || DEFAULT_MESH_RESOLUTION)));
-      const key = `${hashString(b64)}@${res}`;
-      let field = fieldCache.get(key);
-      if (!field) {
+      const field = fieldCache.getOrCreate(b64, res, () => {
         const positions = decodeBase64Floats(b64);
         // Whole triangles only. A truncated file is the importer's problem to
         // report, not something to bake half of.
-        field = bakeMeshField(positions.subarray(0, Math.floor(positions.length / 9) * 9), res);
-        fieldCache.set(key, field);
-      }
-      return { kind: 'mesh', field, name: ui.data?.meshName };
+        return bakeMeshField(positions.subarray(0, Math.floor(positions.length / 9) * 9), res);
+      });
+      return { kind: 'mesh', field, name: ui.data?.meshName, warn: true };
     }
 
     case 'text': {
@@ -95,10 +87,18 @@ export function toSDFNode(ui: SDFNodeUI): SDFNode | null {
     }
 
     case 'union':
-    case 'subtract':
-    case 'intersect':
-      if (children.length < 2) return children[0] ? markWarn(children[0]) : null;
-      return { kind: ui.kind as 'union' | 'subtract' | 'intersect', a: children[0], b: children[1], k: p.smooth || 0 };
+    case 'intersect': {
+      const [a, b] = compiledChildren;
+      if (!a || !b) return a || b ? markWarn((a || b)!) : null;
+      return { kind: ui.kind, a, b, k: p.smooth || 0 };
+    }
+
+    case 'subtract': {
+      const [a, b] = compiledChildren;
+      if (!a) return null;
+      if (!b) return markWarn(a);
+      return { kind: 'subtract', a, b, k: p.smooth || 0 };
+    }
 
     case 'shell':
       if (children.length < 1) return null;

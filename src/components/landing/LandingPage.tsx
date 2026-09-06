@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { lazy, Suspense } from 'react';
 
 /**
@@ -16,6 +16,8 @@ function HeroPlaceholder() {
   return <div className="w-full h-[280px] md:h-[320px]" aria-hidden="true" />;
 }
 import { ensureConsent } from '../../store/consent';
+import { LegalContent, legalTitle, type LegalDocument } from '../legal/LegalContent';
+import { useDialogFocus } from '../ui/useDialogFocus';
 
 export function LandingPage({ onLaunch }: { onLaunch: () => void }) {
   const handleLaunch = async () => {
@@ -64,8 +66,16 @@ export function LandingPage({ onLaunch }: { onLaunch: () => void }) {
 
       {/* Hero background */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <img src="/hero-bg.png" alt="" className="w-full h-auto absolute top-0 left-0 opacity-20"
-             style={{ minWidth: '100%', objectFit: 'cover', objectPosition: 'center top', maskImage: 'linear-gradient(to bottom, black 20%, transparent 70%)' }} />
+        <picture>
+          <source
+            type="image/webp"
+            srcSet="/hero-bg-768.webp 768w, /hero-bg-1536.webp 1536w"
+            sizes="100vw"
+          />
+          <img src="/hero-bg.png" alt="" width="1536" height="1024" decoding="async" fetchPriority="high"
+               className="w-full h-auto absolute top-0 left-0 opacity-20"
+               style={{ minWidth: '100%', objectFit: 'cover', objectPosition: 'center top', maskImage: 'linear-gradient(to bottom, black 20%, transparent 70%)' }} />
+        </picture>
       </div>
 
       {/* Hero */}
@@ -73,7 +83,7 @@ export function LandingPage({ onLaunch }: { onLaunch: () => void }) {
         <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full mb-6 text-xs font-medium tracking-wide"
              style={{ background: 'var(--accent-subtle)', color: 'var(--accent)' }}>
           <span className="w-1.5 h-1.5 rounded-full" style={{ background: 'var(--accent)' }} />
-          Open Source &middot; AI-Powered &middot; Free
+          Source Available &middot; AI-Powered &middot; Free
         </div>
 
         <h1 className="text-4xl md:text-6xl font-bold mb-4 md:mb-6 leading-[1.1] tracking-tight">
@@ -123,7 +133,7 @@ export function LandingPage({ onLaunch }: { onLaunch: () => void }) {
               Pixel-perfect geometry,<br />rendered in real time
             </h3>
             <p className="text-sm leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
-              Unlike mesh-based modelers, Sinter represents shapes as mathematical distance functions. Booleans never fail. Fillets are always smooth. And the GPU ray marches your model at full resolution every frame — no tessellation artifacts, ever.
+              Sinter represents shapes as mathematical distance functions, giving you responsive booleans and smooth blends while you work. Export creates a mesh at the resolution you choose for your slicer.
             </p>
             <div className="space-y-2 pt-2">
               {[
@@ -156,7 +166,11 @@ export function LandingPage({ onLaunch }: { onLaunch: () => void }) {
                  onMouseLeave={(e) => e.currentTarget.style.borderColor = 'var(--border-subtle)'}>
               {f.image && (
                 <div className="w-full aspect-square overflow-hidden">
-                  <img src={f.image} alt={f.title} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" />
+                  <picture>
+                    <source type="image/webp" srcSet={f.webp} />
+                    <img src={f.image} alt={f.title} width="400" height="400" loading="lazy" decoding="async"
+                         className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" />
+                  </picture>
                 </div>
               )}
               <div className="p-5">
@@ -246,7 +260,7 @@ export function LandingPage({ onLaunch }: { onLaunch: () => void }) {
           <span className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>Sinter</span>
         </div>
         <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-          &copy; {new Date().getFullYear()} Kevin Blackburn-Matzen. Open source under a non-commercial license.
+          &copy; {new Date().getFullYear()} Kevin Blackburn-Matzen. Source available under a non-commercial license.
         </p>
         <p className="mt-2 text-xs" style={{ color: 'var(--text-muted)' }}>
           <a href="https://github.com/kmatzen/sinter" className="hover:underline" style={{ color: 'var(--text-secondary)' }}>GitHub</a>
@@ -259,119 +273,33 @@ export function LandingPage({ onLaunch }: { onLaunch: () => void }) {
         </p>
       </footer>
 
-      {/* Terms of Service Modal */}
-      {showTOS && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.6)' }}
-             onClick={() => setShowTOS(false)}>
-          <div className="max-w-2xl w-full max-h-[80vh] overflow-y-auto rounded-lg p-8 mx-4"
-               style={{ background: 'var(--bg-panel)', border: '1px solid var(--border-default)' }}
-               onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>Terms of Service</h2>
-              <button onClick={() => setShowTOS(false)} className="text-lg" style={{ color: 'var(--text-muted)' }}>&times;</button>
-            </div>
-            <div className="space-y-4 text-sm leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
-              <p style={{ color: 'var(--text-muted)' }}>Last updated: April 16, 2026</p>
-
-              <h3 className="font-semibold mt-6" style={{ color: 'var(--text-primary)' }}>1. Acceptance of Terms</h3>
-              <p>By accessing or using Sinter ("the Service"), you agree to be bound by these Terms of Service. If you do not agree, do not use the Service.</p>
-
-              <h3 className="font-semibold mt-6" style={{ color: 'var(--text-primary)' }}>2. Description of Service</h3>
-              <p>Sinter is a free, open-source, AI-powered 3D modeling tool for 3D printing. You bring your own AI API key (Anthropic or OpenAI) and sign in with GitHub or Google to store projects in your own cloud storage (GitHub Gists or Google Drive).</p>
-
-              <h3 className="font-semibold mt-6" style={{ color: 'var(--text-primary)' }}>3. Accounts</h3>
-              <p>You may sign in using Google or GitHub OAuth. Authentication is used to connect your cloud storage and enable project saving and sharing. You are responsible for maintaining the security of your account and API keys.</p>
-
-              <h3 className="font-semibold mt-6" style={{ color: 'var(--text-primary)' }}>4. Your Content</h3>
-              <p>You retain all rights to models and designs you create using Sinter. Your project data is stored in your own GitHub Gists or Google Drive — we do not store project files on our servers. We store only project metadata (names, timestamps, thumbnails) in our database.</p>
-
-              <h3 className="font-semibold mt-6" style={{ color: 'var(--text-primary)' }}>5. API Keys</h3>
-              <p>Your AI API keys are stored only in your browser's memory and are sent directly from your browser to the AI provider. We never see, store, or transmit your API keys through our servers.</p>
-
-              <h3 className="font-semibold mt-6" style={{ color: 'var(--text-primary)' }}>6. Acceptable Use</h3>
-              <p>You agree not to: abuse or overload the Service; attempt to access other users' data; use the Service for illegal purposes; reverse-engineer the Service beyond what is permitted by the open-source license.</p>
-
-              <h3 className="font-semibold mt-6" style={{ color: 'var(--text-primary)' }}>7. AI Features</h3>
-              <p>AI-generated model suggestions are provided as-is. You are responsible for reviewing and validating any AI-generated geometry before manufacturing. We make no guarantees about the printability, structural integrity, or fitness for purpose of AI-generated designs.</p>
-
-              <h3 className="font-semibold mt-6" style={{ color: 'var(--text-primary)' }}>8. Limitation of Liability</h3>
-              <p>The Service is provided "as is" without warranties of any kind. We are not liable for any damages arising from the use of the Service, including but not limited to failed prints, material waste, or equipment damage resulting from models created with Sinter.</p>
-
-              <h3 className="font-semibold mt-6" style={{ color: 'var(--text-primary)' }}>9. Termination</h3>
-              <p>We may suspend or terminate your access to the Service at any time for violation of these terms. Your project data in GitHub Gists or Google Drive remains yours and is unaffected by account termination.</p>
-
-              <h3 className="font-semibold mt-6" style={{ color: 'var(--text-primary)' }}>10. Changes to Terms</h3>
-              <p>We may update these terms from time to time. Continued use of the Service after changes constitutes acceptance of the new terms.</p>
-
-              <h3 className="font-semibold mt-6" style={{ color: 'var(--text-primary)' }}>11. Contact</h3>
-              <p>For questions about these terms, open an issue on <a href="https://github.com/kmatzen/sinter" className="underline" style={{ color: 'var(--accent)' }}>GitHub</a>.</p>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Privacy Policy Modal */}
-      {showPrivacy && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.7)' }}
-             onClick={() => setShowPrivacy(false)}>
-          <div className="w-full max-w-2xl max-h-[80vh] overflow-y-auto rounded-lg p-8"
-               style={{ background: 'var(--bg-panel)', border: '1px solid var(--border-default)' }}
-               onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>Privacy Policy</h2>
-              <button onClick={() => setShowPrivacy(false)} className="text-lg" style={{ color: 'var(--text-muted)' }}>{'\u2715'}</button>
-            </div>
-            <div className="text-sm leading-relaxed space-y-2" style={{ color: 'var(--text-secondary)' }}>
-              <p className="text-xs" style={{ color: 'var(--text-muted)' }}>Last updated: April 2026</p>
-
-              <h3 className="font-semibold mt-6" style={{ color: 'var(--text-primary)' }}>1. Information We Collect</h3>
-              <p><strong>Account information:</strong> When you sign in with Google or GitHub, we receive your name, email address, and profile photo. We also receive an OAuth access token to read/write files in your GitHub Gists or Google Drive on your behalf.</p>
-              <p><strong>Project metadata:</strong> We store project names, timestamps, and thumbnails in our database. Project file data (your 3D models) is stored in your own GitHub Gists or Google Drive — not on our servers.</p>
-              <p><strong>API keys:</strong> Your AI API keys (Anthropic/OpenAI) are stored only in your browser's session memory. They are sent directly from your browser to the AI provider and never pass through our servers.</p>
-
-              <h3 className="font-semibold mt-6" style={{ color: 'var(--text-primary)' }}>2. Cookies and Local Storage</h3>
-              <p><strong>Session cookie:</strong> A single HTTP-only session cookie is used for authentication. It expires after 30 days of inactivity.</p>
-              <p><strong>Local storage:</strong> We use browser local storage to save your project locally as a backup, remember your preferences, and track cookie consent. No tracking cookies or third-party analytics are used.</p>
-
-              <h3 className="font-semibold mt-6" style={{ color: 'var(--text-primary)' }}>3. How We Use Your Information</h3>
-              <p>We use your information solely to: provide and maintain the service, authenticate you, and read/write project files to your cloud storage on your behalf.</p>
-
-              <h3 className="font-semibold mt-6" style={{ color: 'var(--text-primary)' }}>4. AI Processing</h3>
-              <p>When you use AI chat, your messages and viewport screenshots are sent directly from your browser to the AI provider (Anthropic or OpenAI) using your own API key. This data does not pass through our servers.</p>
-
-              <h3 className="font-semibold mt-6" style={{ color: 'var(--text-primary)' }}>5. OAuth Tokens</h3>
-              <p>We store your OAuth access token (and refresh token for Google) to read and write project files to your cloud storage. These tokens are scoped to only access files created by Sinter (GitHub gist scope, Google Drive file scope). You can revoke access at any time through your GitHub or Google account settings.</p>
-
-              <h3 className="font-semibold mt-6" style={{ color: 'var(--text-primary)' }}>6. Data Sharing</h3>
-              <p>We do not sell, rent, or share your personal information with third parties. The only external services we interact with on your behalf are GitHub/Google (for storage) based on your explicit authentication.</p>
-
-              <h3 className="font-semibold mt-6" style={{ color: 'var(--text-primary)' }}>7. Data Storage and Security</h3>
-              <p>Project metadata is stored in a SQLite database on our server. Project file data is stored in your own cloud storage. We use HTTPS, HTTP-only cookies, and standard security practices. No system is 100% secure.</p>
-
-              <h3 className="font-semibold mt-6" style={{ color: 'var(--text-primary)' }}>8. Your Rights</h3>
-              <p>You can: access and download your project data at any time from your own GitHub/Google account, revoke Sinter's access through your OAuth provider's settings, and request deletion of your account metadata from our database. For EU residents, you have additional rights under GDPR including the right to erasure, portability, and objection to processing.</p>
-
-              <h3 className="font-semibold mt-6" style={{ color: 'var(--text-primary)' }}>9. Data Retention</h3>
-              <p>Account metadata is retained as long as your account is active. If you delete your account, metadata is removed from our database. Your project files in GitHub Gists or Google Drive are unaffected — they remain in your own storage.</p>
-
-              <h3 className="font-semibold mt-6" style={{ color: 'var(--text-primary)' }}>10. Changes to This Policy</h3>
-              <p>We may update this policy from time to time. Continued use of the service constitutes acceptance of any changes.</p>
-
-              <h3 className="font-semibold mt-6" style={{ color: 'var(--text-primary)' }}>11. Contact</h3>
-              <p>For privacy questions, open an issue on <a href="https://github.com/kmatzen/sinter" className="underline" style={{ color: 'var(--accent)' }}>GitHub</a>.</p>
-            </div>
-          </div>
-        </div>
-      )}
+      {showTOS && <LegalModal kind="terms" onClose={() => setShowTOS(false)} />}
+      {showPrivacy && <LegalModal kind="privacy" onClose={() => setShowPrivacy(false)} />}
     </div>
   );
 }
 
 const FEATURES = [
-  { image: '/feature-ai.png', title: 'AI-Powered Modeling', desc: 'Describe what you need in plain language. The AI builds a parametric SDF model that you can edit, tweak, and iterate on.' },
-  { image: '/feature-preview.png', title: 'Real-Time Preview', desc: 'Every parameter change renders instantly on the GPU. No waiting for mesh rebuilds — what you see is the actual geometry.' },
-  { image: '/feature-printing.png', title: 'Built for Manufacturing', desc: 'Shell walls, offset surfaces, and analyze thickness. Export watertight STL and 3MF files ready for any slicer.' },
-  { image: '/feature-workflow.png', title: 'Non-Destructive Editing', desc: 'A full node tree with undo, redo, and disable. Change any operation at any point in the history without starting over.' },
-  { image: '/feature-booleans.png', title: 'Smooth Booleans', desc: 'Union, subtract, and intersect with adjustable fillet radius. No topology failures — the math always works.' },
-  { image: '/feature-library.png', title: 'Component Library', desc: 'Start from pre-built parametric parts: standoffs, enclosures, snap-fits, and mechanical fasteners.' },
+  { image: '/feature-ai.png', webp: '/feature-ai.webp', title: 'AI-Powered Modeling', desc: 'Describe what you need in plain language. The AI builds a parametric SDF model that you can edit, tweak, and iterate on.' },
+  { image: '/feature-preview.png', webp: '/feature-preview.webp', title: 'Real-Time Preview', desc: 'Every parameter change renders instantly on the GPU. No waiting for mesh rebuilds — what you see is the actual geometry.' },
+  { image: '/feature-printing.png', webp: '/feature-printing.webp', title: 'Built for Manufacturing', desc: 'Create shell walls and offset surfaces, then export STL and 3MF files for validation in your slicer.' },
+  { image: '/feature-workflow.png', webp: '/feature-workflow.webp', title: 'Non-Destructive Editing', desc: 'A full node tree with undo, redo, and disable. Change any operation at any point in the history without starting over.' },
+  { image: '/feature-booleans.png', webp: '/feature-booleans.webp', title: 'Smooth Booleans', desc: 'Union, subtract, and intersect implicit shapes with an adjustable blend radius.' },
+  { image: '/feature-library.png', webp: '/feature-library.webp', title: 'Component Library', desc: 'Start from pre-built parametric parts: standoffs, enclosures, snap-fits, and mechanical fasteners.' },
 ];
+
+function LegalModal({ kind, onClose }: { kind: LegalDocument; onClose: () => void }) {
+  const surface = useRef<HTMLDivElement>(null);
+  useDialogFocus(surface, onClose);
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.7)' }} onClick={onClose}>
+      <div ref={surface} role="dialog" aria-modal="true" aria-labelledby={`${kind}-title`} className="w-full max-w-2xl max-h-[80vh] overflow-y-auto rounded-lg p-8" style={{ background: 'var(--bg-panel)', border: '1px solid var(--border-default)' }} onClick={(event) => event.stopPropagation()}>
+        <div className="flex items-center justify-between mb-6">
+          <h2 id={`${kind}-title`} className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>{legalTitle(kind)}</h2>
+          <button onClick={onClose} aria-label={`Close ${legalTitle(kind)}`} className="text-lg" style={{ color: 'var(--text-muted)' }}>×</button>
+        </div>
+        <LegalContent kind={kind} />
+      </div>
+    </div>
+  );
+}

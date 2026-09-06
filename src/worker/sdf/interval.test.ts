@@ -156,9 +156,8 @@ describe('soundBounds encloses the solid', () => {
   });
 
   it('verifiedBounds widens a hint that omits real material', () => {
-    // The #70 shape fed the pre-fix margin as its hint: solid reaches x = 110
-    // but the hint stops at 20.  The interval search has to notice and widen,
-    // which is the half of the contract computeBounds cannot provide.
+    // The old raw-field behavior reached x = 110. World-space re-distancing
+    // keeps the 10 mm radius physical, so the surface now ends at x = 20.
     const tree: SDFNode = {
       kind: 'round', radius: 10,
       child: {
@@ -168,8 +167,9 @@ describe('soundBounds encloses the solid', () => {
     };
     const badHint: BBox = { min: [-20, -11, -20], max: [20, 11, 20] };
     const vb = verifiedBounds(tree, badHint, 6, 6)!;
-    expect(evaluateSDF(tree, [100, 0, 0])).toBeLessThan(0);
-    expect(vb.max[0]).toBeGreaterThanOrEqual(100);
+    expect(evaluateSDF(tree, [19.9, 0, 0])).toBeLessThan(0);
+    expect(evaluateSDF(tree, [20.1, 0, 0])).toBeGreaterThan(0);
+    expect(vb.max[0]).toBeGreaterThanOrEqual(20);
   });
 
   it('halfSpace no longer clips models larger than the old 1000mm stand-in', () => {
@@ -189,9 +189,8 @@ describe('soundBounds encloses the solid', () => {
   });
 
   it('catches solid that the composed per-node bounds would have missed', () => {
-    // The #70 shape: round() over a non-uniform scale.  Deliberately fed the
-    // pre-fix margin (radius, not radius * fieldScale) as the seed, to show the
-    // interval search finds the material regardless of the per-node rule.
+    // The #70 shape: round() over a non-uniform scale. The corrected field and
+    // its composed bounds both use the physical 10 mm radius.
     const tree: SDFNode = {
       kind: 'round', radius: 10,
       child: {
@@ -199,15 +198,39 @@ describe('soundBounds encloses the solid', () => {
         tx: 0, ty: 0, tz: 0, rx: 0, ry: 0, rz: 0, sx: 1, sy: 0.1, sz: 1,
       },
     };
-    const naive: BBox = { min: [-20, -11, -20], max: [20, 11, 20] };
     const seed: BBox = { min: [-300, -300, -300], max: [300, 300, 300] };
     const sb = soundBounds(tree, seed, 7);
     expect(sb).not.toBeNull();
-    // Solid really does reach x = 110, far outside the naive box.
-    expect(evaluateSDF(tree, [100, 0, 0])).toBeLessThan(0);
-    expect(sb!.max[0]).toBeGreaterThan(naive.max[0]);
-    expect(sb!.max[0]).toBeGreaterThanOrEqual(100);
-    // And the fixed per-node bounds now cover it too.
-    expect(computeBounds(tree).max[0]).toBeGreaterThanOrEqual(110);
+    expect(evaluateSDF(tree, [19.9, 0, 0])).toBeLessThan(0);
+    expect(evaluateSDF(tree, [20.1, 0, 0])).toBeGreaterThan(0);
+    expect(sb!.max[0]).toBeGreaterThanOrEqual(20);
+    // Computational bounds remain deliberately conservative even though the
+    // zero surface is physically 10 mm from the child.
+    expect(computeBounds(tree).max[0]).toBeGreaterThanOrEqual(20);
+  });
+
+  it('#197 treats sub-epsilon smooth and round parameters as exact identities', () => {
+    const tree: SDFNode = {
+      kind: 'subtract', k: 0,
+      a: {
+        kind: 'round', radius: 1e-323,
+        child: {
+          kind: 'union', k: 5e-324,
+          a: { kind: 'box', size: [2, 6.239478513786822, 2.0011177749112727] },
+          b: { kind: 'cone', radius: 1.0000000000000002, height: 2 },
+        },
+      },
+      b: {
+        kind: 'transform', child: { kind: 'cylinder', radius: 1, height: 2 },
+        tx: 0, ty: 0, tz: 0, rx: 0, ry: 0, rz: 0, sx: 0.1, sy: 0.1, sz: 0.1,
+      },
+    };
+    const origin: BBox = { min: [0, 0, 0], max: [0, 0, 0] };
+    const value = evaluateSDF(tree, [0, 0, 0]);
+    const interval = evaluateInterval(tree, origin);
+
+    expect(value).toBeGreaterThanOrEqual(interval.lo);
+    expect(value).toBeLessThanOrEqual(interval.hi);
+    expect(classifyCell(tree, origin)).toBe(value < 0 ? 'inside' : value > 0 ? 'outside' : 'straddles');
   });
 });

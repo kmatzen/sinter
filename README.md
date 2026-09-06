@@ -89,7 +89,7 @@ No Sinter account is needed for any of that: OpenRouter bills your own OpenRoute
 
 Sinter is a static site that deploys to [Cloudflare Pages](https://pages.cloudflare.com). The only server-side code is two small Pages Functions that hold the OAuth client secrets and exchange `code` for tokens. Everything else (project storage, sharing) is browser → provider direct.
 
-See [DEPLOY.md](./DEPLOY.md) for the full deployment runbook, including how to migrate from a previous Fly.io deploy without losing data.
+See [DEPLOY.md](./DEPLOY.md) for the current architecture, deployment, and rollback runbook.
 
 Quick version:
 1. Create OAuth apps (callback URL: `https://YOUR_DOMAIN/auth/callback`):

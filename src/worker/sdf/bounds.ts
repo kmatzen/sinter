@@ -1,4 +1,5 @@
 import type { SDFNode, BBox, Vec3 } from './types';
+import { SDF_PARAM_EPSILON } from './types';
 import { hasGlyphOutlines } from './types';
 
 export function computeBounds(node: SDFNode): BBox {
@@ -33,7 +34,11 @@ export function computeBounds(node: SDFNode): BBox {
       return { min: [-hx, -hy, -hz], max: [hx, hy, hz] };
     }
     case 'union':
-      return mergeBounds(computeBounds(node.a), computeBounds(node.b), node.k);
+      return mergeBounds(
+        computeBounds(node.a),
+        computeBounds(node.b),
+        node.k > SDF_PARAM_EPSILON ? (node.k / 4) * Math.max(fieldScale(node.a), fieldScale(node.b)) : 0,
+      );
     case 'subtract':
       return expandBounds(computeBounds(node.a), node.k);
     case 'intersect': {
@@ -47,10 +52,10 @@ export function computeBounds(node: SDFNode): BBox {
       };
       return expandBounds(result, node.k);
     }
-    // The level-set modifiers move the surface out by `r` only when the child
-    // reports true Euclidean distance.  Where it underestimates — most sharply
-    // under a non-uniform scale — the surface lands proportionally further out,
-    // so the margin is scaled by the child's field factor.  See fieldScale.
+    // Surface evaluation re-distances in world space. These are computational
+    // safety bounds, so they retain the maximum correction factor: finite
+    // gradient sampling can land a fraction beyond the analytic Minkowski box
+    // off principal axes, and clipping is worse than a conservative margin.
     case 'shell':
       return expandBounds(computeBounds(node.child), (node.thickness / 2) * fieldScale(node.child));
     case 'offset':
@@ -228,6 +233,13 @@ export function computeBounds(node: SDFNode): BBox {
  * practice; `boundsAreSound` in interval.ts is the check that actually holds
  * the line, and the interval-derived bounds are what the mesher uses.
  */
+/**
+ * Gradient re-distancing preserves a modifier's zero surface, but the
+ * correction varies near seams and medial axes. Reserve slope headroom so the
+ * resulting field remains a conservative sphere-tracing step there.
+ */
+export const MODIFIER_DISTANCE_SAFETY = 2;
+
 export function fieldScale(node: SDFNode): number {
   switch (node.kind) {
     case 'transform': {
@@ -248,9 +260,14 @@ export function fieldScale(node: SDFNode): number {
     case 'subtract':
     case 'intersect':
       return Math.max(fieldScale(node.a), fieldScale(node.b));
-    case 'shell':
     case 'offset':
+      if (Math.abs(node.distance) <= SDF_PARAM_EPSILON) return fieldScale(node.child);
+      return fieldScale(node.child) * MODIFIER_DISTANCE_SAFETY;
     case 'round':
+      if (node.radius <= SDF_PARAM_EPSILON) return fieldScale(node.child);
+      return fieldScale(node.child) * MODIFIER_DISTANCE_SAFETY;
+    case 'shell':
+      return fieldScale(node.child) * MODIFIER_DISTANCE_SAFETY;
     case 'mirror':
     case 'linearPattern':
     case 'circularPattern':

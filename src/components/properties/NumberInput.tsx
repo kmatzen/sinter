@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { useModelerStore } from '../../store/modelerStore';
 
 interface Props {
   label: string;
@@ -73,6 +74,29 @@ export function NumberInput({ label, value, unit = 'mm', min, max, step = 1, onC
   const [isFocused, setIsFocused] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const transactionActive = useRef(false);
+  const gestureCleanup = useRef<(() => void) | null>(null);
+
+  const beginContinuousEdit = () => {
+    const store = useModelerStore.getState();
+    if (transactionActive.current || store.historyTransaction) return;
+    store.beginHistoryTransaction();
+    transactionActive.current = true;
+  };
+
+  const finishContinuousEdit = (commitChange: boolean) => {
+    if (!transactionActive.current) return;
+    transactionActive.current = false;
+    const store = useModelerStore.getState();
+    if (commitChange) store.commitHistoryTransaction();
+    else store.cancelHistoryTransaction();
+  };
+
+  useEffect(() => () => {
+    gestureCleanup.current?.();
+    gestureCleanup.current = null;
+    finishContinuousEdit(false);
+  }, []);
 
   useEffect(() => {
     if (!isFocused) {
@@ -80,6 +104,13 @@ export function NumberInput({ label, value, unit = 'mm', min, max, step = 1, onC
       setIsExpr(false);
     }
   }, [value, isFocused]);
+
+  const constrain = (input: number) => {
+    let num = input;
+    if (min !== undefined) num = Math.max(min, num);
+    if (max !== undefined) num = Math.min(max, num);
+    return Math.round(num * 1000) / 1000;
+  };
 
   const commit = () => {
     const exprResult = evalExpression(localValue);
@@ -90,9 +121,7 @@ export function NumberInput({ label, value, unit = 'mm', min, max, step = 1, onC
       setIsExpr(false);
       return;
     }
-    if (min !== undefined) num = Math.max(min, num);
-    if (max !== undefined) num = Math.min(max, num);
-    num = Math.round(num * 1000) / 1000;
+    num = constrain(num);
 
     setLocalValue(String(num));
     setIsExpr(false);
@@ -146,6 +175,7 @@ export function NumberInput({ label, value, unit = 'mm', min, max, step = 1, onC
               ? (max - min) / 200
               : step * 0.3;
             setIsDragging(true);
+            beginContinuousEdit();
             document.body.style.cursor = 'ew-resize';
             const onMove = (ev: PointerEvent) => {
               const delta = (ev.clientX - startX) * pixelScale;
@@ -154,14 +184,22 @@ export function NumberInput({ label, value, unit = 'mm', min, max, step = 1, onC
               if (max !== undefined) v = Math.min(max, v);
               onChange(Math.round(v * 1000) / 1000);
             };
-            const onUp = () => {
+            const cleanup = () => {
               setIsDragging(false);
               document.body.style.cursor = '';
               window.removeEventListener('pointermove', onMove);
               window.removeEventListener('pointerup', onUp);
+              window.removeEventListener('pointercancel', onCancel);
+              window.removeEventListener('blur', onCancel);
+              gestureCleanup.current = null;
             };
+            const onUp = () => { cleanup(); finishContinuousEdit(true); };
+            const onCancel = () => { cleanup(); finishContinuousEdit(false); };
+            gestureCleanup.current = cleanup;
             window.addEventListener('pointermove', onMove);
             window.addEventListener('pointerup', onUp);
+            window.addEventListener('pointercancel', onCancel);
+            window.addEventListener('blur', onCancel);
           }}
         >{label}</span>
 
@@ -172,11 +210,21 @@ export function NumberInput({ label, value, unit = 'mm', min, max, step = 1, onC
           value={localValue}
           onChange={handleChange}
           onFocus={() => setIsFocused(true)}
-          onBlur={() => { setIsFocused(false); commit(); }}
+          onBlur={() => {
+            setIsFocused(false);
+            if (transactionActive.current) finishContinuousEdit(true);
+            else commit();
+          }}
           onKeyDown={(e) => {
-            if (e.key === 'Enter') { commit(); inputRef.current?.blur(); }
-            if (e.key === 'ArrowUp') { e.preventDefault(); onChange(value + step); }
-            if (e.key === 'ArrowDown') { e.preventDefault(); onChange(value - step); }
+            // Blur owns the commit. Calling commit here as well records the
+            // same value twice before React can refresh the `value` closure,
+            // so one Undo appears to do nothing after an Enter edit.
+            if (e.key === 'Enter') { e.preventDefault(); inputRef.current?.blur(); }
+            if (e.key === 'ArrowUp') { e.preventDefault(); beginContinuousEdit(); onChange(constrain(value + step)); }
+            if (e.key === 'ArrowDown') { e.preventDefault(); beginContinuousEdit(); onChange(constrain(value - step)); }
+          }}
+          onKeyUp={(e) => {
+            if (e.key === 'ArrowUp' || e.key === 'ArrowDown') finishContinuousEdit(true);
           }}
           aria-label={label}
           /*
@@ -200,7 +248,7 @@ export function NumberInput({ label, value, unit = 'mm', min, max, step = 1, onC
 
         {/* Unit badge */}
         {unit && (
-          <span className="text-[10px] pr-2 shrink-0 font-mono" style={{ color: 'var(--text-muted)', opacity: 0.6 }}>
+          <span className="text-[10px] pr-2 shrink-0 font-mono" style={{ color: 'var(--text-muted)' }}>
             {unit}
           </span>
         )}
@@ -227,6 +275,20 @@ export function NumberInput({ label, value, unit = 'mm', min, max, step = 1, onC
               max={max}
               step={step}
               value={value}
+              onPointerDown={beginContinuousEdit}
+              onPointerUp={() => finishContinuousEdit(true)}
+              onPointerCancel={() => finishContinuousEdit(false)}
+              onKeyDown={(e) => {
+                if (e.key.startsWith('Arrow') || e.key === 'PageUp' || e.key === 'PageDown' || e.key === 'Home' || e.key === 'End') {
+                  beginContinuousEdit();
+                }
+              }}
+              onKeyUp={(e) => {
+                if (e.key.startsWith('Arrow') || e.key === 'PageUp' || e.key === 'PageDown' || e.key === 'Home' || e.key === 'End') {
+                  finishContinuousEdit(true);
+                }
+              }}
+              onBlur={() => finishContinuousEdit(true)}
               onChange={(e) => onChange(parseFloat(e.target.value))}
               aria-label={`${label} slider`}
               className="absolute inset-0 w-full opacity-0 cursor-pointer slider-hit"

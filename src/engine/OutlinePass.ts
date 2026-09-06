@@ -12,7 +12,7 @@ export interface OutlinePassEngine {
    * which is the first thing anyone sees.
    */
   gizmoScene?: THREE.Scene;
-  camera: THREE.PerspectiveCamera;
+  camera: THREE.PerspectiveCamera | THREE.OrthographicCamera;
   container: HTMLElement;
 }
 
@@ -82,6 +82,7 @@ uniform sampler2D u_depth;
 uniform vec2 u_resolution;
 uniform float u_near;
 uniform float u_far;
+uniform float u_orthographic;
 uniform float u_radius;
 varying vec2 vUv;
 
@@ -99,7 +100,9 @@ void main() {
   float py = 1.0 / u_resolution.y;
   float d = texture2D(u_depth, vUv).r;
   float farThreshold = u_far * 0.99;
-  float linearD = u_near * u_far / (u_far - d * (u_far - u_near));
+  float linearD = u_orthographic > 0.5
+    ? mix(u_near, u_far, d)
+    : u_near * u_far / (u_far - d * (u_far - u_near));
   bool isBg = linearD > farThreshold;
   bool isShape = !isBg;
 
@@ -113,7 +116,9 @@ void main() {
       if (r > u_radius) continue;
       vec2 offset = vec2(float(x) * px, float(y) * py);
       float nd = texture2D(u_depth, vUv + offset).r;
-      float nLinear = u_near * u_far / (u_far - nd * (u_far - u_near));
+      float nLinear = u_orthographic > 0.5
+        ? mix(u_near, u_far, nd)
+        : u_near * u_far / (u_far - nd * (u_far - u_near));
       bool nShape = nLinear < farThreshold;
       float w = 1.0 - r / (u_radius + 1.0);
       if (isShape && !nShape) outline += w;
@@ -223,6 +228,7 @@ export class OutlinePass {
         u_resolution: { value: new THREE.Vector2(w, h) },
         u_near: { value: 0.01 },
         u_far: { value: 5000 },
+        u_orthographic: { value: 0 },
         u_radius: { value: outlineTexelRadius(dpr, OUTLINE_CSS_RADIUS, OUTLINE_MAX_TEXELS) },
       },
       transparent: true,
@@ -335,6 +341,7 @@ export class OutlinePass {
 
     this.material.uniforms.u_near.value = camera.near;
     this.material.uniforms.u_far.value = camera.far;
+    this.material.uniforms.u_orthographic.value = camera instanceof THREE.OrthographicCamera ? 1 : 0;
 
     // Pin both kernels to a constant CSS-pixel width. `getPixelRatio()` reports
     // the interactive ratio (1.0) mid-drag and the idle ratio (1.5) otherwise;

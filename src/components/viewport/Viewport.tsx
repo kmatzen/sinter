@@ -7,16 +7,25 @@ import { SelectionOverlay } from './SelectionOverlay';
 import { SelectionBreadcrumb } from './SelectionBreadcrumb';
 import { useModelerStore } from '../../store/modelerStore';
 import { setEngineRef } from '../../engine/engineRef';
+import { ModelErrorNotice } from './ModelErrorNotice';
+import { MeasurementOverlay } from './MeasurementOverlay';
 
 export function Viewport() {
   const evaluating = useModelerStore((s) => s.evaluating);
-  const error = useModelerStore((s) => s.error);
   const containerRef = useRef<HTMLDivElement>(null);
   const [engine, setEngine] = useState<ThreeEngine | null>(null);
+  const [engineError, setEngineError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!containerRef.current) return;
-    const eng = new ThreeEngine(containerRef.current);
+    let eng: ThreeEngine;
+    try {
+      eng = new ThreeEngine(containerRef.current);
+    } catch (error) {
+      console.error('3D preview initialization failed:', error);
+      setEngineError(error instanceof Error ? error.message : String(error));
+      return;
+    }
     setEngine(eng);
     setEngineRef(eng);
     return () => {
@@ -31,9 +40,25 @@ export function Viewport() {
       <div className="absolute inset-0" style={{ background: 'radial-gradient(ellipse at 50% 40%, #252538 0%, #111118 100%)' }} />
       <div ref={containerRef} className="absolute inset-0" />
 
+      {engineError && (
+        <div role="alert" className="absolute inset-0 z-20 flex items-center justify-center p-6 text-center">
+          <div className="max-w-md rounded-lg p-5" style={{ background: 'var(--bg-panel)', border: '1px solid var(--border-default)' }}>
+            <h2 className="text-sm font-medium mb-2">3D preview unavailable</h2>
+            <p className="text-xs leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+              Sinter needs WebGL 2 for its interactive preview. Enable hardware acceleration or update your browser and graphics driver, then reload. Your node tree remains editable and locally recoverable.
+            </p>
+            <details className="mt-3 text-left text-[10px]" style={{ color: 'var(--text-muted)' }}>
+              <summary>Technical detail</summary>
+              <code className="block mt-1 break-all">{engineError}</code>
+            </details>
+          </div>
+        </div>
+      )}
+
       <SelectionOverlay engine={engine} />
       <DimensionLabels engine={engine} />
       <SelectionBreadcrumb />
+      <MeasurementOverlay />
       <ViewportToolbar engine={engine} />
       <ShortcutOverlay />
 
@@ -44,11 +69,7 @@ export function Viewport() {
                style={{ borderColor: 'var(--accent)', borderTopColor: 'transparent' }} />
         </div>
       )}
-      {error && (
-        <div className="absolute bottom-3 left-3 right-60 bg-red-900/90 px-3 py-2 rounded text-sm text-red-200">
-          {error}
-        </div>
-      )}
+      <ModelErrorNotice />
     </div>
   );
 }

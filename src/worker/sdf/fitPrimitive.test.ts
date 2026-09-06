@@ -34,10 +34,12 @@ describe('fitPrimitive', () => {
    * The whole point: a mesh that *is* a primitive should come back as that
    * primitive, with a residual small enough to offer. The tolerance is stated
    * against the baked field's own resolution — the fit cannot be better than
-   * the field it is fitting, and at 40^3 over 50mm a voxel is 1.25mm.
+   * the field it is fitting. A 32^3 grid keeps this regression bounded under
+   * full-suite contention while retaining 1.56mm voxels and the same <2mm
+   * surface-error requirement.
    */
   it('recovers a sphere, and says so', () => {
-    const field = bakeMeshField(soupFor({ kind: 'sphere', radius: 12 }), 40);
+    const field = bakeMeshField(soupFor({ kind: 'sphere', radius: 12 }, 32), 32);
     const fit = fitPrimitive(field)!;
     expect(fit.kind).toBe('Sphere');
     expect(fit.acceptable).toBe(true);

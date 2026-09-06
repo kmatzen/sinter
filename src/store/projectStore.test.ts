@@ -22,11 +22,14 @@ const rename = vi.fn();
 const read = vi.fn();
 const isPublic = vi.fn();
 const setPublic = vi.fn();
+const remove = vi.fn();
 const getAccessToken = vi.fn();
 const getCurrentProvider = vi.fn();
+const putThumbnail = vi.fn();
 
 vi.mock('../storage', () => ({
-  getStorageProvider: () => ({ create, update, rename, read, isPublic, setPublic }),
+  StorageConflictError: class StorageConflictError extends Error {},
+  getStorageProvider: () => ({ create, update, rename, read, isPublic, setPublic, delete: remove }),
   buildShareUrl: (provider: string, id: string) => `https://sinter.test/shared#${provider}:${id}`,
 }));
 
@@ -37,42 +40,139 @@ vi.mock('./authStore', () => ({
 
 vi.mock('../utils/thumbnail', () => ({ captureCanvasThumbnail: () => 'data:image/webp;base64,THUMB' }));
 vi.mock('../storage/thumbnailCache', () => ({
-  getThumbnail: vi.fn(), putThumbnail: vi.fn(), deleteThumbnail: vi.fn(),
+  getThumbnail: vi.fn(), putThumbnail, deleteThumbnail: vi.fn(),
+  thumbnailCacheKey: (provider: string, account: string, id: string) => JSON.stringify([provider, account, id]),
 }));
 
-const { useProjectStore } = await import('./projectStore');
+const { deleteCloudProject, isCloudDirty, requestDocumentReplacement, useProjectStore } = await import('./projectStore');
 const { useModelerStore } = await import('./modelerStore');
+const { useModalStore } = await import('./modalStore');
+const { useViewportStore } = await import('./viewportStore');
 
 const box = (width = 10): SDFNodeUI => ({
   id: 'b', kind: 'box', label: 'Box', params: { width, height: 10, depth: 10 }, children: [], enabled: true,
 });
 
 function resetStores() {
-  useModelerStore.setState({ tree: box(), projectName: 'Untitled' });
+  useModelerStore.setState({ tree: box(), projectName: 'Untitled', namedParameters: [], parameterHistory: [[]] });
   useProjectStore.setState({
     provider: null, projectId: null, remoteName: '', lastSavedHash: '',
-    saving: false, dirty: false, saveError: null, shareUrl: null,
+    revision: '', generation: 0, saving: false, saveError: null, saveConflict: false, shareUrl: null,
+    checkpoints: [], lastSavedTree: null, lastSavedThumbnail: null, lastSavedParameters: [], lastSavedViews: [], lastSavedMeasurements: [],
   });
+  useModalStore.getState().hideConfirm();
+  useViewportStore.setState({ namedViews: [], pinnedMeasurements: [], measurementPoints: [], measurementMode: false });
 }
+
+const measurement = (id: string, nodeId = 'b') => ({
+  id, createdAt: '2026-09-06T12:00:00Z',
+  anchors: [{ nodeId, normalized: [0.5, 0.5, 0.5] as [number, number, number], fallback: [0, 0, 0] as [number, number, number] }],
+});
+
+const projectView = (id: string, x = 0) => ({
+  id, name: id, createdAt: '2026-09-06T12:00:00Z',
+  position: [x, 0, 10] as [number, number, number],
+  target: [x, 0, 0] as [number, number, number],
+  up: [0, 1, 0] as [number, number, number],
+  projection: 'perspective' as const, verticalSpan: 10,
+  clipping: { enabled: false, axis: 'z' as const, position: 0, flip: false },
+});
 
 describe('projectStore.save', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     getAccessToken.mockResolvedValue('token');
     getCurrentProvider.mockReturnValue('google');
-    create.mockResolvedValue({ externalId: 'new-id' });
+    create.mockResolvedValue({ externalId: 'new-id', revision: 'r1' });
+    update.mockResolvedValue({ revision: 'r2' });
+    rename.mockResolvedValue({ revision: 'r3' });
+    putThumbnail.mockResolvedValue(undefined);
     resetStores();
   });
 
   it('creates the project the first time and remembers its id', async () => {
-    await useProjectStore.getState().save();
+    const saved = await useProjectStore.getState().save();
 
+    expect(saved).toBe(true);
     expect(create).toHaveBeenCalledTimes(1);
     expect(update).not.toHaveBeenCalled();
     const s = useProjectStore.getState();
     expect(s.projectId).toBe('new-id');
     expect(s.provider).toBe('google');
-    expect(s.dirty).toBe(false);
+  });
+
+  it('stores named parameter definitions with their resolved tree snapshot', async () => {
+    useModelerStore.setState({
+      tree: { ...box(24), expressions: { width: 'opening + 2 * wall' } },
+      namedParameters: [
+        { name: 'opening', expression: '20', unit: 'mm' },
+        { name: 'wall', expression: '2', unit: 'mm' },
+      ],
+    });
+    await useProjectStore.getState().save();
+    expect(create.mock.calls[0][2]).toMatchObject({
+      version: 2,
+      parameters: [{ name: 'opening', expression: '20', unit: 'mm' }, { name: 'wall', expression: '2', unit: 'mm' }],
+      tree: { params: { width: 24 }, expressions: { width: 'opening + 2 * wall' } },
+    });
+  });
+
+  it('stores named views as project data and treats view edits as unsaved changes', async () => {
+    const view = {
+      id: 'v1', name: 'Cutaway', createdAt: '2026-09-06T12:00:00Z',
+      position: [0, 0, 10] as [number, number, number], target: [0, 0, 0] as [number, number, number], up: [0, 1, 0] as [number, number, number],
+      projection: 'orthographic' as const, verticalSpan: 10,
+      clipping: { enabled: true, axis: 'z' as const, position: 2, flip: false },
+    };
+    useViewportStore.setState({ namedViews: [view] });
+    expect(isCloudDirty()).toBe(true);
+    await useProjectStore.getState().save();
+    expect(create.mock.calls[0][2].views).toEqual([view]);
+    expect(isCloudDirty()).toBe(false);
+  });
+
+  it('stores pinned measurements and treats pin edits as unsaved changes', async () => {
+    const pin = measurement('m1');
+    useViewportStore.setState({ pinnedMeasurements: [pin] });
+    expect(isCloudDirty()).toBe(true);
+    await useProjectStore.getState().save();
+    expect(create.mock.calls[0][2].measurements).toEqual([pin]);
+    expect(isCloudDirty()).toBe(false);
+  });
+
+  it('cannot attach an old save completion to a newly created document', async () => {
+    let finish!: (value: { externalId: string; revision: string }) => void;
+    create.mockReturnValueOnce(new Promise((resolve) => { finish = resolve; }));
+
+    const oldSave = useProjectStore.getState().save();
+    await vi.waitFor(() => expect(create).toHaveBeenCalledOnce());
+    useProjectStore.getState().createProject();
+    finish({ externalId: 'orphaned-remote-copy', revision: 'r1' });
+
+    await expect(oldSave).resolves.toBe(false);
+    expect(useProjectStore.getState().projectId).toBeNull();
+    expect(useProjectStore.getState().saving).toBe(false);
+    expect(useModelerStore.getState().tree).toBeNull();
+  });
+
+  it('does not attach a save that finishes after logout', async () => {
+    let finish!: (value: { externalId: string; revision: string }) => void;
+    create.mockReturnValueOnce(new Promise((resolve) => { finish = resolve; }));
+    const pending = useProjectStore.getState().save();
+    await vi.waitFor(() => expect(create).toHaveBeenCalledOnce());
+    getCurrentProvider.mockReturnValue(null);
+    finish({ externalId: 'late', revision: 'r1' });
+    await expect(pending).resolves.toBe(false);
+    expect(useProjectStore.getState().projectId).toBeNull();
+  });
+
+  it('derives cloud dirtiness from the last provider save, not local backup state', async () => {
+    expect(isCloudDirty()).toBe(true);
+    await useProjectStore.getState().save();
+    expect(isCloudDirty()).toBe(false);
+
+    useModelerStore.setState({ tree: box(99) });
+    expect(isCloudDirty()).toBe(true);
   });
 
   it('updates rather than creating once it has an id', async () => {
@@ -80,7 +180,7 @@ describe('projectStore.save', () => {
 
     await useProjectStore.getState().save();
 
-    expect(update).toHaveBeenCalledWith('token', 'existing', expect.objectContaining({ version: 1 }));
+    expect(update).toHaveBeenCalledWith('token', 'existing', expect.objectContaining({ version: 2 }), '');
     expect(create).not.toHaveBeenCalled();
   });
 
@@ -117,7 +217,7 @@ describe('projectStore.save', () => {
 
     await useProjectStore.getState().save();
 
-    expect(rename).toHaveBeenCalledWith('token', 'existing', 'New Name');
+    expect(rename).toHaveBeenCalledWith('token', 'existing', 'New Name', 'r2');
     expect(useProjectStore.getState().remoteName).toBe('New Name');
   });
 
@@ -132,8 +232,9 @@ describe('projectStore.save', () => {
       create.mockRejectedValue(new Error('Drive quota exceeded'));
       const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
 
-      await useProjectStore.getState().save();
+      const saved = await useProjectStore.getState().save();
 
+      expect(saved).toBe(false);
       const s = useProjectStore.getState();
       expect(s.saveError).toBe('Drive quota exceeded');
       expect(s.saving).toBe(false);
@@ -169,6 +270,47 @@ describe('projectStore.save', () => {
       logged.mockRestore();
     });
 
+    it('retains the committed content revision when a following rename fails', async () => {
+      useProjectStore.setState({ projectId: 'existing', provider: 'google', remoteName: 'Old', revision: 'r1' });
+      useModelerStore.setState({ projectName: 'New' });
+      rename.mockRejectedValueOnce(new Error('rename offline'));
+      const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      await expect(useProjectStore.getState().save()).resolves.toBe(false);
+      expect(useProjectStore.getState().revision).toBe('r2');
+
+      update.mockClear();
+      await expect(useProjectStore.getState().save()).resolves.toBe(true);
+      expect(update).toHaveBeenCalledWith('token', 'existing', expect.anything(), 'r2');
+      logged.mockRestore();
+    });
+
+    it('keeps a new cloud identity when thumbnail caching fails after create', async () => {
+      putThumbnail.mockRejectedValueOnce(new Error('IndexedDB unavailable'));
+      const warned = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      await expect(useProjectStore.getState().save()).resolves.toBe(true);
+
+      expect(useProjectStore.getState()).toMatchObject({
+        projectId: 'new-id', provider: 'google', revision: 'r1', saveError: null,
+      });
+      expect(isCloudDirty()).toBe(false);
+      warned.mockRestore();
+    });
+
+    it('does not let a concurrent caller claim an in-flight save succeeded', async () => {
+      let finish!: (value: { externalId: string }) => void;
+      create.mockReturnValueOnce(new Promise((resolve) => { finish = resolve; }));
+
+      const first = useProjectStore.getState().save();
+      const concurrent = await useProjectStore.getState().save();
+      expect(concurrent).toBe(false);
+
+      finish({ externalId: 'new-id' });
+      await expect(first).resolves.toBe(true);
+      expect(create).toHaveBeenCalledTimes(1);
+    });
+
     it('refuses to save when nobody is signed in', async () => {
       getCurrentProvider.mockReturnValue(null);
       const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -178,6 +320,35 @@ describe('projectStore.save', () => {
       expect(create).not.toHaveBeenCalled();
       expect(useProjectStore.getState().saveError).toMatch(/sign in/i);
       logged.mockRestore();
+    });
+
+    it('preserves local work and exposes recovery choices on a remote conflict', async () => {
+      useProjectStore.setState({ projectId: 'existing', provider: 'google', remoteName: 'Untitled', revision: 'r1' });
+      const conflict = new Error('This cloud project changed elsewhere.');
+      conflict.name = 'StorageConflictError';
+      update.mockRejectedValueOnce(conflict);
+      const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const before = useModelerStore.getState().tree;
+
+      await expect(useProjectStore.getState().save()).resolves.toBe(false);
+
+      expect(useModelerStore.getState().tree).toBe(before);
+      expect(useProjectStore.getState().projectId).toBe('existing');
+      expect(useProjectStore.getState().saveConflict).toBe(true);
+      expect(isCloudDirty()).toBe(true);
+      logged.mockRestore();
+    });
+
+    it('can explicitly overwrite after a same-browser conflict on otherwise clean bytes', async () => {
+      const hash = JSON.stringify({ tree: useModelerStore.getState().tree, projectName: 'Untitled' });
+      useProjectStore.setState({
+        projectId: 'existing', provider: 'google', remoteName: 'Untitled', revision: 'stale',
+        lastSavedHash: hash, saveConflict: true,
+      });
+
+      await useProjectStore.getState().overwriteRemote();
+
+      expect(update).toHaveBeenCalledWith('token', 'existing', expect.anything(), '');
     });
   });
 });
@@ -191,12 +362,32 @@ describe('projectStore.loadProject', () => {
   });
 
   it('puts the loaded tree and name into the modeler', async () => {
+    useModelerStore.getState().addPrimitive('sphere');
     read.mockResolvedValue({ version: 1, tree: box(42) });
 
     await useProjectStore.getState().loadProject('google', 'id-1', 'Bracket');
 
     expect(useModelerStore.getState().tree!.params.width).toBe(42);
     expect(useModelerStore.getState().projectName).toBe('Bracket');
+    expect(useModelerStore.getState().history).toHaveLength(1);
+    useModelerStore.getState().undo();
+    expect(useModelerStore.getState().tree!.params.width).toBe(42);
+  });
+
+  it('ignores a slower project load after a newer load starts', async () => {
+    const finishes = new Map<string, (value: unknown) => void>();
+    read.mockImplementation((_token, id: string) => new Promise((resolve) => finishes.set(id, resolve)));
+    const first = useProjectStore.getState().loadProject('google', 'old', 'Old');
+    const second = useProjectStore.getState().loadProject('google', 'new', 'New');
+    await vi.waitFor(() => expect(finishes.size).toBe(2));
+    finishes.get('new')?.({ version: 1, tree: box(22), revision: 'new-r' });
+    await second;
+    finishes.get('old')?.({ version: 1, tree: box(11), revision: 'old-r' });
+    await first;
+
+    expect(useProjectStore.getState().projectId).toBe('new');
+    expect(useModelerStore.getState().projectName).toBe('New');
+    expect(useModelerStore.getState().tree?.params.width).toBe(22);
   });
 
   /**
@@ -207,7 +398,7 @@ describe('projectStore.loadProject', () => {
   it('lands clean, so a load does not immediately look like an edit', async () => {
     read.mockResolvedValue({ version: 1, tree: box(42) });
     await useProjectStore.getState().loadProject('google', 'id-1', 'Bracket');
-    expect(useProjectStore.getState().dirty).toBe(false);
+    expect(isCloudDirty()).toBe(false);
 
     await useProjectStore.getState().save();
     expect(update).not.toHaveBeenCalled();
@@ -253,10 +444,202 @@ describe('projectStore.loadProject', () => {
     expect(useProjectStore.getState().shareUrl).toBeNull();
   });
 
-  it('opens an empty document for a file with no tree in it', async () => {
+  it('rejects a malformed file with no tree without replacing the document', async () => {
+    useModelerStore.getState().resetDocument(box(9), 'Current');
     read.mockResolvedValue({ version: 1 });
-    await useProjectStore.getState().loadProject('google', 'id-1', 'Empty');
-    expect(useModelerStore.getState().tree).toBeNull();
+    await expect(useProjectStore.getState().loadProject('google', 'id-1', 'Empty')).rejects.toThrow(/tree is required/);
+    expect(useModelerStore.getState().tree?.params.width).toBe(9);
+  });
+});
+
+describe('project checkpoints', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getAccessToken.mockResolvedValue('token');
+    getCurrentProvider.mockReturnValue('google');
+    create.mockResolvedValue({ externalId: 'new-id', revision: 'r1' });
+    update.mockResolvedValue({ revision: 'r2' });
+    isPublic.mockResolvedValue(false);
+    resetStores();
+  });
+
+  it('checkpoints the last committed tree at the next save boundary', async () => {
+    await useProjectStore.getState().save();
+    useModelerStore.setState({ tree: box(25) });
+    await useProjectStore.getState().save();
+
+    const body = update.mock.calls[0][2];
+    expect(body.version).toBe(2);
+    expect(body.checkpoints).toHaveLength(1);
+    expect(body.checkpoints[0].tree.params.width).toBe(10);
+    expect(useProjectStore.getState().checkpoints).toHaveLength(1);
+  });
+
+  it('checkpoints the last committed views when only project views changed', async () => {
+    const original = projectView('original');
+    useViewportStore.setState({ namedViews: [original] });
+    await useProjectStore.getState().save();
+    useViewportStore.setState({ namedViews: [projectView('later', 5)] });
+    await useProjectStore.getState().save();
+
+    const checkpoint = update.mock.calls[0][2].checkpoints[0];
+    expect(checkpoint.tree.params.width).toBe(10);
+    expect(checkpoint.views).toEqual([original]);
+  });
+
+  it('keeps only the ten newest checkpoints', async () => {
+    const old = Array.from({ length: 10 }, (_, i) => ({
+      id: `v${i}`, name: `Version ${i}`, createdAt: new Date(i).toISOString(), tree: box(i + 1),
+    }));
+    useProjectStore.setState({ projectId: 'existing', provider: 'google', checkpoints: old, lastSavedTree: box(50) });
+    useModelerStore.setState({ tree: box(60) });
+    await useProjectStore.getState().save();
+
+    const saved = update.mock.calls[0][2].checkpoints;
+    expect(saved).toHaveLength(10);
+    expect(saved.some((item: any) => item.id === 'v0')).toBe(false);
+    expect(saved.at(-1).tree.params.width).toBe(50);
+  });
+
+  it('creates a named durable checkpoint and reports provider failure honestly', async () => {
+    useProjectStore.setState({ projectId: 'existing', provider: 'google', revision: 'r1', lastSavedTree: box(10) });
+    await expect(useProjectStore.getState().createCheckpoint('Before experiment')).resolves.toBe(true);
+    expect(update.mock.calls[0][2].checkpoints[0]).toMatchObject({ name: 'Before experiment', tree: { params: { width: 10 } } });
+
+    const before = useProjectStore.getState().checkpoints;
+    update.mockRejectedValueOnce(new Error('offline'));
+    await expect(useProjectStore.getState().createCheckpoint('Not saved')).resolves.toBe(false);
+    expect(useProjectStore.getState().checkpoints).toBe(before);
+    expect(useProjectStore.getState().saveError).toBe('offline');
+  });
+
+  it('preserves the previous cloud tree when naming dirty work', async () => {
+    useProjectStore.setState({ projectId: 'existing', provider: 'google', revision: 'r1', lastSavedTree: box(10) });
+    useModelerStore.setState({ tree: box(20) });
+    await useProjectStore.getState().createCheckpoint('Experiment');
+    const checkpoints = update.mock.calls[0][2].checkpoints;
+    expect(checkpoints.map((item: any) => item.name)).toEqual(['Before named version', 'Experiment']);
+    expect(checkpoints.map((item: any) => item.tree.params.width)).toEqual([10, 20]);
+  });
+
+  it('restores only after the provider atomically stores a recovery checkpoint', async () => {
+    const version = { id: 'v1', name: 'Known good', createdAt: '2026-09-06T12:00:00Z', tree: box(12) };
+    useProjectStore.setState({ projectId: 'existing', provider: 'google', revision: 'r1', checkpoints: [version] });
+    useModelerStore.setState({ tree: box(99) });
+
+    await expect(useProjectStore.getState().restoreCheckpoint('v1')).resolves.toBe(true);
+
+    const body = update.mock.calls[0][2];
+    expect(body.tree.params.width).toBe(12);
+    expect(body.checkpoints.at(-1)).toMatchObject({ name: 'Before restoring Known good', tree: { params: { width: 99 } } });
+    expect(useModelerStore.getState().tree?.params.width).toBe(12);
+    expect(useModelerStore.getState().history).toHaveLength(1);
+  });
+
+  it('keeps the current document untouched when restore fails', async () => {
+    const version = { id: 'v1', name: 'Known good', createdAt: '2026-09-06T12:00:00Z', tree: box(12) };
+    useProjectStore.setState({ projectId: 'existing', provider: 'google', revision: 'r1', checkpoints: [version] });
+    useModelerStore.setState({ tree: box(99) });
+    update.mockRejectedValueOnce(new Error('Drive unavailable'));
+
+    await expect(useProjectStore.getState().restoreCheckpoint('v1')).resolves.toBe(false);
+    expect(useModelerStore.getState().tree?.params.width).toBe(99);
+    expect(useProjectStore.getState().checkpoints).toEqual([version]);
+  });
+
+  it('deletes a checkpoint only after the provider accepts the new ledger', async () => {
+    const version = { id: 'v1', name: 'Disposable', createdAt: '2026-09-06T12:00:00Z', tree: box(12) };
+    useProjectStore.setState({ projectId: 'existing', provider: 'google', revision: 'r1', checkpoints: [version], lastSavedTree: box(10), lastSavedHash: 'remote' });
+    useModelerStore.setState({ tree: box(99) });
+    await expect(useProjectStore.getState().deleteCheckpoint('v1')).resolves.toBe(true);
+    expect(update.mock.calls[0][2].checkpoints).toEqual([]);
+    expect(update.mock.calls[0][2].tree.params.width).toBe(10);
+    expect(useProjectStore.getState().checkpoints).toEqual([]);
+    expect(isCloudDirty()).toBe(true);
+
+    useProjectStore.setState({ checkpoints: [version] });
+    update.mockRejectedValueOnce(new Error('offline'));
+    await expect(useProjectStore.getState().deleteCheckpoint('v1')).resolves.toBe(false);
+    expect(useProjectStore.getState().checkpoints).toEqual([version]);
+  });
+
+  it('loads checkpoint history from either provider document', async () => {
+    read.mockResolvedValue({ version: 2, tree: box(42), thumbnail: null, revision: 'r4', checkpoints: [
+      { id: 'v1', name: 'First', createdAt: '2026-09-06T12:00:00Z', tree: box(10) },
+    ] });
+    await useProjectStore.getState().loadProject('google', 'id-1', 'Bracket');
+    expect(useProjectStore.getState().checkpoints[0].tree?.params.width).toBe(10);
+  });
+
+  it('restores the checkpoint parameter snapshot with its driven tree', async () => {
+    const version = {
+      id: 'formula-v1', name: 'Parametric', createdAt: '2026-09-06T12:00:00Z',
+      tree: { ...box(30), expressions: { width: 'width' } },
+      parameters: [{ name: 'width', expression: '30', unit: 'mm' as const }],
+    };
+    useProjectStore.setState({ projectId: 'existing', provider: 'google', revision: 'r1', checkpoints: [version] });
+    await useProjectStore.getState().restoreCheckpoint('formula-v1');
+    expect(useModelerStore.getState().namedParameters).toEqual(version.parameters);
+    expect(useModelerStore.getState().tree?.params.width).toBe(30);
+    expect(update.mock.calls[0][2].parameters).toEqual(version.parameters);
+  });
+
+  it('restores checkpoint views atomically and records current views for recovery', async () => {
+    const savedViews = [projectView('saved')];
+    const currentViews = [projectView('current', 5)];
+    const version = {
+      id: 'view-v1', name: 'View state', createdAt: '2026-09-06T12:00:00Z',
+      tree: box(12), views: savedViews,
+    };
+    useProjectStore.setState({ projectId: 'existing', provider: 'google', revision: 'r1', checkpoints: [version] });
+    useViewportStore.setState({ namedViews: currentViews });
+
+    await expect(useProjectStore.getState().restoreCheckpoint('view-v1')).resolves.toBe(true);
+
+    expect(update.mock.calls[0][2].views).toEqual(savedViews);
+    expect(update.mock.calls[0][2].checkpoints.at(-1).views).toEqual(currentViews);
+    expect(useViewportStore.getState().namedViews).toEqual(savedViews);
+    expect(useProjectStore.getState().lastSavedViews).toEqual(savedViews);
+  });
+
+  it('restores checkpoint measurements atomically and records current pins for recovery', async () => {
+    const saved = [measurement('saved')];
+    const current = [measurement('current')];
+    const version = { id: 'measurement-v1', name: 'Inspection', createdAt: '2026-09-06T12:00:00Z', tree: box(12), measurements: saved };
+    useProjectStore.setState({ projectId: 'existing', provider: 'google', revision: 'r1', checkpoints: [version] });
+    useViewportStore.setState({ pinnedMeasurements: current, measurementPoints: current[0].anchors, measurementMode: true });
+
+    await expect(useProjectStore.getState().restoreCheckpoint('measurement-v1')).resolves.toBe(true);
+
+    expect(update.mock.calls[0][2].measurements).toEqual(saved);
+    expect(update.mock.calls[0][2].checkpoints.at(-1).measurements).toEqual(current);
+    expect(useViewportStore.getState()).toMatchObject({ pinnedMeasurements: saved, measurementPoints: [], measurementMode: false });
+  });
+
+  it('retains current views when restoring a legacy checkpoint without a view snapshot', async () => {
+    const currentViews = [projectView('current')];
+    const version = { id: 'legacy', name: 'Legacy', createdAt: '2026-09-06T12:00:00Z', tree: box(12) };
+    useProjectStore.setState({ projectId: 'existing', provider: 'google', revision: 'r1', checkpoints: [version] });
+    useViewportStore.setState({ namedViews: currentViews });
+
+    await expect(useProjectStore.getState().restoreCheckpoint('legacy')).resolves.toBe(true);
+    expect(update.mock.calls[0][2].views).toEqual(currentViews);
+    expect(useViewportStore.getState().namedViews).toEqual(currentViews);
+  });
+});
+
+describe('deleteCloudProject', () => {
+  it('detaches a deleted active cloud object while preserving its editable tree', async () => {
+    remove.mockResolvedValue(undefined);
+    useProjectStore.setState({ provider: 'google', projectId: 'active', revision: 'r1', lastSavedHash: 'saved' });
+    const tree = useModelerStore.getState().tree;
+
+    await deleteCloudProject('google', 'active');
+
+    expect(useProjectStore.getState().projectId).toBeNull();
+    expect(useProjectStore.getState().provider).toBeNull();
+    expect(useModelerStore.getState().tree).toBe(tree);
+    expect(isCloudDirty()).toBe(true);
   });
 });
 
@@ -265,6 +648,7 @@ describe('projectStore.createProject', () => {
 
   it('detaches from the cloud copy so the next save creates a new one', async () => {
     useProjectStore.setState({ projectId: 'old', provider: 'google', shareUrl: 'https://x' });
+    useViewportStore.setState({ pinnedMeasurements: [measurement('old')], measurementPoints: measurement('active').anchors, measurementMode: true });
 
     useProjectStore.getState().createProject();
 
@@ -274,7 +658,104 @@ describe('projectStore.createProject', () => {
     expect(s.shareUrl).toBeNull();
     expect(useModelerStore.getState().tree).toBeNull();
     expect(useModelerStore.getState().projectName).toBe('Untitled');
+    expect(useViewportStore.getState()).toMatchObject({ pinnedMeasurements: [], measurementPoints: [], measurementMode: false });
     // And clean, so an untouched new document is not offered for saving.
-    expect(s.dirty).toBe(false);
+    expect(isCloudDirty()).toBe(false);
+  });
+
+  it('loads a browser document without retaining cloud identity', () => {
+    useProjectStore.setState({ projectId: 'old', provider: 'google', shareUrl: 'https://x' });
+
+    useProjectStore.getState().loadLocalDocument('Recovered', box(33));
+
+    const state = useProjectStore.getState();
+    expect(state.projectId).toBeNull();
+    expect(state.provider).toBeNull();
+    expect(state.shareUrl).toBeNull();
+    expect(useModelerStore.getState().projectName).toBe('Recovered');
+    expect(useModelerStore.getState().tree!.params.width).toBe(33);
+    expect(useModelerStore.getState().history).toHaveLength(1);
+  });
+});
+
+describe('projectStore.toggleShare', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getAccessToken.mockResolvedValue('token');
+    resetStores();
+  });
+
+  it('retains a GitHub URL because forgetting it would not revoke it', async () => {
+    useProjectStore.setState({ projectId: 'gist-1', provider: 'github', shareUrl: 'https://old-link' });
+
+    await useProjectStore.getState().toggleShare();
+
+    expect(setPublic).not.toHaveBeenCalled();
+    expect(useProjectStore.getState().shareUrl).toBe('https://old-link');
+  });
+
+  it('retains a Google URL when provider revocation fails', async () => {
+    setPublic.mockRejectedValueOnce(new Error('still public'));
+    useProjectStore.setState({ projectId: 'file-1', provider: 'google', shareUrl: 'https://old-link' });
+
+    await expect(useProjectStore.getState().toggleShare()).rejects.toThrow('still public');
+
+    expect(useProjectStore.getState().shareUrl).toBe('https://old-link');
+  });
+
+  it('clears a Google URL after verified provider revocation', async () => {
+    setPublic.mockResolvedValueOnce(undefined);
+    useProjectStore.setState({ projectId: 'file-1', provider: 'google', shareUrl: 'https://old-link' });
+
+    await useProjectStore.getState().toggleShare();
+
+    expect(setPublic).toHaveBeenCalledWith('token', 'file-1', false);
+    expect(useProjectStore.getState().shareUrl).toBeNull();
+  });
+});
+
+describe('requestDocumentReplacement', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getAccessToken.mockResolvedValue('token');
+    getCurrentProvider.mockReturnValue('google');
+    create.mockResolvedValue({ externalId: 'saved-id' });
+    resetStores();
+  });
+
+  it('offers cancel, discard, and save when cloud has unsaved changes', () => {
+    const replace = vi.fn();
+    requestDocumentReplacement(replace);
+
+    const modal = useModalStore.getState();
+    expect(modal.confirmVisible).toBe(true);
+    expect(modal.confirmLabel).toBe('Discard');
+    expect(modal.confirmSecondaryLabel).toBe('Save');
+    expect(replace).not.toHaveBeenCalled();
+
+    modal.confirmAction?.();
+    expect(replace).toHaveBeenCalledOnce();
+  });
+
+  it('replaces only after Save succeeds', async () => {
+    const replace = vi.fn();
+    requestDocumentReplacement(replace);
+
+    useModalStore.getState().confirmSecondaryAction?.();
+    await vi.waitFor(() => expect(replace).toHaveBeenCalledOnce());
+    expect(create).toHaveBeenCalledOnce();
+  });
+
+  it('keeps the current document when Save fails', async () => {
+    create.mockRejectedValueOnce(new Error('offline'));
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const replace = vi.fn();
+    requestDocumentReplacement(replace);
+
+    useModalStore.getState().confirmSecondaryAction?.();
+    await vi.waitFor(() => expect(useProjectStore.getState().saveError).toBe('offline'));
+    expect(replace).not.toHaveBeenCalled();
+    expect(useModalStore.getState().toastMessage).toMatch(/kept open/i);
+    logged.mockRestore();
   });
 });

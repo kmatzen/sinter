@@ -1,10 +1,12 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { useModelerStore } from './modelerStore';
+import { MAX_HISTORY_ENTRIES, useModelerStore } from './modelerStore';
 import { isTreeValid } from '../types/operations';
 import type { SDFNodeUI } from '../types/operations';
+import { useViewportStore } from './viewportStore';
 
 // Reset store between tests
 function reset() {
+  useViewportStore.setState({ namedViews: [] });
   useModelerStore.setState({
     tree: null,
     selectedNodeId: null,
@@ -14,8 +16,11 @@ function reset() {
     error: null,
     projectName: 'Untitled',
     expandedNodes: new Set(),
+    namedParameters: [],
     history: [null],
+    parameterHistory: [[]],
     historyIndex: 0,
+    historyTransaction: null,
     clipboard: null,
   });
 }
@@ -43,6 +48,94 @@ describe('Modeler editing scenarios', () => {
     it('selects the new box', () => {
       getState().addPrimitive('box');
       expect(getState().selectedNodeId).toBe(getState().tree!.id);
+    });
+  });
+
+  describe('Scenario: parameter invariants', () => {
+    it('clamps every live mutation through the node schema', () => {
+      getState().addPrimitive('box');
+      getState().updateNodeParams(getState().tree!.id, { width: -10 });
+      expect(getState().tree!.params.width).toBe(0.1);
+    });
+
+    it('rejects a mixed finite/non-finite patch atomically', () => {
+      getState().addPrimitive('box');
+      const id = getState().tree!.id;
+      getState().updateNodeParams(id, { width: 99, height: Number.NaN });
+      expect(getState().tree!.params).toMatchObject({ width: 50, height: 30 });
+      expect(getState().error).toBe('height must be a finite number');
+    });
+
+    it('normalizes whole-tree replacement paths such as AI and cloud loads', () => {
+      getState().setTree({
+        id: 'pattern', kind: 'linearPattern', label: 'Pattern',
+        params: { count: -4, spacing: 0, axisX: 0, axisY: 0, axisZ: 0 }, enabled: true,
+        children: [{ id: 'box', kind: 'box', label: 'Box', params: { width: Infinity, height: -1, depth: 2 }, children: [], enabled: true }],
+      });
+      expect(getState().tree!.params).toMatchObject({ count: 2, spacing: 0.1, axisX: 1 });
+      expect(getState().tree!.children[0].params).toMatchObject({ width: 50, height: 0.1, depth: 2 });
+    });
+  });
+
+  describe('Scenario: named parameters and formulas', () => {
+    it('updates dependent geometry atomically and restores definitions with undo/redo', () => {
+      getState().addPrimitive('box');
+      const id = getState().tree!.id;
+      getState().promoteNodeParam(id, 'width', 'outerWidth');
+      expect(getState().tree!.expressions?.width).toBe('outerWidth');
+      expect(getState().namedParameters).toEqual([{ name: 'outerWidth', expression: '50', unit: 'mm' }]);
+
+      getState().setNamedParameters([{ name: 'outerWidth', expression: '75', unit: 'mm' }]);
+      expect(getState().tree!.params.width).toBe(75);
+      getState().undo();
+      expect(getState().tree!.params.width).toBe(50);
+      expect(getState().namedParameters[0].expression).toBe('50');
+      getState().redo();
+      expect(getState().tree!.params.width).toBe(75);
+      expect(getState().namedParameters[0].expression).toBe('75');
+    });
+
+    it('rejects an invalid definition set without changing definitions or geometry', () => {
+      getState().addPrimitive('box');
+      const id = getState().tree!.id;
+      getState().promoteNodeParam(id, 'width', 'width');
+      const beforeTree = getState().tree;
+      const beforeParameters = getState().namedParameters;
+      getState().setNamedParameters([{ name: 'width', expression: 'missing + 2', unit: 'mm' }]);
+      expect(getState().tree).toBe(beforeTree);
+      expect(getState().namedParameters).toBe(beforeParameters);
+      expect(getState().error).toMatch(/Unknown parameter/);
+    });
+
+    it('turns a driven property back into a literal when directly edited', () => {
+      getState().addPrimitive('box');
+      const id = getState().tree!.id;
+      getState().promoteNodeParam(id, 'width', 'width');
+      getState().updateNodeParams(id, { width: 60 });
+      expect(getState().tree!.params.width).toBe(60);
+      expect(getState().tree!.expressions).toBeUndefined();
+    });
+
+    it('rejects a literal edit that would invalidate another driven field', () => {
+      getState().resetDocument({
+        id: 't', kind: 'torus', label: 'Torus', params: { majorRadius: 20, minorRadius: 10 },
+        expressions: { minorRadius: 'minor' }, children: [], enabled: true,
+      }, 'Torus', [{ name: 'minor', expression: '10', unit: 'mm' }]);
+      const before = getState().tree;
+      getState().updateNodeParams('t', { majorRadius: 5 });
+      expect(getState().tree).toBe(before);
+      expect(getState().error).toMatch(/minorRadius.*outside its valid domain/);
+    });
+
+    it('round-trips formula sources and resolved values', () => {
+      getState().addPrimitive('box');
+      getState().promoteNodeParam(getState().tree!.id, 'width', 'width');
+      const json = getState().toJSON();
+      reset();
+      getState().fromJSON(json);
+      expect(getState().namedParameters[0].name).toBe('width');
+      expect(getState().tree!.expressions?.width).toBe('width');
+      expect(getState().tree!.params.width).toBe(50);
     });
   });
 
@@ -552,6 +645,14 @@ describe('Modeler editing scenarios', () => {
 
   // ─── Scenario 17: addNodeFromData drag-and-drop paths ─────────────
   describe('Scenario: addNodeFromData', () => {
+    it('rejects malformed external node data without changing the tree', () => {
+      getState().addPrimitive('box');
+      const before = getState().tree;
+      getState().addNodeFromData(null, { kind: 'future-shape', params: {} });
+      expect(getState().tree).toBe(before);
+      expect(getState().error).toMatch(/validation failed/i);
+    });
+
     it('becomes root when there is no tree', () => {
       getState().addNodeFromData(null, { kind: 'box', params: { width: 5, height: 5, depth: 5 } });
       expect(getState().tree!.kind).toBe('box');
@@ -771,6 +872,53 @@ describe('Modeler editing scenarios', () => {
       expect(result.children[0].kind).toBe('box');
     });
 
+    it('retains nested rotations because component-wise addition changes geometry', () => {
+      const box: SDFNodeUI = { id: 'box', kind: 'box', label: 'Box', params: { width: 10, height: 20, depth: 30 }, children: [], enabled: true };
+      const inner: SDFNodeUI = { id: 'inner', kind: 'rotate', label: 'Rotate', params: { x: 0, y: 90, z: 0 }, children: [box], enabled: true };
+      const outer: SDFNodeUI = { id: 'outer', kind: 'rotate', label: 'Rotate', params: { x: 90, y: 0, z: 0 }, children: [inner], enabled: true };
+      useModelerStore.setState({ tree: outer });
+      getState().simplifyTree();
+      expect(getState().tree!.kind).toBe('rotate');
+      expect(getState().tree!.children[0].kind).toBe('rotate');
+    });
+
+    it('retains nested non-uniform scales because collapsing changes conservative fields', () => {
+      const box: SDFNodeUI = { id: 'box', kind: 'box', label: 'Box', params: { width: 10, height: 10, depth: 10 }, children: [], enabled: true };
+      const inner: SDFNodeUI = { id: 'inner', kind: 'scale', label: 'Scale', params: { x: 4, y: 3, z: 2 }, children: [box], enabled: true };
+      const outer: SDFNodeUI = { id: 'outer', kind: 'scale', label: 'Scale', params: { x: 2, y: 3, z: 4 }, children: [inner], enabled: true };
+      const rounded: SDFNodeUI = { id: 'round', kind: 'round', label: 'Round', params: { radius: 2 }, children: [outer], enabled: true };
+      getState().resetDocument(rounded);
+      getState().simplifyTree();
+      expect(getState().tree!.children[0].kind).toBe('scale');
+      expect(getState().tree!.children[0].children[0].kind).toBe('scale');
+    });
+
+    it('preserves formula-driven identity transforms', () => {
+      const box: SDFNodeUI = { id: 'box', kind: 'box', label: 'Box', params: { width: 10, height: 10, depth: 10 }, children: [], enabled: true };
+      const move: SDFNodeUI = {
+        id: 'move', kind: 'translate', label: 'Translate', params: { x: 0, y: 0, z: 0 }, expressions: { x: 'offset' }, children: [box], enabled: true,
+      };
+      getState().resetDocument(move, 'Formula', [{ name: 'offset', expression: '0', unit: 'mm' }]);
+      getState().simplifyTree();
+      expect(getState().tree!.kind).toBe('translate');
+      getState().setNamedParameters([{ name: 'offset', expression: '5', unit: 'mm' }]);
+      expect(getState().tree!.params.x).toBe(5);
+    });
+
+    it('does not promote a lone subtract cutter into positive geometry', () => {
+      const cutter: SDFNodeUI = { id: 'cutter', kind: 'sphere', label: 'Sphere', params: { radius: 5 }, children: [], enabled: true };
+      const root: SDFNodeUI = {
+        id: 'subtract', kind: 'subtract', label: 'Subtract', params: { smooth: 0 },
+        children: [{ id: 'empty', kind: '_empty', label: '', params: {}, children: [], enabled: false }, cutter], enabled: true,
+      };
+      useModelerStore.setState({ tree: root });
+      getState().simplifyTree();
+      expect(getState().tree!.kind).toBe('subtract');
+      expect(getState().tree!.children[0].kind).toBe('_empty');
+      expect(getState().tree!.children[1].id).toBe('cutter');
+      expect(isTreeValid(getState().tree)).toBe(false);
+    });
+
     it('is a no-op with no tree', () => {
       getState().simplifyTree();
       expect(getState().tree).toBeNull();
@@ -799,6 +947,13 @@ describe('Modeler editing scenarios', () => {
       getState().changeNodeKind(getState().tree!.id, 'subtract');
       getState().updateNodeParams(getState().tree!.children[0].id, { width: 100 });
       getState().setProjectName('Test Project');
+      const savedView = {
+        id: 'v1', name: 'Detail', createdAt: '2026-09-06T12:00:00Z',
+        position: [0, 0, 10] as [number, number, number], target: [0, 0, 0] as [number, number, number], up: [0, 1, 0] as [number, number, number],
+        projection: 'perspective' as const, verticalSpan: 10,
+        clipping: { enabled: false, axis: 'y' as const, position: 0, flip: false },
+      };
+      useViewportStore.setState({ namedViews: [savedView] });
 
       const json = getState().toJSON();
       reset();
@@ -808,7 +963,42 @@ describe('Modeler editing scenarios', () => {
       expect(getState().tree!.kind).toBe('subtract');
       expect(getState().tree!.children[0].params.width).toBe(100);
       expect(isTreeValid(getState().tree)).toBe(true);
+      expect(useViewportStore.getState().namedViews).toEqual([savedView]);
     });
+  });
+});
+
+describe('bounded structurally-shared history', () => {
+  beforeEach(() => {
+    const mesh: SDFNodeUI = {
+      id: 'mesh', kind: 'mesh', label: 'Mesh', params: { resolution: 32 },
+      children: [], enabled: true, data: { meshData: 'large-base64-payload' },
+    };
+    const root: SDFNodeUI = {
+      id: 'move', kind: 'translate', label: 'Move', params: { x: 0, y: 0, z: 0 },
+      children: [mesh], enabled: true,
+    };
+    getState().resetDocument(root, 'History');
+  });
+
+  it('shares untouched imported-mesh subtrees between snapshots', () => {
+    getState().updateNodeParams('move', { x: 1 });
+    getState().updateNodeParams('move', { x: 2 });
+    const history = getState().history;
+
+    expect(history[1]!.children[0]).toBe(history[2]!.children[0]);
+    expect(history[0]!.children[0]).toBe(history[1]!.children[0]);
+  });
+
+  it('evicts the oldest entries while preserving a coherent undo cursor', () => {
+    for (let x = 1; x <= 120; x++) getState().updateNodeParams('move', { x });
+
+    expect(getState().history).toHaveLength(MAX_HISTORY_ENTRIES);
+    expect(getState().historyIndex).toBe(MAX_HISTORY_ENTRIES - 1);
+    for (let i = 1; i < MAX_HISTORY_ENTRIES; i++) getState().undo();
+    expect(getState().tree!.params.x).toBe(21);
+    getState().undo();
+    expect(getState().tree!.params.x).toBe(21);
   });
 });
 
@@ -926,5 +1116,46 @@ describe('interactive history transactions', () => {
     useModelerStore.getState().redo();
     expect(useModelerStore.getState().tree!.kind).toBe('translate');
     expect(useModelerStore.getState().tree!.params.x).toBe(12);
+  });
+});
+
+describe('document boundaries', () => {
+  beforeEach(reset);
+
+  it('establishes entry zero and clears every document-scoped transient', () => {
+    getState().addPrimitive('box');
+    const oldId = getState().tree!.id;
+    getState().selectNode(oldId);
+    getState().toggleExpanded(oldId);
+    getState().copySelected();
+    getState().beginHistoryTransaction();
+    useModelerStore.setState({
+      mesh: {} as never,
+      sdfDisplay: {} as never,
+      evaluating: true,
+      error: 'old evaluation failed',
+    });
+    const incoming: SDFNodeUI = {
+      id: 'incoming', kind: 'sphere', label: 'Sphere', params: { radius: 7 }, children: [], enabled: true,
+    };
+
+    getState().resetDocument(incoming, 'Incoming');
+
+    const state = getState();
+    expect(state.tree).toEqual(incoming);
+    expect(state.projectName).toBe('Incoming');
+    expect(state.selectedNodeId).toBeNull();
+    expect(state.expandedNodes.size).toBe(0);
+    expect(state.mesh).toBeNull();
+    expect(state.sdfDisplay).toBeNull();
+    expect(state.evaluating).toBe(false);
+    expect(state.error).toBeNull();
+    expect(state.history).toEqual([incoming]);
+    expect(state.historyIndex).toBe(0);
+    expect(state.historyTransaction).toBeNull();
+    expect(state.clipboard).toBeNull();
+
+    getState().undo();
+    expect(getState().tree).toEqual(incoming);
   });
 });

@@ -1,8 +1,12 @@
 import { create } from 'zustand';
 import { v4 as uuidv4 } from 'uuid';
-import type { SDFNodeUI } from '../types/operations';
+import type { NamedParameter, ParameterUnit, SDFNodeUI } from '../types/operations';
 import { NODE_LABELS, NODE_DEFAULTS, NODE_KINDS, expectedChildren } from '../types/operations';
 import type { TriangulatedMesh } from '../types/geometry';
+import { applyNodeParamPatch, normalizeNodeParams, normalizeTreeParams } from '../types/parameterSchema';
+import { decodeProjectDocument, decodeTree } from '../types/documentDecoder';
+import { FormulaError, parameterUnitFor, resolveTreeFormulas } from '../types/formulas';
+import { useViewportStore } from './viewportStore';
 
 export interface SDFDisplayData {
   glsl: string;
@@ -19,24 +23,35 @@ interface ModelerState {
   selectedNodeId: string | null;
   mesh: TriangulatedMesh | null;
   sdfDisplay: SDFDisplayData | null;
+  /** Exact immutable tree object that produced sdfDisplay. */
+  evaluatedTree: SDFNodeUI | null;
+  /** Most recent tree revision whose evaluation succeeded, for recovery. */
+  lastValidTree: SDFNodeUI | null;
   evaluating: boolean;
   error: string | null;
   projectName: string;
   expandedNodes: Set<string>;
+  namedParameters: NamedParameter[];
 
   // History
   history: (SDFNodeUI | null)[];
+  parameterHistory: NamedParameter[][];
   historyIndex: number;
   historyTransaction: {
     tree: SDFNodeUI | null;
     selectedNodeId: string | null;
     expandedNodes: Set<string>;
+    namedParameters: NamedParameter[];
   } | null;
 
   // Actions
   setTree: (tree: SDFNodeUI | null) => void;
+  resetDocument: (tree: SDFNodeUI | null, projectName?: string, namedParameters?: NamedParameter[]) => void;
   selectNode: (id: string | null) => void;
   updateNodeParams: (id: string, params: Record<string, number>) => void;
+  setNodeExpression: (id: string, key: string, expression: string | null) => void;
+  setNamedParameters: (parameters: NamedParameter[]) => void;
+  promoteNodeParam: (id: string, key: string, name: string, unit?: ParameterUnit) => void;
   updateNodeData: (id: string, data: Record<string, string>) => void;
   changeNodeKind: (id: string, kind: string) => void;
   removeNode: (id: string) => void;
@@ -69,12 +84,15 @@ interface ModelerState {
   fromJSON: (json: string) => void;
 }
 
+/** Keep long editing sessions bounded while retaining useful undo depth. */
+export const MAX_HISTORY_ENTRIES = 100;
+
 function createNode(kind: string, children: SDFNodeUI[] = []): SDFNodeUI {
   const node: SDFNodeUI = {
     id: uuidv4(),
     kind,
     label: NODE_LABELS[kind] || kind,
-    params: { ...NODE_DEFAULTS[kind] },
+    params: normalizeNodeParams(kind, NODE_DEFAULTS[kind]),
     children,
     enabled: true,
   };
@@ -83,6 +101,10 @@ function createNode(kind: string, children: SDFNodeUI[] = []): SDFNodeUI {
 
 function cloneTree(node: SDFNodeUI): SDFNodeUI {
   return JSON.parse(JSON.stringify(node));
+}
+
+function cloneParameters(parameters: NamedParameter[]): NamedParameter[] {
+  return parameters.map((parameter) => ({ ...parameter }));
 }
 
 /**
@@ -118,8 +140,17 @@ function commit(
     const wanted = 'selectedNodeId' in extra ? extra.selectedNodeId ?? null : state.selectedNodeId;
     return { ...extra, selectedNodeId: surviving(tree, wanted), tree };
   }
-  const history = state.history.slice(0, state.historyIndex + 1);
-  history.push(tree ? cloneTree(tree) : null);
+  let history = state.history.slice(0, state.historyIndex + 1);
+  let parameterHistory = (state.parameterHistory ?? [state.namedParameters ?? []]).slice(0, state.historyIndex + 1);
+  // Trees are immutable: updateInTree replaces only the edited path. Keeping
+  // those references preserves structural sharing, most importantly the large
+  // base64 payload on imported-mesh nodes.
+  history.push(tree);
+  parameterHistory.push(('namedParameters' in extra ? extra.namedParameters : state.namedParameters) ?? []);
+  if (history.length > MAX_HISTORY_ENTRIES) {
+    history = history.slice(history.length - MAX_HISTORY_ENTRIES);
+    parameterHistory = parameterHistory.slice(parameterHistory.length - MAX_HISTORY_ENTRIES);
+  }
   // Clamp the selection to a node that still exists. `surviving` was already
   // doing this for undo and redo, and nothing else did: removing a node took
   // its descendants with it but only cleared the selection when the removed
@@ -132,6 +163,7 @@ function commit(
     selectedNodeId: surviving(tree, wanted),
     tree,
     history,
+    parameterHistory,
     historyIndex: history.length - 1,
   };
 }
@@ -262,16 +294,46 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
   selectedNodeId: null,
   mesh: null,
   sdfDisplay: null,
+  evaluatedTree: null,
+  lastValidTree: null,
   evaluating: false,
   error: null,
   projectName: 'Untitled',
   expandedNodes: new Set<string>(),
+  namedParameters: [],
   history: [null],
+  parameterHistory: [[]],
   historyIndex: 0,
   historyTransaction: null,
 
   setTree: (tree) => {
-    set(commit(get(), tree, { selectedNodeId: null }));
+    const state = get();
+    try { set(commit(state, resolveTreeFormulas(normalizeTreeParams(tree), state.namedParameters), { selectedNodeId: null, error: null })); }
+    catch (error) { set({ error: error instanceof Error ? error.message : 'Formula is invalid' }); }
+  },
+
+  resetDocument: (tree, projectName = 'Untitled', namedParameters = []) => {
+    namedParameters = cloneParameters(namedParameters);
+    const normalized = resolveTreeFormulas(normalizeTreeParams(tree), namedParameters);
+    const snapshot = normalized ? cloneTree(normalized) : null;
+    set({
+      tree: snapshot,
+      projectName,
+      selectedNodeId: null,
+      expandedNodes: new Set<string>(),
+      namedParameters,
+      mesh: null,
+      sdfDisplay: null,
+      evaluatedTree: null,
+      lastValidTree: null,
+      evaluating: false,
+      error: null,
+      history: [snapshot],
+      parameterHistory: [namedParameters],
+      historyIndex: 0,
+      historyTransaction: null,
+      clipboard: null,
+    });
   },
 
   selectNode: (id) => {
@@ -302,13 +364,54 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
   },
 
   updateNodeParams: (id, params) => {
-    const { tree } = get();
+    const { tree, namedParameters } = get();
     if (!tree) return;
-    const newTree = updateInTree(tree, id, (node) => ({
-      ...node,
-      params: { ...node.params, ...params },
-    }));
-    set(commit(get(), newTree));
+    let error: string | undefined;
+    const newTree = updateInTree(tree, id, (node) => {
+      const result = applyNodeParamPatch(node, params);
+      error = result.error;
+      if (!result.params) return node;
+      const expressions = Object.fromEntries(Object.entries(node.expressions ?? {}).filter(([key]) => !(key in params)));
+      return { ...node, params: result.params, ...(Object.keys(expressions).length ? { expressions } : { expressions: undefined }) };
+    });
+    if (error) { set({ error }); return; }
+    try { set(commit(get(), resolveTreeFormulas(newTree, namedParameters), { error: null })); }
+    catch (formulaError) { set({ error: formulaError instanceof Error ? formulaError.message : 'Formula is invalid' }); }
+  },
+
+  setNodeExpression: (id, key, expression) => {
+    const state = get();
+    if (!state.tree) return;
+    const source = updateInTree(state.tree, id, (node) => {
+      const expressions = { ...node.expressions };
+      if (expression?.trim()) expressions[key] = expression.trim();
+      else delete expressions[key];
+      return { ...node, expressions: Object.keys(expressions).length ? expressions : undefined };
+    });
+    try { set(commit(state, resolveTreeFormulas(source, state.namedParameters), { error: null })); }
+    catch (error) { set({ error: error instanceof FormulaError ? error.message : 'Formula is invalid' }); }
+  },
+
+  setNamedParameters: (namedParameters) => {
+    const state = get();
+    try {
+      namedParameters = cloneParameters(namedParameters);
+      const tree = resolveTreeFormulas(state.tree, namedParameters);
+      set(commit(state, tree, { namedParameters, error: null }));
+    } catch (error) {
+      set({ error: error instanceof FormulaError ? error.message : 'Parameters are invalid' });
+    }
+  },
+
+  promoteNodeParam: (id, key, name, unit) => {
+    const state = get();
+    if (!state.tree || state.namedParameters.some((item) => item.name === name)) { set({ error: `Parameter “${name}” already exists` }); return; }
+    const node = findNode(state.tree, id);
+    if (!node || !(key in node.params)) return;
+    const namedParameters = [...state.namedParameters, { name, expression: String(node.params[key]), unit: unit ?? parameterUnitFor(node.kind, key) }];
+    const source = updateInTree(state.tree, id, (current) => ({ ...current, expressions: { ...current.expressions, [key]: name } }));
+    try { set(commit(state, resolveTreeFormulas(source, namedParameters), { namedParameters, error: null })); }
+    catch (error) { set({ error: error instanceof Error ? error.message : 'Parameter is invalid' }); }
   },
 
   updateNodeData: (id, data) => {
@@ -330,6 +433,7 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
       kind,
       label: NODE_LABELS[kind] || kind,
       params: { ...defaults },
+      expressions: undefined,
     }));
     set(commit(get(), newTree));
   },
@@ -352,12 +456,13 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
   replaceNode: (id, replacement) => {
     const { tree } = get();
     if (!tree) return;
+    const normalized = normalizeTreeParams(replacement)!;
     if (tree.id === id) {
-      set(commit(get(), replacement, { selectedNodeId: replacement.id }));
+      set(commit(get(), normalized, { selectedNodeId: normalized.id }));
       return;
     }
-    const newTree = updateInTree(tree, id, () => replacement);
-    set(commit(get(), newTree, { selectedNodeId: replacement.id }));
+    const newTree = updateInTree(tree, id, () => normalized);
+    set(commit(get(), newTree, { selectedNodeId: normalized.id }));
   },
 
   toggleNode: (id) => {
@@ -459,13 +564,23 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
   },
 
   addNodeFromData: (targetId, nodeData) => {
+    let validated: SDFNodeUI;
+    try {
+      const decoded = decodeTree(nodeData, { legacy: true, repairMissingIds: true });
+      if (!decoded) throw new Error('Node data is empty');
+      validated = decoded;
+    } catch (error) {
+      set({ error: error instanceof Error ? error.message : 'Dropped node data is invalid' });
+      return;
+    }
     // Reconstruct a full SDFNodeUI from the palette's JSON data
     function hydrate(data: any): SDFNodeUI {
       return {
         id: uuidv4(),
         kind: data.kind,
         label: data.label || NODE_LABELS[data.kind] || data.kind,
-        params: data.params || NODE_DEFAULTS[data.kind] || {},
+        params: normalizeNodeParams(data.kind, data.params),
+        ...(data.expressions ? { expressions: { ...data.expressions } } : {}),
         // `data` carries what params cannot: a text node's glyph outlines, an
         // imported mesh's geometry. Dropping it here turned an imported STL
         // into an empty node — and had been doing the same to text.
@@ -474,7 +589,7 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
         enabled: data.enabled !== false,
       };
     }
-    const newNode = hydrate(nodeData);
+    const newNode = hydrate(validated);
     const { tree } = get();
     // "Takes no children", not "is in the primitives palette". `text` and
     // `mesh` are leaves that the palette does not offer — a mesh only exists
@@ -627,44 +742,44 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
     if (!tree) return;
 
     function simplify(node: SDFNodeUI): SDFNodeUI | null {
+      if (node.kind === '_empty') return node;
       // Remove disabled nodes
       if (!node.enabled) return null;
 
       // Recursively simplify children first
-      const children = node.children
-        .map(simplify)
-        .filter((c): c is SDFNodeUI => c !== null);
+      const isBoolean = ['union', 'subtract', 'intersect'].includes(node.kind);
+      const children = isBoolean
+        ? node.children.map((child) => simplify(child) ?? emptySlot())
+        : node.children.map(simplify).filter((c): c is SDFNodeUI => c !== null);
 
       const simplified = { ...node, children };
 
       // Remove identity transforms
-      if (simplified.kind === 'translate') {
+      if (simplified.kind === 'translate' && !simplified.expressions) {
         const p = simplified.params;
         if ((p.x || 0) === 0 && (p.y || 0) === 0 && (p.z || 0) === 0) {
           return children[0] || null;
         }
       }
-      if (simplified.kind === 'rotate') {
+      if (simplified.kind === 'rotate' && !simplified.expressions) {
         const p = simplified.params;
         if ((p.x || 0) === 0 && (p.y || 0) === 0 && (p.z || 0) === 0) {
           return children[0] || null;
         }
       }
-      if (simplified.kind === 'scale') {
+      if (simplified.kind === 'scale' && !simplified.expressions) {
         const p = simplified.params;
         if ((p.x || 1) === 1 && (p.y || 1) === 1 && (p.z || 1) === 1) {
           return children[0] || null;
         }
       }
 
-      // Collapse single-child booleans
-      if (['union', 'subtract', 'intersect'].includes(simplified.kind) && children.length === 1) {
-        return children[0];
-      }
-
-      // Remove booleans with no children
-      if (['union', 'subtract', 'intersect'].includes(simplified.kind) && children.length === 0) {
-        return null;
+      const realChildren = children.filter((child) => child.enabled && child.kind !== '_empty');
+      // Union has a true one-child identity. Subtract and intersect do not:
+      // retaining their slots preserves operand roles and keeps them visibly
+      // incomplete instead of silently changing the model.
+      if (simplified.kind === 'union' && realChildren.length < 2) {
+        return realChildren[0] || null;
       }
 
       // Remove modifiers/patterns with no children
@@ -673,55 +788,27 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
       }
 
       // Collapse nested transforms of the same kind
-      if (['translate', 'rotate', 'scale'].includes(simplified.kind) && children.length === 1 && children[0].kind === simplified.kind) {
+      if (simplified.kind === 'translate' && !simplified.expressions && children.length === 1 && children[0].kind === 'translate' && !children[0].expressions) {
         const inner = children[0];
-        if (simplified.kind === 'translate') {
-          return {
-            ...simplified,
-            params: {
-              x: (simplified.params.x || 0) + (inner.params.x || 0),
-              y: (simplified.params.y || 0) + (inner.params.y || 0),
-              z: (simplified.params.z || 0) + (inner.params.z || 0),
-            },
-            children: inner.children,
-          };
-        }
-        if (simplified.kind === 'rotate') {
-          return {
-            ...simplified,
-            params: {
-              x: (simplified.params.x || 0) + (inner.params.x || 0),
-              y: (simplified.params.y || 0) + (inner.params.y || 0),
-              z: (simplified.params.z || 0) + (inner.params.z || 0),
-            },
-            children: inner.children,
-          };
-        }
-        if (simplified.kind === 'scale') {
-          return {
-            ...simplified,
-            params: {
-              x: (simplified.params.x || 1) * (inner.params.x || 1),
-              y: (simplified.params.y || 1) * (inner.params.y || 1),
-              z: (simplified.params.z || 1) * (inner.params.z || 1),
-            },
-            children: inner.children,
-          };
-        }
+        return {
+          ...simplified,
+          params: {
+            x: (simplified.params.x || 0) + (inner.params.x || 0),
+            y: (simplified.params.y || 0) + (inner.params.y || 0),
+            z: (simplified.params.z || 0) + (inner.params.z || 0),
+          },
+          children: inner.children,
+        };
       }
 
       return simplified;
     }
 
-    // Run iteratively until stable (removing identity transforms may
-    // expose adjacent same-kind transforms for collapsing)
-    let result: SDFNodeUI | null = tree;
-    for (let i = 0; i < 10; i++) {
-      if (!result) break;
-      const next = simplify(result);
-      if (JSON.stringify(next) === JSON.stringify(result)) break;
-      result = next;
-    }
+    // The bottom-up walk reaches a fixed point in one pass: simplifying a
+    // child happens before its parent considers a merge. An arbitrary pass
+    // limit can leave sufficiently deep trees half-normalized and makes
+    // termination a guess rather than a property of the algorithm.
+    const result = simplify(tree);
 
     set(commit(get(), result, { selectedNodeId: null }));
   },
@@ -731,9 +818,10 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
     if (state.historyTransaction) return;
     set({
       historyTransaction: {
-        tree: state.tree ? cloneTree(state.tree) : null,
+        tree: state.tree,
         selectedNodeId: state.selectedNodeId,
         expandedNodes: new Set(state.expandedNodes),
+        namedParameters: state.namedParameters,
       },
     });
   },
@@ -742,7 +830,7 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
     const state = get();
     const transaction = state.historyTransaction;
     if (!transaction) return;
-    if (JSON.stringify(transaction.tree) === JSON.stringify(state.tree)) {
+    if (transaction.tree === state.tree) {
       set({ historyTransaction: null });
       return;
     }
@@ -754,45 +842,44 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
     const transaction = get().historyTransaction;
     if (!transaction) return;
     set({
-      tree: transaction.tree ? cloneTree(transaction.tree) : null,
+      tree: transaction.tree,
       selectedNodeId: transaction.selectedNodeId,
       expandedNodes: new Set(transaction.expandedNodes),
+      namedParameters: transaction.namedParameters,
       historyTransaction: null,
     });
   },
 
   undo: () => {
-    const { historyIndex, history } = get();
+    const { historyIndex, history, parameterHistory } = get();
     if (historyIndex > 0) {
       const newIndex = historyIndex - 1;
-      const restored = history[newIndex] ? cloneTree(history[newIndex]!) : null;
-      set({ tree: restored, historyIndex: newIndex, selectedNodeId: surviving(restored, get().selectedNodeId) });
+      const restored = history[newIndex];
+      set({ tree: restored, namedParameters: parameterHistory[newIndex] ?? [], historyIndex: newIndex, selectedNodeId: surviving(restored, get().selectedNodeId) });
     }
   },
 
   redo: () => {
-    const { historyIndex, history } = get();
+    const { historyIndex, history, parameterHistory } = get();
     if (historyIndex < history.length - 1) {
       const newIndex = historyIndex + 1;
-      const restored = history[newIndex] ? cloneTree(history[newIndex]!) : null;
-      set({ tree: restored, historyIndex: newIndex, selectedNodeId: surviving(restored, get().selectedNodeId) });
+      const restored = history[newIndex];
+      set({ tree: restored, namedParameters: parameterHistory[newIndex] ?? [], historyIndex: newIndex, selectedNodeId: surviving(restored, get().selectedNodeId) });
     }
   },
 
   toJSON: () => {
-    const { tree, projectName } = get();
-    return JSON.stringify({ projectName, tree }, null, 2);
+    const { tree, projectName, namedParameters: parameters } = get();
+    const viewport = useViewportStore.getState();
+    return JSON.stringify({ version: 2, projectName, tree, parameters, views: viewport.namedViews, measurements: viewport.pinnedMeasurements }, null, 2);
   },
 
   fromJSON: (json: string) => {
-    const data = JSON.parse(json);
-    set({
-      projectName: data.projectName || 'Untitled',
-      tree: data.tree || null,
-      selectedNodeId: null,
-      history: [data.tree ? cloneTree(data.tree) : null],
-      historyIndex: 0,
-    });
+    const data = decodeProjectDocument(JSON.parse(json));
+    get().resetDocument(data.tree, data.projectName, data.parameters);
+    useViewportStore.getState().setNamedViews(data.views);
+    useViewportStore.getState().setPinnedMeasurements(data.measurements);
+    useViewportStore.getState().resetMeasurementSession();
   },
 }));
 

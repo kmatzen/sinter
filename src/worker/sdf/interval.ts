@@ -1,5 +1,7 @@
 import { sampleMeshField } from './meshField';
 import type { SDFNode, BBox, Vec3 } from './types';
+import { SDF_PARAM_EPSILON } from './types';
+import { fieldScale, MODIFIER_DISTANCE_SAFETY } from './bounds';
 
 /**
  * Interval-arithmetic evaluation of the SDF tree.
@@ -23,6 +25,14 @@ import type { SDFNode, BBox, Vec3 } from './types';
 export interface Interval { lo: number; hi: number }
 
 const I = (lo: number, hi: number): Interval => ({ lo, hi });
+const distanceI = (node: SDFNode, box: BBox): Interval => {
+  const raw = evaluateInterval(node, box);
+  const scale = fieldScale(node);
+  return I(
+    Math.min(raw.lo, raw.hi, raw.lo * scale, raw.hi * scale),
+    Math.max(raw.lo, raw.hi, raw.lo * scale, raw.hi * scale),
+  );
+};
 export const WHOLE: Interval = I(-Infinity, Infinity);
 
 const add = (a: Interval, b: Interval) => I(a.lo + b.lo, a.hi + b.hi);
@@ -161,26 +171,28 @@ export function evaluateInterval(node: SDFNode, box: BBox): Interval {
     case 'union': {
       const a = evaluateInterval(node.a, box), b = evaluateInterval(node.b, box);
       // smin <= min(a, b), and never more than k/4 below it.
-      if (node.k > 0) return I(Math.min(a.lo, b.lo) - node.k / 4, Math.min(a.hi, b.hi));
+      if (node.k > SDF_PARAM_EPSILON) return I(Math.min(a.lo, b.lo) - node.k / 4, Math.min(a.hi, b.hi));
       return minI(a, b);
     }
     case 'subtract': {
       const a = evaluateInterval(node.a, box), b = neg(evaluateInterval(node.b, box));
       // smax >= max(a, -b), and never more than k/4 above it.
-      if (node.k > 0) return I(Math.max(a.lo, b.lo), Math.max(a.hi, b.hi) + node.k / 4);
+      if (node.k > SDF_PARAM_EPSILON) return I(Math.max(a.lo, b.lo), Math.max(a.hi, b.hi) + node.k / 4);
       return maxI(a, b);
     }
     case 'intersect': {
       const a = evaluateInterval(node.a, box), b = evaluateInterval(node.b, box);
-      if (node.k > 0) return I(Math.max(a.lo, b.lo), Math.max(a.hi, b.hi) + node.k / 4);
+      if (node.k > SDF_PARAM_EPSILON) return I(Math.max(a.lo, b.lo), Math.max(a.hi, b.hi) + node.k / 4);
       return maxI(a, b);
     }
     case 'shell':
-      return addK(absI(evaluateInterval(node.child, box)), -node.thickness / 2);
+      return mulK(addK(absI(distanceI(node.child, box)), -node.thickness / 2), 1 / (fieldScale(node.child) * MODIFIER_DISTANCE_SAFETY));
     case 'offset':
-      return addK(evaluateInterval(node.child, box), -node.distance);
+      if (Math.abs(node.distance) <= SDF_PARAM_EPSILON) return evaluateInterval(node.child, box);
+      return mulK(addK(distanceI(node.child, box), -node.distance), 1 / (fieldScale(node.child) * MODIFIER_DISTANCE_SAFETY));
     case 'round':
-      return addK(evaluateInterval(node.child, box), -node.radius);
+      if (node.radius <= SDF_PARAM_EPSILON) return evaluateInterval(node.child, box);
+      return mulK(addK(distanceI(node.child, box), -node.radius), 1 / (fieldScale(node.child) * MODIFIER_DISTANCE_SAFETY));
     case 'transform': {
       if (!isFinite(node.sx) || !isFinite(node.sy) || !isFinite(node.sz) ||
           Math.abs(node.sx) < 1e-9 || Math.abs(node.sy) < 1e-9 || Math.abs(node.sz) < 1e-9) return WHOLE;

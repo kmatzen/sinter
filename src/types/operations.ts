@@ -3,9 +3,19 @@ export interface SDFNodeUI {
   kind: string;
   label: string;
   params: Record<string, number>;
+  /** Persistent source expressions; params always contains their last valid resolved numeric snapshot. */
+  expressions?: Record<string, string>;
   data?: Record<string, string>;  // for string params like text content
   children: SDFNodeUI[];
   enabled: boolean;
+}
+
+export type ParameterUnit = 'mm' | 'deg' | 'unitless';
+
+export interface NamedParameter {
+  name: string;
+  expression: string;
+  unit: ParameterUnit;
 }
 
 // All valid node kinds
@@ -91,9 +101,14 @@ export function isTreeValid(node: SDFNodeUI | null): boolean {
   return node.children.every(child => isTreeValid(child));
 }
 
+/** A complete, enabled root is safe to hand to an exporter. */
+export function isTreeExportable(node: SDFNodeUI | null): boolean {
+  return !!node && node.enabled && isTreeValid(node);
+}
+
 /** Count how many real (non-placeholder) children a node has. */
 export function realChildCount(node: SDFNodeUI): number {
-  return node.children.filter(c => c.kind !== '_empty').length;
+  return node.children.filter(c => c.enabled && c.kind !== '_empty').length;
 }
 
 // Collect IDs of enabled operator nodes whose subtree is incomplete.

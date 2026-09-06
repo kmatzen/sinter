@@ -15,6 +15,45 @@ interface LLMRequest {
    * back to inferring from the model id.
    */
   supportsThinking?: boolean;
+  signal?: AbortSignal;
+}
+
+export interface ContextEstimate {
+  messages: ChatMessage[];
+  approximateTokens: number;
+  imageCount: number;
+  trimmedMessages: number;
+}
+
+/** Predictable character/image budget with room reserved for the reply. */
+export function budgetMessages(
+  messages: ChatMessage[], systemPrompt: string, contextTokens: number, outputTokens: number,
+): ContextEstimate {
+  messages = stripOldImages(messages);
+  const budget = Math.max(4_000, contextTokens - outputTokens);
+  const cost = (message: ChatMessage) => Math.ceil(message.content.length / 4) + (message.images?.length ?? 0) * 1_000 + 8;
+  const systemCost = Math.ceil(systemPrompt.length / 4) + 16;
+  const kept: ChatMessage[] = [];
+  let used = systemCost;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    let message = messages[i];
+    let next = cost(message);
+    if (kept.length === 0 && used + next > budget) {
+      const imageCost = (message.images?.length ?? 0) * 1_000 + 8;
+      const marker = '\n[message truncated to fit model context]';
+      const availableChars = Math.max(0, (budget - used - imageCost) * 4 - marker.length);
+      message = { ...message, content: `${message.content.slice(0, availableChars)}${marker}` };
+      next = cost(message);
+    } else if (used + next > budget) break;
+    kept.unshift(message);
+    used += next;
+  }
+  return {
+    messages: kept,
+    approximateTokens: used,
+    imageCount: kept.reduce((total, message) => total + (message.images?.length ?? 0), 0),
+    trimmedMessages: messages.length - kept.length,
+  };
 }
 
 /** Convert a ChatMessage to Anthropic's content block format (text + images) */
@@ -218,6 +257,7 @@ async function streamAnthropic(
       'anthropic-dangerous-direct-browser-access': 'true',
     },
     body: JSON.stringify(body),
+    signal: req.signal,
   });
 
   if (!response.ok) await raiseForStatus(response, provider);
@@ -292,6 +332,7 @@ async function streamOpenAI(
         ...req.messages.map((m) => ({ role: m.role, content: toOpenAIContent(m) })),
       ],
     }),
+    signal: req.signal,
   });
 
   if (!response.ok) await raiseForStatus(response, provider);

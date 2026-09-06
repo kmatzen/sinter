@@ -5,11 +5,18 @@ interface ModalState {
   confirmVisible: boolean;
   confirmMessage: string;
   confirmAction: (() => void) | null;
+  confirmLabel: string;
+  confirmSecondaryLabel: string | null;
+  confirmSecondaryAction: (() => void) | null;
 
   // Alert/toast
   toastMessage: string | null;
 
-  showConfirm: (message: string, onConfirm: () => void) => void;
+  showConfirm: (message: string, onConfirm: () => void, options?: {
+    confirmLabel?: string;
+    secondaryLabel?: string;
+    onSecondary?: () => void;
+  }) => void;
   hideConfirm: () => void;
   showToast: (message: string, duration?: number) => void;
 }
@@ -20,18 +27,27 @@ export const useModalStore = create<ModalState>((set) => ({
   confirmVisible: false,
   confirmMessage: '',
   confirmAction: null,
+  confirmLabel: 'Delete',
+  confirmSecondaryLabel: null,
+  confirmSecondaryAction: null,
   toastMessage: null,
 
-  showConfirm: (message, onConfirm) => set({
+  showConfirm: (message, onConfirm, options) => set({
     confirmVisible: true,
     confirmMessage: message,
     confirmAction: onConfirm,
+    confirmLabel: options?.confirmLabel ?? 'Delete',
+    confirmSecondaryLabel: options?.secondaryLabel ?? null,
+    confirmSecondaryAction: options?.onSecondary ?? null,
   }),
 
   hideConfirm: () => set({
     confirmVisible: false,
     confirmMessage: '',
     confirmAction: null,
+    confirmLabel: 'Delete',
+    confirmSecondaryLabel: null,
+    confirmSecondaryAction: null,
   }),
 
   showToast: (message, duration = 3000) => {

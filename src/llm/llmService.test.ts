@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { streamLLMMessage, inferThinkingSupport, LLMAuthError } from './llmService';
+import { budgetMessages, streamLLMMessage, inferThinkingSupport, LLMAuthError } from './llmService';
 import type { ChatMessage } from '../store/chatStore';
 
 /** A Response whose body streams the given SSE frames. */
@@ -70,6 +70,16 @@ describe('provider dispatch', () => {
     expect(init.headers['x-api-key']).toBe('sk-ant');
   });
 
+  it('forwards cancellation to the provider fetch', async () => {
+    const fetchMock = mockFetch(sseResponse([]));
+    const controller = new AbortController();
+    await streamLLMMessage(
+      { systemPrompt: 'sp', messages, apiKey: 'k', provider: 'openai', signal: controller.signal },
+      () => {},
+    );
+    expect(fetchMock.mock.calls[0][1].signal).toBe(controller.signal);
+  });
+
   it('routes openrouter over the OpenAI wire at its own endpoint', async () => {
     const fetchMock = mockFetch(sseResponse([
       'data: {"choices":[{"delta":{"content":"ok"}}]}\n\n',
@@ -104,6 +114,25 @@ describe('provider dispatch', () => {
       () => {},
     );
     expect(fetchMock.mock.calls[0][0]).toBe('https://api.anthropic.com/v1/messages');
+  });
+});
+
+describe('input context budget', () => {
+  it('keeps recent turns and predictably trims older context', () => {
+    const history: ChatMessage[] = Array.from({ length: 8 }, (_, index) => ({
+      role: index % 2 ? 'assistant' : 'user', content: `${index}:`.padEnd(4_000, 'x'),
+    }));
+    const result = budgetMessages(history, 'system', 5_000, 1_000);
+    expect(result.messages.length).toBeLessThan(history.length);
+    expect(result.messages[result.messages.length - 1]?.content.startsWith('7:')).toBe(true);
+    expect(result.trimmedMessages).toBe(history.length - result.messages.length);
+    expect(result.approximateTokens).toBeLessThanOrEqual(4_000);
+  });
+
+  it('truncates a single oversized latest request to the available context', () => {
+    const result = budgetMessages([{ role: 'user', content: 'x'.repeat(100_000) }], 'system', 5_000, 1_000);
+    expect(result.messages[0].content).toContain('[message truncated');
+    expect(result.approximateTokens).toBeLessThanOrEqual(4_000);
   });
 });
 

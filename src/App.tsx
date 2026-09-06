@@ -31,6 +31,7 @@ import { CookieConsent } from './components/ui/CookieConsent';
 import { useAuthStore } from './store/authStore';
 import { OPENROUTER_CALLBACK_PATH, completeOpenRouterSignIn } from './llm/openrouter';
 import { useChatStore } from './store/chatStore';
+import { LegalPage } from './components/legal/LegalPage';
 
 type Route =
   | { kind: 'landing' }
@@ -39,6 +40,7 @@ type Route =
   | { kind: 'shared' }
   | { kind: 'oauth-callback' }
   | { kind: 'openrouter-callback' }
+  | { kind: 'legal'; document: 'terms' | 'privacy' }
   | { kind: 'legacy-share-redirect'; token: string }
   | { kind: 'loading' }
   | { kind: 'error'; message: string };
@@ -48,6 +50,8 @@ function detectRoute(): Route {
   if (path === OPENROUTER_CALLBACK_PATH) return { kind: 'openrouter-callback' };
   if (path === '/auth/callback') return { kind: 'oauth-callback' };
   if (path === '/shared') return { kind: 'shared' };
+  if (path === '/terms' || path === '/terms/') return { kind: 'legal', document: 'terms' };
+  if (path === '/privacy' || path === '/privacy/') return { kind: 'legal', document: 'privacy' };
   const legacyShare = path.match(/^\/share\/([0-9a-f]{64})$/i);
   if (legacyShare) return { kind: 'legacy-share-redirect', token: legacyShare[1] };
   if (path.startsWith('/app')) return { kind: 'app' };
@@ -137,6 +141,8 @@ function App() {
         <div className="text-zinc-400 text-sm">Loading...</div>
       </div>
     );
+  } else if (route.kind === 'legal') {
+    content = <LegalPage kind={route.document} />;
   } else if (route.kind === 'shared') {
     content = <Suspense fallback={<RouteFallback />}><SharedViewer onOpenEditor={() => setRoute({ kind: 'app' })} /></Suspense>;
   } else if (showLanding) {

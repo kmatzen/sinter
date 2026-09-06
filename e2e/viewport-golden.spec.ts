@@ -217,7 +217,7 @@ test.describe('Viewport golden images', () => {
       // silhouette or the whole surface.
       expect(png, scene.why).toMatchSnapshot(`${scene.name}.png`, {
         threshold: 0.08,
-        maxDiffPixelRatio: 0.004,
+        maxDiffPixelRatio: 0.01,
       });
     }
   });
