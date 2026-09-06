@@ -5,7 +5,7 @@ import { useAuthStore, getCurrentProvider } from '../../store/authStore';
 import { useProjectStore, deleteCloudProject, loadThumbnail, requestDocumentReplacement } from '../../store/projectStore';
 import { getStorageProvider, type ProviderName, type ProjectMeta } from '../../storage';
 import { deleteLocalBackup, readLocalBackupJSON, useLocalBackupStore, writeLocalBackupJSON } from '../../store/localPersist';
-import { moveCloudProjectToLocal } from '../../storage/projectTransfer';
+import { encodeTransferredProject, moveCloudProjectToLocal } from '../../storage/projectTransfer';
 import { decodeProjectDocument } from '../../types/documentDecoder';
 import { useDialogFocus } from '../ui/useDialogFocus';
 
@@ -160,7 +160,7 @@ export function ProjectList({ onClose, onLoaded, onImport }: Props) {
     try {
       const accessToken = await useAuthStore.getState().getAccessToken();
       const body = await getStorageProvider(p.provider).read(accessToken, p.externalId);
-      const json = JSON.stringify({ projectName: p.name, tree: body?.tree ?? null }, null, 2);
+      const json = encodeTransferredProject(p.name, body, true);
       triggerDownload(new Blob([json], { type: 'application/json' }), `${p.name}.json`);
     } catch (err: unknown) {
       showToast(err instanceof Error ? err.message : 'Download failed');
@@ -221,7 +221,12 @@ export function ProjectList({ onClose, onLoaded, onImport }: Props) {
       const storage = getStorageProvider(provider);
       const name = data.projectName || 'Untitled';
       const result = await storage.create(accessToken, name, {
-        version: 2, thumbnail: data.thumbnail, tree: data.tree ?? null, checkpoints: data.checkpoints,
+        version: 2,
+        thumbnail: data.thumbnail,
+        tree: data.tree ?? null,
+        checkpoints: data.checkpoints,
+        parameters: data.parameters,
+        views: data.views,
       });
       await deleteLocalBackup();
       setLocalProjectList(await getLocalProjects());

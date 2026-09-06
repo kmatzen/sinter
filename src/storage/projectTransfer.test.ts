@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { LocalProjectConflictError, moveCloudProjectToLocal, type LocalProjectDestination } from './projectTransfer';
+import { decodeProjectDocument } from '../types/documentDecoder';
+import { encodeTransferredProject, LocalProjectConflictError, moveCloudProjectToLocal, type LocalProjectDestination } from './projectTransfer';
 
 function memory(initial: string | null = null): LocalProjectDestination {
   let value = initial;
@@ -10,9 +11,11 @@ function memory(initial: string | null = null): LocalProjectDestination {
   };
 }
 
+const legacyBody = { tree: { kind: 'sphere', params: { radius: 5 }, children: [] } };
+
 const options = (destination: LocalProjectDestination, overrides = {}) => ({
   destination, projectName: 'Cloud B',
-  readSource: vi.fn(async () => ({ tree: { id: 'b' } })),
+  readSource: vi.fn(async () => legacyBody),
   deleteSource: vi.fn(async () => {}),
   ...overrides,
 });
@@ -56,7 +59,7 @@ describe('moveCloudProjectToLocal', () => {
       deleteSource: vi.fn(async () => { throw new Error('token expired'); }),
     }));
     expect(result.status).toBe('copied');
-    expect(JSON.parse((await storage.read())!)).toMatchObject({ projectName: 'Cloud B', tree: { id: 'b' } });
+    expect(JSON.parse((await storage.read())!)).toMatchObject({ version: 2, projectName: 'Cloud B', tree: { kind: 'sphere' } });
   });
 
   it('deletes the source only after a verified destination commit', async () => {
@@ -64,5 +67,33 @@ describe('moveCloudProjectToLocal', () => {
     const args = options(storage);
     await expect(moveCloudProjectToLocal(args)).resolves.toEqual({ status: 'moved' });
     expect(args.deleteSource).toHaveBeenCalledOnce();
+  });
+
+  it('preserves the complete validated document envelope', async () => {
+    const view = {
+      id: 'front', name: 'Front', createdAt: '2026-01-01T00:00:00.000Z',
+      position: [0, 0, 10], target: [0, 0, 0], up: [0, 1, 0],
+      projection: 'orthographic', verticalSpan: 40,
+      clipping: { enabled: true, axis: 'x', position: 2, flip: false },
+    };
+    const tree = {
+      id: 'sphere', kind: 'sphere', label: 'Sphere', params: { radius: 7 },
+      expressions: { radius: 'size' }, children: [], enabled: true,
+    };
+    const body = {
+      version: 2, revision: 'provider-only', thumbnail: 'data:image/png;base64,AA==', tree,
+      parameters: [{ name: 'size', expression: '7', unit: 'mm' }], views: [view],
+      checkpoints: [{ id: 'cp', name: 'Known good', createdAt: '2026-01-02T00:00:00.000Z', tree, parameters: [{ name: 'size', expression: '7', unit: 'mm' }], views: [view] }],
+    };
+
+    const encoded = encodeTransferredProject('Complete', body);
+    const raw = JSON.parse(encoded);
+    expect(raw).not.toHaveProperty('revision');
+    expect(raw).toMatchObject({ version: 2, projectName: 'Complete', thumbnail: body.thumbnail });
+    expect(decodeProjectDocument(raw)).toEqual(decodeProjectDocument({ ...body, projectName: 'Complete' }));
+
+    const storage = memory();
+    await moveCloudProjectToLocal(options(storage, { readSource: vi.fn(async () => body) }));
+    expect(decodeProjectDocument(JSON.parse((await storage.read())!))).toEqual(decodeProjectDocument({ ...body, projectName: 'Cloud B' }));
   });
 });

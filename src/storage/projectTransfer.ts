@@ -15,6 +15,20 @@ export class LocalProjectConflictError extends Error {
   }
 }
 
+/** Serialize provider/local input as one complete, validated v2 document. */
+export function encodeTransferredProject(projectName: string, input: unknown, pretty = false): string {
+  const project = decodeProjectDocument(input, projectName || 'Untitled');
+  return JSON.stringify({
+    version: 2,
+    projectName: projectName || project.projectName || 'Untitled',
+    thumbnail: project.thumbnail,
+    tree: project.tree,
+    checkpoints: project.checkpoints,
+    parameters: project.parameters,
+    views: project.views,
+  }, null, pretty ? 2 : undefined);
+}
+
 /**
  * Move a cloud document through a verified local commit before source delete.
  * The operation is restartable: a repeated call sees the committed local copy
@@ -33,7 +47,7 @@ export async function moveCloudProjectToLocal(options: {
 
   // Read/auth failures happen before any destination or source mutation.
   const body = await options.readSource();
-  const encoded = JSON.stringify({ projectName: options.projectName, tree: (body as any)?.tree ?? null });
+  const encoded = encodeTransferredProject(options.projectName, body);
 
   try {
     await destination.write(encoded);
@@ -59,3 +73,4 @@ export async function moveCloudProjectToLocal(options: {
     return { status: 'copied', deleteError: error instanceof Error ? error : new Error(String(error)) };
   }
 }
+import { decodeProjectDocument } from '../types/documentDecoder';
