@@ -23,13 +23,10 @@ vec2 boxIntersect(vec3 ro, vec3 rd, vec3 bmin, vec3 bmax) {
   vec3 tmax = max(t1, t2);
   return vec2(max(max(tmin.x, tmin.y), tmin.z), min(min(tmax.x, tmax.y), tmax.z));
 }
-bool isClipped(vec3 p) {
-  if (u_clipEnabled < 0.5) return false;
-  float v;
-  if (u_clipAxis == 0) v = p.x;
-  else if (u_clipAxis == 1) v = p.y;
-  else v = p.z;
-  return u_clipFlip > 0.5 ? v < u_clipPos : v > u_clipPos;
+float clipCoord(vec3 p) {
+  if (u_clipAxis == 0) return p.x;
+  if (u_clipAxis == 1) return p.y;
+  return p.z;
 }
 `;
 
@@ -94,6 +91,76 @@ void main() {
   float tEnd = tb.y;
   if (tStart >= tEnd) discard;
 
+  /**
+   * Where the section plane meets this ray.
+   *
+   * The clip region is a half-space, so a ray crosses it at most once: solving
+   * for that single crossing here replaces the per-step point test the march
+   * used to do. Written so "kept" is f(t) = slope * t + offset <= 0, which
+   * folds both clip directions into one sign test rather than branching on
+   * u_clipFlip.
+   *
+   * The old code tested the point inside the march and, when it landed on the
+   * cut-away side, tried to jump to the plane with (u_clipPos - ro.a) / rd.a.
+   * The division has no guard, so a view that grazes the plane (rd.a
+   * approaching 0) yields an enormous value or an infinity, and a camera on the
+   * plane as well yields 0/0 = NaN — and since NaN > 0.0 is false, such a ray
+   * fell into the fallback branch. That branch advanced by minStep, the *hit
+   * threshold*, about half a pixel, and never checked t > tEnd, so a ray that
+   * had already left the kept half-space could not terminate at all: it spent
+   * every one of its 1024 iterations creeping forward a fraction of a pixel.
+   * Rays with real surface still ahead of them ran out of budget before
+   * reaching it and the model dropped out of the frame.
+   *
+   * tClip bounds which hits count, *not* how far the march may travel — see
+   * the marching loop for why those must be separate.
+   */
+  bool onCutFace = false;
+  float tClip = tEnd;
+  if (u_clipEnabled > 0.5) {
+    float side = u_clipFlip > 0.5 ? -1.0 : 1.0;
+    float slope = side * clipCoord(rd);
+    float offset = side * (clipCoord(ro) - u_clipPos);
+    if (slope == 0.0) {
+      // The ray runs inside the plane, so the whole span sits on one side of
+      // it and there is no finite crossing to solve for.
+      if (offset > 0.0) discard;
+    } else {
+      float tPlane = -offset / slope;
+      if (slope > 0.0) {
+        // Ray crosses from the kept side to the cut side. Nothing at or beyond
+        // the crossing is visible.
+        tClip = min(tClip, tPlane);
+      } else if (tPlane > tStart) {
+        // Ray starts on the cut side and emerges at the plane, so the first
+        // thing it could possibly see is the cross-section there.
+        tStart = tPlane;
+        onCutFace = true;
+      }
+    }
+    if (tStart >= tClip) discard;
+  }
+
+  /**
+   * The cross-section itself. Where the plane cuts through solid material the
+   * ray becomes visible already inside the shape, so no surface lies ahead of
+   * it — the cut face is the nearest thing this pixel sees.
+   *
+   * Deciding it from the ray's own entry point replaces the old test, which
+   * shaded any *marched* hit landing within three hit-thresholds of the plane.
+   * That measured proximity rather than causation, so a genuine surface that
+   * happened to run close to the plane — a face lying flat against it, common
+   * once you position the plane against a feature — was painted as cut face
+   * across its whole extent.
+   */
+  vec3 capP = ro + rd * tStart;
+  if (onCutFace && sdf(capP) < 0.0) {
+    gl_FragColor = vec4(0.83, 0.65, 0.46, 1.0);
+    vec4 capClip = u_projView * vec4(capP, 1.0);
+    gl_FragDepth = capClip.z / capClip.w * 0.5 + 0.5;
+    return;
+  }
+
   float t = tStart;
   bool hit = false;
   vec3 p;
@@ -121,20 +188,6 @@ void main() {
   float stepLength = 0.0;
   for (int i = 0; i < 1024; i++) {
     p = ro + rd * t;
-    if (isClipped(p)) {
-      float clipAdvance;
-      if (u_clipAxis == 0) clipAdvance = (u_clipPos - ro.x) / rd.x - t;
-      else if (u_clipAxis == 1) clipAdvance = (u_clipPos - ro.y) / rd.y - t;
-      else clipAdvance = (u_clipPos - ro.z) / rd.z - t;
-      if (clipAdvance > 0.0) {
-        t += clipAdvance + minStep * 0.5;
-        vec3 clipP = ro + rd * t;
-        if (!isClipped(clipP) && sdf(clipP) < 0.0) { p = clipP; hit = true; break; }
-      } else { t += minStep; }
-      // A clip-plane jump breaks the step continuity the relaxation relies on.
-      omega = 1.6; prevRadius = 0.0; stepLength = 0.0;
-      continue;
-    }
     minStep = max(t * u_pixelRadius * 0.5, u_stepFloor);
     float radius = abs(sdf(p));
     bool sorFail = (omega > 1.0) && (radius + prevRadius < stepLength);
@@ -147,6 +200,27 @@ void main() {
       stepLength = radius * omega;
     }
     prevRadius = radius;
+
+    /**
+     * Stop at the section plane — but only from a settled step.
+     *
+     * The march may not simply end at tClip. Over-relaxation deliberately
+     * overshoots and corrects on the following iteration, so the step that
+     * finds a surface routinely lands *past* it first; cutting the ray off the
+     * moment t exceeds the plane throws that pending correction away. A surface
+     * sitting just short of the plane — which is the common case, since the
+     * plane is usually placed against the geometry the user wants to see
+     * inside — then vanishes. Looking along the kept side made every ray reach
+     * the plane within about one step of the surface, so the model disappeared
+     * wholesale rather than in patches.
+     *
+     * When sorFail is false, Keinert's condition (radius + prevRadius >=
+     * stepLength) has just certified that the segment behind t holds no
+     * surface, so there is nothing before the plane left to find and the ray
+     * can be abandoned. Ordering this ahead of the hit test is what keeps a hit
+     * on the cut-away side from being accepted.
+     */
+    if (!sorFail && t > tClip) break;
     if (!sorFail && radius < minStep) { hit = true; break; }
     t += stepLength;
     if (t > tEnd) break;
@@ -175,19 +249,6 @@ ${hasWarn ? `  float warnDist = abs(sdfWarn(p));
   float rim = 1.0 - abs(dot(viewDir, normal));
   rim = smoothstep(0.55, 0.8, rim);
   color += vec3(0.15, 0.2, 0.3) * rim;
-
-  if (u_clipEnabled > 0.5) {
-    float clipDist;
-    if (u_clipAxis == 0) clipDist = abs(p.x - u_clipPos);
-    else if (u_clipAxis == 1) clipDist = abs(p.y - u_clipPos);
-    else clipDist = abs(p.z - u_clipPos);
-    if (clipDist < minStep * 3.0) {
-      gl_FragColor = vec4(0.83, 0.65, 0.46, 1.0);
-      vec4 cp = u_projView * vec4(p, 1.0);
-      gl_FragDepth = cp.z / cp.w * 0.5 + 0.5;
-      return;
-    }
-  }
 
   vec4 clipPos = u_projView * vec4(p, 1.0);
   gl_FragDepth = clipPos.z / clipPos.w * 0.5 + 0.5;
