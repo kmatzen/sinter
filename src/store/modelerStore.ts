@@ -870,14 +870,16 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
 
   toJSON: () => {
     const { tree, projectName, namedParameters: parameters } = get();
-    const views = useViewportStore.getState().namedViews;
-    return JSON.stringify({ version: 2, projectName, tree, parameters, views }, null, 2);
+    const viewport = useViewportStore.getState();
+    return JSON.stringify({ version: 2, projectName, tree, parameters, views: viewport.namedViews, measurements: viewport.pinnedMeasurements }, null, 2);
   },
 
   fromJSON: (json: string) => {
     const data = decodeProjectDocument(JSON.parse(json));
     get().resetDocument(data.tree, data.projectName, data.parameters);
     useViewportStore.getState().setNamedViews(data.views);
+    useViewportStore.getState().setPinnedMeasurements(data.measurements);
+    useViewportStore.getState().resetMeasurementSession();
   },
 }));
 

@@ -144,6 +144,20 @@ describe('IndexedDB local recovery', () => {
     vi.useRealTimers();
   });
 
+  it('round-trips pinned measurements through browser storage', async () => {
+    const pin = {
+      id: 'm1', createdAt: '2026-09-06T00:00:00.000Z',
+      anchors: [{ nodeId: 'missing-after-edit', normalized: [0.5, 0.5, 0.5] as [number, number, number], fallback: [1, 2, 3] as [number, number, number] }],
+    };
+    useViewportStore.setState({ pinnedMeasurements: [pin] });
+    await expect(saveToLocal()).resolves.toBe(true);
+    useViewportStore.setState({ pinnedMeasurements: [] });
+
+    await expect(loadFromLocal()).resolves.toBe(true);
+
+    expect(useViewportStore.getState().pinnedMeasurements).toEqual([pin]);
+  });
+
   it('stops listening to both project and named-view changes', async () => {
     vi.useFakeTimers();
     const write = vi.spyOn(backend, 'write');

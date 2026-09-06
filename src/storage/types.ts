@@ -1,5 +1,6 @@
 import type { NamedParameter } from '../types/operations';
 import type { NamedProjectView } from '../types/view';
+import type { PinnedMeasurement } from '../types/measurement';
 
 // Shape of a project's content file (stored in Drive or as a Gist).
 // Project NAME and timestamps live in the provider's file metadata
@@ -13,6 +14,7 @@ export interface ProjectCheckpoint {
   parameters?: NamedParameter[];
   /** Added after document v2 shipped; absence preserves the current views for legacy checkpoints. */
   views?: NamedProjectView[];
+  measurements?: PinnedMeasurement[];
 }
 
 export interface ProjectFileBody {
@@ -22,6 +24,7 @@ export interface ProjectFileBody {
   checkpoints?: ProjectCheckpoint[];
   parameters?: NamedParameter[];
   views?: NamedProjectView[];
+  measurements?: PinnedMeasurement[];
 }
 
 export interface ProjectReadResult extends ProjectFileBody {

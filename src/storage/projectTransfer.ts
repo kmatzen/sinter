@@ -26,6 +26,7 @@ export function encodeTransferredProject(projectName: string, input: unknown, pr
     checkpoints: project.checkpoints,
     parameters: project.parameters,
     views: project.views,
+    measurements: project.measurements,
   }, null, pretty ? 2 : undefined);
 }
 

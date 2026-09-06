@@ -6,6 +6,7 @@ import { hasValidCameraBasis, type NamedProjectView } from './view';
 import { FormulaError, resolveNamedParameters, resolveTreeFormulas } from './formulas';
 import { STLParseError, STL_TOPOLOGY_STATUS, validateSTLTopology } from '../worker/sdf/stl';
 import { MODEL_SPATIAL_LIMIT_MM } from './modelingEnvelope';
+import type { PinnedMeasurement } from './measurement';
 
 export const CURRENT_DOCUMENT_VERSION = 2;
 export const MAX_PROJECT_CHECKPOINTS = 10;
@@ -286,9 +287,11 @@ export interface DecodedProject {
   checkpoints: Array<ProjectCheckpoint & { tree: SDFNodeUI | null }>;
   parameters: NamedParameter[];
   views: NamedProjectView[];
+  measurements: PinnedMeasurement[];
 }
 
 const MAX_NAMED_VIEWS = 20;
+const MAX_PINNED_MEASUREMENTS = 20;
 
 function finiteVec3(input: unknown, path: string): [number, number, number] {
   if (!Array.isArray(input) || input.length !== 3 || input.some((value) => typeof value !== 'number' || !Number.isFinite(value))) {
@@ -336,6 +339,42 @@ function decodeNamedViews(input: unknown): NamedProjectView[] {
   });
 }
 
+function decodeMeasurements(input: unknown, path: string): PinnedMeasurement[] {
+  if (input === undefined) return [];
+  if (!Array.isArray(input) || input.length > MAX_PINNED_MEASUREMENTS) {
+    throw new DocumentDecodeError(`${path} must contain at most ${MAX_PINNED_MEASUREMENTS} measurements`);
+  }
+  const ids = new Set<string>();
+  return input.map((item, index) => {
+    const itemPath = `${path}[${index}]`;
+    const raw = record(item, itemPath);
+    if (typeof raw.id !== 'string' || !raw.id || raw.id.length > 128 || ids.has(raw.id)) {
+      throw new DocumentDecodeError(`${itemPath}.id is missing, invalid, or duplicated`);
+    }
+    ids.add(raw.id);
+    if (typeof raw.createdAt !== 'string' || !Number.isFinite(Date.parse(raw.createdAt))) {
+      throw new DocumentDecodeError(`${itemPath}.createdAt is invalid`);
+    }
+    if (!Array.isArray(raw.anchors) || raw.anchors.length < 1 || raw.anchors.length > 3) {
+      throw new DocumentDecodeError(`${itemPath}.anchors must contain one to three anchors`);
+    }
+    const anchors = raw.anchors.map((input, anchorIndex) => {
+      const anchorPath = `${itemPath}.anchors[${anchorIndex}]`;
+      const anchor = record(input, anchorPath);
+      if (typeof anchor.nodeId !== 'string' || !anchor.nodeId || anchor.nodeId.length > 128) {
+        throw new DocumentDecodeError(`${anchorPath}.nodeId is invalid`);
+      }
+      const normalized = finiteVec3(anchor.normalized, `${anchorPath}.normalized`);
+      const fallback = finiteVec3(anchor.fallback, `${anchorPath}.fallback`);
+      if ([...normalized, ...fallback].some((value) => Math.abs(value) > MODEL_SPATIAL_LIMIT_MM)) {
+        throw new DocumentDecodeError(`${anchorPath} coordinates exceed the modeling envelope`);
+      }
+      return { nodeId: anchor.nodeId, normalized, fallback };
+    });
+    return { id: raw.id, createdAt: raw.createdAt, anchors };
+  });
+}
+
 function decodeNamedParameters(input: unknown, path: string): NamedParameter[] {
   if (input === undefined) return [];
   if (!Array.isArray(input) || input.length > MAX_NAMED_PARAMETERS) {
@@ -371,6 +410,7 @@ export function decodeProjectDocument(input: unknown, fallbackName = 'Untitled')
   const checkpointInput = raw.version === 2 ? raw.checkpoints ?? [] : [];
   const parameters = raw.version === 2 ? decodeNamedParameters(raw.parameters, 'project.parameters') : [];
   const views = raw.version === 2 ? decodeNamedViews(raw.views) : [];
+  const measurements = raw.version === 2 ? decodeMeasurements(raw.measurements, 'project.measurements') : [];
   if (!Array.isArray(checkpointInput) || checkpointInput.length > MAX_PROJECT_CHECKPOINTS) {
     throw new DocumentDecodeError(`project checkpoints must be an array of at most ${MAX_PROJECT_CHECKPOINTS}`);
   }
@@ -393,6 +433,8 @@ export function decodeProjectDocument(input: unknown, fallbackName = 'Untitled')
     const checkpointParameters = decodeNamedParameters(checkpoint.parameters, `project.checkpoints[${index}].parameters`);
     const checkpointViews = Object.prototype.hasOwnProperty.call(checkpoint, 'views')
       ? decodeNamedViews(checkpoint.views) : undefined;
+    const checkpointMeasurements = Object.prototype.hasOwnProperty.call(checkpoint, 'measurements')
+      ? decodeMeasurements(checkpoint.measurements, `project.checkpoints[${index}].measurements`) : undefined;
     let tree = decodeTree(checkpoint.tree);
     try { tree = resolveTreeFormulas(tree, checkpointParameters); }
     catch (error) { throw new DocumentDecodeError(`project.checkpoints[${index}]: ${error instanceof Error ? error.message : 'invalid formulas'}`); }
@@ -403,6 +445,7 @@ export function decodeProjectDocument(input: unknown, fallbackName = 'Untitled')
       tree,
       parameters: checkpointParameters,
       ...(checkpointViews ? { views: checkpointViews } : {}),
+      ...(checkpointMeasurements ? { measurements: checkpointMeasurements } : {}),
     };
   });
   let tree = decodeTree(raw.tree, { legacy, repairMissingIds: legacy });
@@ -416,10 +459,11 @@ export function decodeProjectDocument(input: unknown, fallbackName = 'Untitled')
     checkpoints,
     parameters,
     views,
+    measurements,
   };
 }
 
 export function decodeProjectFileBody(input: unknown): ProjectFileBody {
   const decoded = decodeProjectDocument(input);
-  return { version: 2, thumbnail: decoded.thumbnail, tree: decoded.tree, checkpoints: decoded.checkpoints, parameters: decoded.parameters, views: decoded.views };
+  return { version: 2, thumbnail: decoded.thumbnail, tree: decoded.tree, checkpoints: decoded.checkpoints, parameters: decoded.parameters, views: decoded.views, measurements: decoded.measurements };
 }

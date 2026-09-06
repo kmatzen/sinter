@@ -105,6 +105,8 @@ interface ViewportState {
   removeMeasurementPoint: () => void;
   pinMeasurement: () => void;
   removePinnedMeasurement: (id: string) => void;
+  setPinnedMeasurements: (measurements: PinnedMeasurement[]) => void;
+  resetMeasurementSession: () => void;
   setMeasurementUnit: (unit: 'mm' | 'in') => void;
   setMeasurementPrecision: (precision: number) => void;
 }
@@ -164,6 +166,8 @@ export const useViewportStore = create<ViewportState>((set) => ({
     measurementPoints: [],
   })),
   removePinnedMeasurement: (id) => set((state) => ({ pinnedMeasurements: state.pinnedMeasurements.filter((item) => item.id !== id) })),
+  setPinnedMeasurements: (pinnedMeasurements) => set({ pinnedMeasurements, measurementPoints: [] }),
+  resetMeasurementSession: () => set({ measurementMode: false, measurementPoints: [] }),
   setMeasurementUnit: (measurementUnit) => set(() => {
     try { localStorage.setItem(MEASUREMENT_UNIT_KEY, measurementUnit); } catch { /* preference persistence is best effort */ }
     return { measurementUnit };

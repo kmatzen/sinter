@@ -83,6 +83,7 @@ describe('moveCloudProjectToLocal', () => {
     const body = {
       version: 2, revision: 'provider-only', thumbnail: 'data:image/png;base64,AA==', tree,
       parameters: [{ name: 'size', expression: '7', unit: 'mm' }], views: [view],
+      measurements: [{ id: 'm1', createdAt: '2026-01-01T00:00:00.000Z', anchors: [{ nodeId: 'sphere', normalized: [0.5, 0.5, 1], fallback: [0, 0, 7] }] }],
       checkpoints: [{ id: 'cp', name: 'Known good', createdAt: '2026-01-02T00:00:00.000Z', tree, parameters: [{ name: 'size', expression: '7', unit: 'mm' }], views: [view] }],
     };
 

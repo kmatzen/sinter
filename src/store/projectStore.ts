@@ -10,6 +10,7 @@ import { decodeProjectDocument, decodeTree } from '../types/documentDecoder';
 import type { NamedParameter, SDFNodeUI } from '../types/operations';
 import type { NamedProjectView } from '../types/view';
 import { useViewportStore } from './viewportStore';
+import type { PinnedMeasurement } from '../types/measurement';
 
 const MAX_CHECKPOINTS = 10;
 export type LiveCheckpoint = ProjectCheckpoint & { tree: SDFNodeUI | null };
@@ -32,11 +33,12 @@ interface ProjectState {
   lastSavedThumbnail: string | null;
   lastSavedParameters: NamedParameter[];
   lastSavedViews: NamedProjectView[];
+  lastSavedMeasurements: PinnedMeasurement[];
 
   setProjectId: (id: string | null, provider?: ProviderName | null) => void;
   save: () => Promise<boolean>;
   loadProject: (provider: ProviderName, externalId: string, name: string) => Promise<void>;
-  loadLocalDocument: (name: string, tree: unknown, parameters?: NamedParameter[], views?: NamedProjectView[]) => void;
+  loadLocalDocument: (name: string, tree: unknown, parameters?: NamedParameter[], views?: NamedProjectView[], measurements?: PinnedMeasurement[]) => void;
   createProject: () => void;
   toggleShare: () => Promise<void>;
   clearSaveError: () => void;
@@ -50,7 +52,8 @@ interface ProjectState {
 
 function bodyHash(): string {
   const { tree, projectName, namedParameters } = useModelerStore.getState();
-  return JSON.stringify({ tree, projectName, namedParameters, views: useViewportStore.getState().namedViews });
+  const viewport = useViewportStore.getState();
+  return JSON.stringify({ tree, projectName, namedParameters, views: viewport.namedViews, measurements: viewport.pinnedMeasurements });
 }
 
 function sameTree(a: SDFNodeUI | null, b: SDFNodeUI | null): boolean {
@@ -61,12 +64,12 @@ function appendCheckpoint(checkpoints: LiveCheckpoint[], checkpoint: LiveCheckpo
   return [...checkpoints, checkpoint].slice(-MAX_CHECKPOINTS);
 }
 
-function checkpoint(name: string, tree: SDFNodeUI | null, parameters: NamedParameter[], views: NamedProjectView[]): LiveCheckpoint {
-  return { id: crypto.randomUUID(), name, createdAt: new Date().toISOString(), tree, parameters, views };
+function checkpoint(name: string, tree: SDFNodeUI | null, parameters: NamedParameter[], views: NamedProjectView[], measurements: PinnedMeasurement[]): LiveCheckpoint {
+  return { id: crypto.randomUUID(), name, createdAt: new Date().toISOString(), tree, parameters, views, measurements };
 }
 
-function projectBody(tree: SDFNodeUI | null, thumbnail: string | null, checkpoints: LiveCheckpoint[], parameters: NamedParameter[], views: NamedProjectView[]): ProjectFileBody {
-  return { version: 2, thumbnail, tree, checkpoints, parameters, views };
+function projectBody(tree: SDFNodeUI | null, thumbnail: string | null, checkpoints: LiveCheckpoint[], parameters: NamedParameter[], views: NamedProjectView[], measurements: PinnedMeasurement[]): ProjectFileBody {
+  return { version: 2, thumbnail, tree, checkpoints, parameters, views, measurements };
 }
 
 let nextGeneration = 1;
@@ -138,16 +141,17 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   lastSavedThumbnail: null,
   lastSavedParameters: [],
   lastSavedViews: [],
+  lastSavedMeasurements: [],
 
   setProjectId: (id, provider) => set({
     projectId: id, provider: provider ?? null, revision: '', generation: ++nextGeneration,
-    checkpoints: [], lastSavedTree: null, lastSavedThumbnail: null, lastSavedParameters: [], lastSavedViews: [],
+    checkpoints: [], lastSavedTree: null, lastSavedThumbnail: null, lastSavedParameters: [], lastSavedViews: [], lastSavedMeasurements: [],
   }),
 
   clearSaveError: () => set({ saveError: null, saveConflict: false }),
 
   save: async () => {
-    const { saving, projectId, provider, remoteName, revision, generation, checkpoints, lastSavedTree, lastSavedParameters, lastSavedViews } = get();
+    const { saving, projectId, provider, remoteName, revision, generation, checkpoints, lastSavedTree, lastSavedParameters, lastSavedViews, lastSavedMeasurements } = get();
     if (saving) return false;
 
     const hash = bodyHash();
@@ -158,14 +162,16 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     try {
       const { projectName, tree, namedParameters } = useModelerStore.getState();
       const views = useViewportStore.getState().namedViews;
+      const measurements = useViewportStore.getState().pinnedMeasurements;
       const thumbnail = captureCanvasThumbnail();
       const savedAt = new Date().toISOString();
       const definitionsChanged = JSON.stringify(lastSavedParameters) !== JSON.stringify(namedParameters);
       const viewsChanged = JSON.stringify(lastSavedViews) !== JSON.stringify(views);
-      const nextCheckpoints = projectId && (!sameTree(lastSavedTree, tree) || definitionsChanged || viewsChanged)
-        ? appendCheckpoint(checkpoints, checkpoint(`Autosave ${savedAt}`, lastSavedTree, lastSavedParameters, lastSavedViews))
+      const measurementsChanged = JSON.stringify(lastSavedMeasurements) !== JSON.stringify(measurements);
+      const nextCheckpoints = projectId && (!sameTree(lastSavedTree, tree) || definitionsChanged || viewsChanged || measurementsChanged)
+        ? appendCheckpoint(checkpoints, checkpoint(`Autosave ${savedAt}`, lastSavedTree, lastSavedParameters, lastSavedViews, lastSavedMeasurements))
         : checkpoints;
-      const body = projectBody(tree, thumbnail, nextCheckpoints, namedParameters, views);
+      const body = projectBody(tree, thumbnail, nextCheckpoints, namedParameters, views, measurements);
 
       const activeProvider = provider ?? getCurrentProvider();
       if (!activeProvider) throw new Error('Sign in to save to cloud');
@@ -181,7 +187,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         // revision before attempting metadata so a failed rename can retry
         // against our own latest write instead of reporting a false conflict.
         if (get().generation !== generation || authIdentity() !== identity) return false;
-        set({ revision: savedRevision, checkpoints: nextCheckpoints, lastSavedTree: tree, lastSavedThumbnail: thumbnail, lastSavedParameters: namedParameters, lastSavedViews: views });
+        set({ revision: savedRevision, checkpoints: nextCheckpoints, lastSavedTree: tree, lastSavedThumbnail: thumbnail, lastSavedParameters: namedParameters, lastSavedViews: views, lastSavedMeasurements: measurements });
         if (projectName !== remoteName) {
           const renamed = await storage.rename(accessToken, externalId, projectName, savedRevision);
           savedRevision = renamed?.revision ?? savedRevision;
@@ -209,6 +215,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         lastSavedThumbnail: thumbnail,
         lastSavedParameters: namedParameters,
         lastSavedViews: views,
+        lastSavedMeasurements: measurements,
         saveConflict: false,
       });
       if (wasNew) useChatStore.getState().bindConversation(cloudConversationKey(activeProvider, externalId));
@@ -279,6 +286,8 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
     useModelerStore.getState().resetDocument(body.tree, name || 'Untitled', body.parameters);
     useViewportStore.getState().setNamedViews(body.views);
+    useViewportStore.getState().setPinnedMeasurements(body.measurements);
+    useViewportStore.getState().resetMeasurementSession();
     useChatStore.getState().switchConversation(cloudConversationKey(provider, externalId));
 
     set({
@@ -293,6 +302,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       lastSavedThumbnail: body.thumbnail,
       lastSavedParameters: body.parameters,
       lastSavedViews: body.views,
+      lastSavedMeasurements: body.measurements,
     });
     if (body.thumbnail) void putThumbnail(thumbnailKey(provider, externalId), body.thumbnail);
   },
@@ -301,6 +311,8 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     const generation = ++nextGeneration;
     useModelerStore.getState().resetDocument(null, 'Untitled');
     useViewportStore.getState().setNamedViews([]);
+    useViewportStore.getState().setPinnedMeasurements([]);
+    useViewportStore.getState().resetMeasurementSession();
     useChatStore.getState().switchConversation(`draft:${crypto.randomUUID()}`);
     set({
       projectId: null,
@@ -318,14 +330,17 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       lastSavedThumbnail: null,
       lastSavedParameters: [],
       lastSavedViews: [],
+      lastSavedMeasurements: [],
     });
   },
 
-  loadLocalDocument: (name, tree, parameters = [], views = []) => {
+  loadLocalDocument: (name, tree, parameters = [], views = [], measurements = []) => {
     const generation = ++nextGeneration;
     const modeler = useModelerStore.getState();
     modeler.resetDocument(decodeTree(tree, { legacy: true, repairMissingIds: true }), name || 'Untitled', parameters);
     useViewportStore.getState().setNamedViews(views);
+    useViewportStore.getState().setPinnedMeasurements(measurements);
+    useViewportStore.getState().resetMeasurementSession();
     useChatStore.getState().switchConversation('browser:default');
     set({
       projectId: null,
@@ -343,30 +358,33 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       lastSavedThumbnail: null,
       lastSavedParameters: [],
       lastSavedViews: [],
+      lastSavedMeasurements: [],
     });
   },
 
   createCheckpoint: async (name) => {
     const cleanName = name.trim().slice(0, 256);
-    const { projectId, provider, revision, generation, saving, checkpoints, lastSavedTree, lastSavedParameters, lastSavedViews } = get();
+    const { projectId, provider, revision, generation, saving, checkpoints, lastSavedTree, lastSavedParameters, lastSavedViews, lastSavedMeasurements } = get();
     if (!cleanName || !projectId || !provider || saving) return false;
     set({ saving: true, saveError: null, saveConflict: false });
     const identity = authIdentity();
     try {
       const { tree, namedParameters } = useModelerStore.getState();
       const views = useViewportStore.getState().namedViews;
+      const measurements = useViewportStore.getState().pinnedMeasurements;
       const definitionsChanged = JSON.stringify(lastSavedParameters) !== JSON.stringify(namedParameters);
       const viewsChanged = JSON.stringify(lastSavedViews) !== JSON.stringify(views);
-      const withPrevious = !sameTree(lastSavedTree, tree) || definitionsChanged || viewsChanged
-        ? appendCheckpoint(checkpoints, checkpoint('Before named version', lastSavedTree, lastSavedParameters, lastSavedViews))
+      const measurementsChanged = JSON.stringify(lastSavedMeasurements) !== JSON.stringify(measurements);
+      const withPrevious = !sameTree(lastSavedTree, tree) || definitionsChanged || viewsChanged || measurementsChanged
+        ? appendCheckpoint(checkpoints, checkpoint('Before named version', lastSavedTree, lastSavedParameters, lastSavedViews, lastSavedMeasurements))
         : checkpoints;
-      const nextCheckpoints = appendCheckpoint(withPrevious, checkpoint(cleanName, tree, namedParameters, views));
+      const nextCheckpoints = appendCheckpoint(withPrevious, checkpoint(cleanName, tree, namedParameters, views, measurements));
       const thumbnail = captureCanvasThumbnail();
       const accessToken = await useAuthStore.getState().getAccessToken();
-      const result = await getStorageProvider(provider).update(accessToken, projectId, projectBody(tree, thumbnail, nextCheckpoints, namedParameters, views), revision);
+      const result = await getStorageProvider(provider).update(accessToken, projectId, projectBody(tree, thumbnail, nextCheckpoints, namedParameters, views, measurements), revision);
       if (get().generation !== generation || authIdentity() !== identity) return false;
       set({
-        checkpoints: nextCheckpoints, lastSavedTree: tree, lastSavedThumbnail: thumbnail, lastSavedParameters: namedParameters, lastSavedViews: views, revision: result?.revision ?? revision,
+        checkpoints: nextCheckpoints, lastSavedTree: tree, lastSavedThumbnail: thumbnail, lastSavedParameters: namedParameters, lastSavedViews: views, lastSavedMeasurements: measurements, revision: result?.revision ?? revision,
         lastSavedHash: bodyHash(), saveError: null, saveConflict: false,
       });
       announceEdit(provider, projectId, result?.revision ?? revision);
@@ -391,19 +409,23 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     try {
       const modeler = useModelerStore.getState();
       const currentViews = useViewportStore.getState().namedViews;
-      const recovery = checkpoint(`Before restoring ${target.name}`, modeler.tree, modeler.namedParameters, currentViews);
+      const currentMeasurements = useViewportStore.getState().pinnedMeasurements;
+      const recovery = checkpoint(`Before restoring ${target.name}`, modeler.tree, modeler.namedParameters, currentViews, currentMeasurements);
       const nextCheckpoints = appendCheckpoint(checkpoints, recovery);
       const accessToken = await useAuthStore.getState().getAccessToken();
       const targetParameters = target.parameters ?? [];
       // Old v2 checkpoints predate view snapshots. Preserve the current set for
       // those files instead of inventing an empty historical state.
       const targetViews = target.views ?? currentViews;
-      const result = await getStorageProvider(provider).update(accessToken, projectId, projectBody(target.tree, null, nextCheckpoints, targetParameters, targetViews), revision);
+      const targetMeasurements = target.measurements ?? currentMeasurements;
+      const result = await getStorageProvider(provider).update(accessToken, projectId, projectBody(target.tree, null, nextCheckpoints, targetParameters, targetViews, targetMeasurements), revision);
       if (get().generation !== generation || authIdentity() !== identity) return false;
       modeler.resetDocument(target.tree, modeler.projectName, targetParameters);
       useViewportStore.getState().setNamedViews(targetViews);
+      useViewportStore.getState().setPinnedMeasurements(targetMeasurements);
+      useViewportStore.getState().resetMeasurementSession();
       set({
-        checkpoints: nextCheckpoints, lastSavedTree: target.tree, lastSavedThumbnail: null, lastSavedParameters: targetParameters, lastSavedViews: targetViews, revision: result?.revision ?? revision,
+        checkpoints: nextCheckpoints, lastSavedTree: target.tree, lastSavedThumbnail: null, lastSavedParameters: targetParameters, lastSavedViews: targetViews, lastSavedMeasurements: targetMeasurements, revision: result?.revision ?? revision,
         lastSavedHash: bodyHash(), saveError: null, saveConflict: false,
       });
       announceEdit(provider, projectId, result?.revision ?? revision);
@@ -420,14 +442,14 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   },
 
   deleteCheckpoint: async (id) => {
-    const { projectId, provider, revision, generation, saving, checkpoints, lastSavedTree, lastSavedThumbnail, lastSavedParameters, lastSavedViews } = get();
+    const { projectId, provider, revision, generation, saving, checkpoints, lastSavedTree, lastSavedThumbnail, lastSavedParameters, lastSavedViews, lastSavedMeasurements } = get();
     if (!projectId || !provider || saving || !checkpoints.some((item) => item.id === id)) return false;
     set({ saving: true, saveError: null, saveConflict: false });
     const identity = authIdentity();
     try {
       const nextCheckpoints = checkpoints.filter((item) => item.id !== id);
       const accessToken = await useAuthStore.getState().getAccessToken();
-      const result = await getStorageProvider(provider).update(accessToken, projectId, projectBody(lastSavedTree, lastSavedThumbnail, nextCheckpoints, lastSavedParameters, lastSavedViews), revision);
+      const result = await getStorageProvider(provider).update(accessToken, projectId, projectBody(lastSavedTree, lastSavedThumbnail, nextCheckpoints, lastSavedParameters, lastSavedViews, lastSavedMeasurements), revision);
       if (get().generation !== generation || authIdentity() !== identity) return false;
       set({
         checkpoints: nextCheckpoints, revision: result?.revision ?? revision,
@@ -489,7 +511,7 @@ export async function deleteCloudProject(provider: ProviderName, externalId: str
       provider: null, projectId: null, remoteName: '', revision: '', shareUrl: null,
       lastSavedHash: '', saving: false, generation: ++nextGeneration,
       checkpoints: [], lastSavedTree: null,
-      lastSavedThumbnail: null, lastSavedParameters: [], lastSavedViews: [],
+      lastSavedThumbnail: null, lastSavedParameters: [], lastSavedViews: [], lastSavedMeasurements: [],
     });
   }
 }

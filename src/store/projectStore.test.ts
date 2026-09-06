@@ -58,11 +58,16 @@ function resetStores() {
   useProjectStore.setState({
     provider: null, projectId: null, remoteName: '', lastSavedHash: '',
     revision: '', generation: 0, saving: false, saveError: null, saveConflict: false, shareUrl: null,
-    checkpoints: [], lastSavedTree: null, lastSavedThumbnail: null, lastSavedParameters: [],
+    checkpoints: [], lastSavedTree: null, lastSavedThumbnail: null, lastSavedParameters: [], lastSavedViews: [], lastSavedMeasurements: [],
   });
   useModalStore.getState().hideConfirm();
-  useViewportStore.setState({ namedViews: [] });
+  useViewportStore.setState({ namedViews: [], pinnedMeasurements: [], measurementPoints: [], measurementMode: false });
 }
+
+const measurement = (id: string, nodeId = 'b') => ({
+  id, createdAt: '2026-09-06T12:00:00Z',
+  anchors: [{ nodeId, normalized: [0.5, 0.5, 0.5] as [number, number, number], fallback: [0, 0, 0] as [number, number, number] }],
+});
 
 const projectView = (id: string, x = 0) => ({
   id, name: id, createdAt: '2026-09-06T12:00:00Z',
@@ -123,6 +128,15 @@ describe('projectStore.save', () => {
     expect(isCloudDirty()).toBe(true);
     await useProjectStore.getState().save();
     expect(create.mock.calls[0][2].views).toEqual([view]);
+    expect(isCloudDirty()).toBe(false);
+  });
+
+  it('stores pinned measurements and treats pin edits as unsaved changes', async () => {
+    const pin = measurement('m1');
+    useViewportStore.setState({ pinnedMeasurements: [pin] });
+    expect(isCloudDirty()).toBe(true);
+    await useProjectStore.getState().save();
+    expect(create.mock.calls[0][2].measurements).toEqual([pin]);
     expect(isCloudDirty()).toBe(false);
   });
 
@@ -588,6 +602,20 @@ describe('project checkpoints', () => {
     expect(useProjectStore.getState().lastSavedViews).toEqual(savedViews);
   });
 
+  it('restores checkpoint measurements atomically and records current pins for recovery', async () => {
+    const saved = [measurement('saved')];
+    const current = [measurement('current')];
+    const version = { id: 'measurement-v1', name: 'Inspection', createdAt: '2026-09-06T12:00:00Z', tree: box(12), measurements: saved };
+    useProjectStore.setState({ projectId: 'existing', provider: 'google', revision: 'r1', checkpoints: [version] });
+    useViewportStore.setState({ pinnedMeasurements: current, measurementPoints: current[0].anchors, measurementMode: true });
+
+    await expect(useProjectStore.getState().restoreCheckpoint('measurement-v1')).resolves.toBe(true);
+
+    expect(update.mock.calls[0][2].measurements).toEqual(saved);
+    expect(update.mock.calls[0][2].checkpoints.at(-1).measurements).toEqual(current);
+    expect(useViewportStore.getState()).toMatchObject({ pinnedMeasurements: saved, measurementPoints: [], measurementMode: false });
+  });
+
   it('retains current views when restoring a legacy checkpoint without a view snapshot', async () => {
     const currentViews = [projectView('current')];
     const version = { id: 'legacy', name: 'Legacy', createdAt: '2026-09-06T12:00:00Z', tree: box(12) };
@@ -620,6 +648,7 @@ describe('projectStore.createProject', () => {
 
   it('detaches from the cloud copy so the next save creates a new one', async () => {
     useProjectStore.setState({ projectId: 'old', provider: 'google', shareUrl: 'https://x' });
+    useViewportStore.setState({ pinnedMeasurements: [measurement('old')], measurementPoints: measurement('active').anchors, measurementMode: true });
 
     useProjectStore.getState().createProject();
 
@@ -629,6 +658,7 @@ describe('projectStore.createProject', () => {
     expect(s.shareUrl).toBeNull();
     expect(useModelerStore.getState().tree).toBeNull();
     expect(useModelerStore.getState().projectName).toBe('Untitled');
+    expect(useViewportStore.getState()).toMatchObject({ pinnedMeasurements: [], measurementPoints: [], measurementMode: false });
     // And clean, so an untouched new document is not offered for saving.
     expect(isCloudDirty()).toBe(false);
   });

@@ -90,6 +90,21 @@ describe('document decoder', () => {
     expect(legacy.checkpoints[0]).not.toHaveProperty('views');
   });
 
+  it('validates project and checkpoint measurement pins', () => {
+    const pin = {
+      id: 'gap', createdAt: '2026-09-06T12:00:00Z',
+      anchors: [{ nodeId: 'box', normalized: [0.25, 0.5, 0.75], fallback: [1, 2, 3] }],
+    };
+    const decoded = decodeProjectDocument({ version: 2, tree: box(), measurements: [pin], checkpoints: [
+      { id: 'measured', name: 'Measured', createdAt: '2026-09-06T12:00:00Z', tree: box('old'), measurements: [pin] },
+    ] });
+    expect(decoded.measurements).toEqual([pin]);
+    expect(decoded.checkpoints[0].measurements).toEqual([pin]);
+    expect(decodeProjectDocument({ version: 1, tree: box(), measurements: [pin] }).measurements).toEqual([]);
+    expect(() => decodeProjectDocument({ version: 2, tree: box(), measurements: [{ ...pin, anchors: [{ ...pin.anchors[0], fallback: [Infinity, 0, 0] }] }] })).toThrow(/finite/);
+    expect(() => decodeProjectDocument({ version: 2, tree: box(), measurements: [pin, pin] })).toThrow(/duplicated/);
+  });
+
   it('rejects duplicate IDs, unknown kinds, and invalid arity', () => {
     const duplicate = {
       id: 'u', kind: 'union', label: 'Union', params: { smooth: 0 }, enabled: true,

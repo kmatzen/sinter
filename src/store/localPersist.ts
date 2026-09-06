@@ -225,7 +225,7 @@ export async function startLocalAutoSave(): Promise<void> {
   };
   const unsubModeler = useModelerStore.subscribe(schedule);
   const unsubViewport = useViewportStore.subscribe((state, previous) => {
-    if (state.namedViews !== previous.namedViews) schedule();
+    if (state.namedViews !== previous.namedViews || state.pinnedMeasurements !== previous.pinnedMeasurements) schedule();
   });
   unsubscribers = [unsubModeler, unsubViewport];
 }

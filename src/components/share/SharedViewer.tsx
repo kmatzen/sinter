@@ -28,7 +28,7 @@ export function SharedViewer({ onOpenEditor }: { onOpenEditor: () => void }) {
         const body = await storage.read(null, id);
         if (cancelled) return;
         const tree = body?.tree ?? null;
-        useProjectStore.getState().loadLocalDocument('Shared project', tree, body.parameters, body.views);
+        useProjectStore.getState().loadLocalDocument('Shared project', tree, body.parameters, body.views, body.measurements);
         // Provider doesn't return the project name on anonymous read.
         // Best-effort fallback: leave it as "Shared project".
         setProjectName('Shared project');
