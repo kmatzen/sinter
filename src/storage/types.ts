@@ -2,10 +2,18 @@
 // Project NAME and timestamps live in the provider's file metadata
 // (Drive `name` / Gist `description`) so the list view never needs
 // to read file bodies.
+export interface ProjectCheckpoint {
+  id: string;
+  name: string;
+  createdAt: string;
+  tree: unknown;
+}
+
 export interface ProjectFileBody {
-  version: 1;
+  version: 1 | 2;
   thumbnail: string | null;
   tree: unknown;
+  checkpoints?: ProjectCheckpoint[];
 }
 
 export interface ProjectReadResult extends ProjectFileBody {

@@ -34,6 +34,7 @@ vi.mock('../../engine/workerBridge', () => {
 import { Toolbar } from './Toolbar';
 import { useModelerStore } from '../../store/modelerStore';
 import { useViewportStore } from '../../store/viewportStore';
+import { useProjectStore } from '../../store/projectStore';
 
 function deferred<T>() {
   let resolve!: (v: T) => void;
@@ -219,5 +220,26 @@ describe('Toolbar export cancellation', () => {
     await flush();
 
     expect(screen.queryByText('Download')).not.toBeInTheDocument();
+  });
+});
+
+describe('Toolbar project versions', () => {
+  beforeEach(() => {
+    useModelerStore.setState({ tree: BOX, evaluatedTree: BOX, sdfDisplay: DISPLAY as any, evaluating: false });
+    useProjectStore.setState({
+      projectId: 'cloud-id', provider: 'google', saving: false,
+      checkpoints: [{ id: 'v1', name: 'Before experiment', createdAt: '2026-09-06T12:00:00Z', tree: BOX }],
+    });
+  });
+
+  afterEach(cleanup);
+
+  it('exposes named versions, retention, and restore controls', () => {
+    render(<Toolbar />);
+    fireEvent.click(screen.getByTitle('Project versions'));
+    expect(screen.getByRole('dialog', { name: 'Project versions' })).toBeInTheDocument();
+    expect(screen.getByText('Before experiment')).toBeInTheDocument();
+    expect(screen.getByText(/10 newest versions/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Restore' })).toBeInTheDocument();
   });
 });

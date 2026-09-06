@@ -10,8 +10,9 @@ import { ProjectList } from '../projects/ProjectList';
 import { ImportProject } from '../projects/ImportProject';
 import { ImportMesh } from '../projects/ImportMesh';
 import { SettingsPage } from '../settings/SettingsPage';
-import { FolderOpen, Save, Undo2, Redo2, MessageSquare, FileDown, FilePlus, Share2, Link, List, SlidersHorizontal, MoreHorizontal, Upload, Settings } from 'lucide-react';
+import { FolderOpen, Save, Undo2, Redo2, MessageSquare, FileDown, FilePlus, Share2, Link, List, SlidersHorizontal, MoreHorizontal, Upload, Settings, History, Trash2 } from 'lucide-react';
 import { useLocalBackupStore } from '../../store/localPersist';
+import { useModalStore } from '../../store/modalStore';
 import { isTreeExportable } from '../../types/operations';
 import { useDialogFocus } from '../ui/useDialogFocus';
 import type { ExportDiagnostics } from '../../types/geometry';
@@ -42,6 +43,10 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
   const reloadRemote = useProjectStore((s) => s.reloadRemote);
   const saveAsCopy = useProjectStore((s) => s.saveAsCopy);
   const overwriteRemote = useProjectStore((s) => s.overwriteRemote);
+  const checkpoints = useProjectStore((s) => s.checkpoints);
+  const createCheckpoint = useProjectStore((s) => s.createCheckpoint);
+  const restoreCheckpoint = useProjectStore((s) => s.restoreCheckpoint);
+  const deleteCheckpoint = useProjectStore((s) => s.deleteCheckpoint);
   const shareUrl = useProjectStore((s) => s.shareUrl);
   const toggleShare = useProjectStore((s) => s.toggleShare);
   const projectId = useProjectStore((s) => s.projectId);
@@ -56,6 +61,7 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
   const [showImport, setShowImport] = useState(false);
   const [showImportMesh, setShowImportMesh] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showVersions, setShowVersions] = useState(false);
   const [showOverflow, setShowOverflow] = useState(false);
   const [avatarFailed, setAvatarFailed] = useState(false);
   const [exporting, setExporting] = useState<string | null>(null);
@@ -199,6 +205,7 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
         <IconBtn icon={<FolderOpen size={14} />} title="Projects" onClick={() => setShowProjects(true)} />
         <IconBtn icon={<Upload size={14} />} title="Import STL" onClick={() => setShowImportMesh(true)} />
         <IconBtn icon={<Save size={14} />} title={saving ? 'Saving...' : 'Save to cloud'} onClick={handleSaveCloud} disabled={saving || !dirty} />
+        {projectId && <IconBtn icon={<History size={14} />} title="Project versions" onClick={() => setShowVersions(true)} />}
         {projectId && (
           shareUrl ? (
             <IconBtn
@@ -273,6 +280,7 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
             <OverflowItem label="New Project" onClick={() => { requestDocumentReplacement(createProject); setShowOverflow(false); }} />
             <OverflowItem label="Open Projects" onClick={() => { setShowProjects(true); setShowOverflow(false); }} />
             <OverflowItem label={saving ? 'Saving...' : 'Save'} onClick={() => { handleSaveCloud(); setShowOverflow(false); }} disabled={saving || !dirty} />
+            {projectId && <OverflowItem label="Project Versions" onClick={() => { setShowVersions(true); setShowOverflow(false); }} />}
             <OverflowDivider />
             <OverflowItem label="Undo" onClick={() => { undo(); setShowOverflow(false); }} />
             <OverflowItem label="Redo" onClick={() => { redo(); setShowOverflow(false); }} />
@@ -460,6 +468,16 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
     {showSettings && (
       <SettingsPage onClose={() => setShowSettings(false)} />
     )}
+    {showVersions && (
+      <VersionsDialog
+        checkpoints={checkpoints}
+        saving={saving}
+        onCreate={createCheckpoint}
+        onRestore={restoreCheckpoint}
+        onDelete={deleteCheckpoint}
+        onClose={() => setShowVersions(false)}
+      />
+    )}
     {exportPreview && (
       <ExportPreview
         triangles={exportPreview.triangles}
@@ -471,6 +489,50 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
       />
     )}
     </>
+  );
+}
+
+function VersionsDialog({ checkpoints, saving, onCreate, onRestore, onDelete, onClose }: {
+  checkpoints: import('../../store/projectStore').LiveCheckpoint[];
+  saving: boolean;
+  onCreate: (name: string) => Promise<boolean>;
+  onRestore: (id: string) => Promise<boolean>;
+  onDelete: (id: string) => Promise<boolean>;
+  onClose: () => void;
+}) {
+  const surface = useRef<HTMLDivElement>(null);
+  const [name, setName] = useState('');
+  useDialogFocus(surface, onClose);
+  const create = async () => {
+    if (await onCreate(name)) setName('');
+  };
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.6)' }} onClick={onClose}>
+      <div ref={surface} role="dialog" aria-modal="true" aria-labelledby="versions-title" className="w-full max-w-lg rounded-xl p-5 shadow-xl" style={{ background: 'var(--bg-panel)', border: '1px solid var(--border-default)' }} onClick={(event) => event.stopPropagation()}>
+        <div className="flex items-center justify-between mb-1">
+          <h2 id="versions-title" className="font-semibold" style={{ color: 'var(--text-primary)' }}>Project versions</h2>
+          <button onClick={onClose} aria-label="Close project versions" className="px-2">×</button>
+        </div>
+        <p className="text-[11px] mb-4" style={{ color: 'var(--text-muted)' }}>Stored atomically with this cloud project. The 10 newest versions are retained.</p>
+        <div className="flex gap-2 mb-4">
+          <input value={name} maxLength={256} onChange={(event) => setName(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void create(); }} placeholder="Name this version" aria-label="Version name" className="min-w-0 flex-1 rounded px-3 py-2 text-sm" style={{ background: 'var(--bg-deep)', border: '1px solid var(--border-default)', color: 'var(--text-primary)' }} />
+          <button disabled={saving || !name.trim()} onClick={() => void create()} className="rounded px-3 py-2 text-sm font-medium disabled:opacity-50" style={{ background: 'var(--accent)', color: 'var(--bg-deep)' }}>Create</button>
+        </div>
+        <div className="max-h-72 overflow-y-auto space-y-2">
+          {checkpoints.length === 0 && <p className="text-sm py-6 text-center" style={{ color: 'var(--text-muted)' }}>No saved versions yet.</p>}
+          {[...checkpoints].reverse().map((item) => (
+            <div key={item.id} className="flex items-center gap-3 rounded p-3" style={{ background: 'var(--bg-elevated)' }}>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm truncate" style={{ color: 'var(--text-primary)' }}>{item.name}</p>
+                <p className="text-[11px]" style={{ color: 'var(--text-muted)' }}>{new Date(item.createdAt).toLocaleString()}</p>
+              </div>
+              <button disabled={saving} onClick={() => void onRestore(item.id)} className="text-xs rounded px-2 py-1 disabled:opacity-50" style={{ border: '1px solid var(--border-default)' }}>Restore</button>
+              <button disabled={saving} onClick={() => useModalStore.getState().showConfirm(`Delete version “${item.name}”?`, () => { void onDelete(item.id); }, { confirmLabel: 'Delete' })} aria-label={`Delete version ${item.name}`} className="rounded p-1.5 disabled:opacity-50" style={{ color: 'var(--accent-red)' }}><Trash2 size={14} /></button>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
   );
 }
 

@@ -57,6 +57,7 @@ function resetStores() {
   useProjectStore.setState({
     provider: null, projectId: null, remoteName: '', lastSavedHash: '',
     revision: '', generation: 0, saving: false, saveError: null, saveConflict: false, shareUrl: null,
+    checkpoints: [], lastSavedTree: null, lastSavedThumbnail: null,
   });
   useModalStore.getState().hideConfirm();
 }
@@ -124,7 +125,7 @@ describe('projectStore.save', () => {
 
     await useProjectStore.getState().save();
 
-    expect(update).toHaveBeenCalledWith('token', 'existing', expect.objectContaining({ version: 1 }), '');
+    expect(update).toHaveBeenCalledWith('token', 'existing', expect.objectContaining({ version: 2 }), '');
     expect(create).not.toHaveBeenCalled();
   });
 
@@ -393,6 +394,114 @@ describe('projectStore.loadProject', () => {
     read.mockResolvedValue({ version: 1 });
     await expect(useProjectStore.getState().loadProject('google', 'id-1', 'Empty')).rejects.toThrow(/tree is required/);
     expect(useModelerStore.getState().tree?.params.width).toBe(9);
+  });
+});
+
+describe('project checkpoints', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getAccessToken.mockResolvedValue('token');
+    getCurrentProvider.mockReturnValue('google');
+    create.mockResolvedValue({ externalId: 'new-id', revision: 'r1' });
+    update.mockResolvedValue({ revision: 'r2' });
+    isPublic.mockResolvedValue(false);
+    resetStores();
+  });
+
+  it('checkpoints the last committed tree at the next save boundary', async () => {
+    await useProjectStore.getState().save();
+    useModelerStore.setState({ tree: box(25) });
+    await useProjectStore.getState().save();
+
+    const body = update.mock.calls[0][2];
+    expect(body.version).toBe(2);
+    expect(body.checkpoints).toHaveLength(1);
+    expect(body.checkpoints[0].tree.params.width).toBe(10);
+    expect(useProjectStore.getState().checkpoints).toHaveLength(1);
+  });
+
+  it('keeps only the ten newest checkpoints', async () => {
+    const old = Array.from({ length: 10 }, (_, i) => ({
+      id: `v${i}`, name: `Version ${i}`, createdAt: new Date(i).toISOString(), tree: box(i + 1),
+    }));
+    useProjectStore.setState({ projectId: 'existing', provider: 'google', checkpoints: old, lastSavedTree: box(50) });
+    useModelerStore.setState({ tree: box(60) });
+    await useProjectStore.getState().save();
+
+    const saved = update.mock.calls[0][2].checkpoints;
+    expect(saved).toHaveLength(10);
+    expect(saved.some((item: any) => item.id === 'v0')).toBe(false);
+    expect(saved.at(-1).tree.params.width).toBe(50);
+  });
+
+  it('creates a named durable checkpoint and reports provider failure honestly', async () => {
+    useProjectStore.setState({ projectId: 'existing', provider: 'google', revision: 'r1', lastSavedTree: box(10) });
+    await expect(useProjectStore.getState().createCheckpoint('Before experiment')).resolves.toBe(true);
+    expect(update.mock.calls[0][2].checkpoints[0]).toMatchObject({ name: 'Before experiment', tree: { params: { width: 10 } } });
+
+    const before = useProjectStore.getState().checkpoints;
+    update.mockRejectedValueOnce(new Error('offline'));
+    await expect(useProjectStore.getState().createCheckpoint('Not saved')).resolves.toBe(false);
+    expect(useProjectStore.getState().checkpoints).toBe(before);
+    expect(useProjectStore.getState().saveError).toBe('offline');
+  });
+
+  it('preserves the previous cloud tree when naming dirty work', async () => {
+    useProjectStore.setState({ projectId: 'existing', provider: 'google', revision: 'r1', lastSavedTree: box(10) });
+    useModelerStore.setState({ tree: box(20) });
+    await useProjectStore.getState().createCheckpoint('Experiment');
+    const checkpoints = update.mock.calls[0][2].checkpoints;
+    expect(checkpoints.map((item: any) => item.name)).toEqual(['Before named version', 'Experiment']);
+    expect(checkpoints.map((item: any) => item.tree.params.width)).toEqual([10, 20]);
+  });
+
+  it('restores only after the provider atomically stores a recovery checkpoint', async () => {
+    const version = { id: 'v1', name: 'Known good', createdAt: '2026-09-06T12:00:00Z', tree: box(12) };
+    useProjectStore.setState({ projectId: 'existing', provider: 'google', revision: 'r1', checkpoints: [version] });
+    useModelerStore.setState({ tree: box(99) });
+
+    await expect(useProjectStore.getState().restoreCheckpoint('v1')).resolves.toBe(true);
+
+    const body = update.mock.calls[0][2];
+    expect(body.tree.params.width).toBe(12);
+    expect(body.checkpoints.at(-1)).toMatchObject({ name: 'Before restoring Known good', tree: { params: { width: 99 } } });
+    expect(useModelerStore.getState().tree?.params.width).toBe(12);
+    expect(useModelerStore.getState().history).toHaveLength(1);
+  });
+
+  it('keeps the current document untouched when restore fails', async () => {
+    const version = { id: 'v1', name: 'Known good', createdAt: '2026-09-06T12:00:00Z', tree: box(12) };
+    useProjectStore.setState({ projectId: 'existing', provider: 'google', revision: 'r1', checkpoints: [version] });
+    useModelerStore.setState({ tree: box(99) });
+    update.mockRejectedValueOnce(new Error('Drive unavailable'));
+
+    await expect(useProjectStore.getState().restoreCheckpoint('v1')).resolves.toBe(false);
+    expect(useModelerStore.getState().tree?.params.width).toBe(99);
+    expect(useProjectStore.getState().checkpoints).toEqual([version]);
+  });
+
+  it('deletes a checkpoint only after the provider accepts the new ledger', async () => {
+    const version = { id: 'v1', name: 'Disposable', createdAt: '2026-09-06T12:00:00Z', tree: box(12) };
+    useProjectStore.setState({ projectId: 'existing', provider: 'google', revision: 'r1', checkpoints: [version], lastSavedTree: box(10), lastSavedHash: 'remote' });
+    useModelerStore.setState({ tree: box(99) });
+    await expect(useProjectStore.getState().deleteCheckpoint('v1')).resolves.toBe(true);
+    expect(update.mock.calls[0][2].checkpoints).toEqual([]);
+    expect(update.mock.calls[0][2].tree.params.width).toBe(10);
+    expect(useProjectStore.getState().checkpoints).toEqual([]);
+    expect(isCloudDirty()).toBe(true);
+
+    useProjectStore.setState({ checkpoints: [version] });
+    update.mockRejectedValueOnce(new Error('offline'));
+    await expect(useProjectStore.getState().deleteCheckpoint('v1')).resolves.toBe(false);
+    expect(useProjectStore.getState().checkpoints).toEqual([version]);
+  });
+
+  it('loads checkpoint history from either provider document', async () => {
+    read.mockResolvedValue({ version: 2, tree: box(42), thumbnail: null, revision: 'r4', checkpoints: [
+      { id: 'v1', name: 'First', createdAt: '2026-09-06T12:00:00Z', tree: box(10) },
+    ] });
+    await useProjectStore.getState().loadProject('google', 'id-1', 'Bracket');
+    expect(useProjectStore.getState().checkpoints[0].tree?.params.width).toBe(10);
   });
 });
 

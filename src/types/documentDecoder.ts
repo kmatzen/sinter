@@ -1,8 +1,9 @@
 import { NODE_DEFAULTS, NODE_LABELS, expectedChildren, type SDFNodeUI } from './operations';
 import { normalizeNodeParams } from './parameterSchema';
-import type { ProjectFileBody } from '../storage/types';
+import type { ProjectCheckpoint, ProjectFileBody } from '../storage/types';
 
-export const CURRENT_DOCUMENT_VERSION = 1;
+export const CURRENT_DOCUMENT_VERSION = 2;
+export const MAX_PROJECT_CHECKPOINTS = 10;
 export const MAX_DOCUMENT_NODES = 1_000;
 export const MAX_DOCUMENT_DEPTH = 64;
 export const MAX_PROJECT_JSON_CHARS = 40 * 1024 * 1024;
@@ -237,17 +238,18 @@ export function decodeTree(input: unknown, options: DecodeOptions = {}): SDFNode
 }
 
 export interface DecodedProject {
-  version: 1;
+  version: 2;
   projectName: string;
   thumbnail: string | null;
   tree: SDFNodeUI | null;
+  checkpoints: Array<ProjectCheckpoint & { tree: SDFNodeUI | null }>;
 }
 
 /** Decode current cloud envelopes and migrate legacy exported/local envelopes. */
 export function decodeProjectDocument(input: unknown, fallbackName = 'Untitled'): DecodedProject {
   const raw = record(input, 'project');
   const hasVersion = Object.prototype.hasOwnProperty.call(raw, 'version');
-  if (hasVersion && raw.version !== CURRENT_DOCUMENT_VERSION) {
+  if (hasVersion && raw.version !== 1 && raw.version !== CURRENT_DOCUMENT_VERSION) {
     throw new DocumentDecodeError(`document version ${String(raw.version)} is not supported by this app`);
   }
   const legacy = !hasVersion;
@@ -258,15 +260,43 @@ export function decodeProjectDocument(input: unknown, fallbackName = 'Untitled')
   if (thumbnail !== null && (typeof thumbnail !== 'string' || thumbnail.length > MAX_THUMBNAIL_CHARS)) {
     throw new DocumentDecodeError('thumbnail is invalid or too large');
   }
+  const checkpointInput = raw.version === 2 ? raw.checkpoints ?? [] : [];
+  if (!Array.isArray(checkpointInput) || checkpointInput.length > MAX_PROJECT_CHECKPOINTS) {
+    throw new DocumentDecodeError(`project checkpoints must be an array of at most ${MAX_PROJECT_CHECKPOINTS}`);
+  }
+  const checkpointIds = new Set<string>();
+  const checkpoints = checkpointInput.map((input, index) => {
+    const checkpoint = record(input, `project.checkpoints[${index}]`);
+    if (typeof checkpoint.id !== 'string' || !checkpoint.id || checkpoint.id.length > 128 || checkpointIds.has(checkpoint.id)) {
+      throw new DocumentDecodeError(`project.checkpoints[${index}].id is missing, invalid, or duplicated`);
+    }
+    checkpointIds.add(checkpoint.id);
+    if (typeof checkpoint.name !== 'string' || !checkpoint.name.trim() || checkpoint.name.length > MAX_LABEL_CHARS) {
+      throw new DocumentDecodeError(`project.checkpoints[${index}].name is invalid`);
+    }
+    if (typeof checkpoint.createdAt !== 'string' || !Number.isFinite(Date.parse(checkpoint.createdAt))) {
+      throw new DocumentDecodeError(`project.checkpoints[${index}].createdAt is invalid`);
+    }
+    if (!Object.prototype.hasOwnProperty.call(checkpoint, 'tree')) {
+      throw new DocumentDecodeError(`project.checkpoints[${index}].tree is required`);
+    }
+    return {
+      id: checkpoint.id,
+      name: checkpoint.name.trim(),
+      createdAt: checkpoint.createdAt,
+      tree: decodeTree(checkpoint.tree),
+    };
+  });
   return {
-    version: 1,
+    version: 2,
     projectName: projectName || fallbackName,
     thumbnail,
     tree: decodeTree(raw.tree, { legacy, repairMissingIds: legacy }),
+    checkpoints,
   };
 }
 
 export function decodeProjectFileBody(input: unknown): ProjectFileBody {
   const decoded = decodeProjectDocument(input);
-  return { version: 1, thumbnail: decoded.thumbnail, tree: decoded.tree };
+  return { version: 2, thumbnail: decoded.thumbnail, tree: decoded.tree, checkpoints: decoded.checkpoints };
 }

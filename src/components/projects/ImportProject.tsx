@@ -42,7 +42,9 @@ export function ImportProject({ onDone }: Props) {
           const data = decodeProjectDocument(JSON.parse(text), name);
           name = data.projectName || name;
           const tree = data.tree;
-          await storage.create(accessToken, name, { version: 1, thumbnail: null, tree });
+          await storage.create(accessToken, name, {
+            version: 2, thumbnail: data.thumbnail, tree, checkpoints: data.checkpoints,
+          });
           importResults.push({ name, ok: true });
         } catch (err: unknown) {
           importResults.push({ name, ok: false, error: err instanceof Error ? err.message : 'Failed' });

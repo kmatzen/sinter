@@ -220,7 +220,9 @@ export function ProjectList({ onClose, onLoaded, onImport }: Props) {
       const accessToken = await useAuthStore.getState().getAccessToken();
       const storage = getStorageProvider(provider);
       const name = data.projectName || 'Untitled';
-      const result = await storage.create(accessToken, name, { version: 1, thumbnail: null, tree: data.tree ?? null });
+      const result = await storage.create(accessToken, name, {
+        version: 2, thumbnail: data.thumbnail, tree: data.tree ?? null, checkpoints: data.checkpoints,
+      });
       await deleteLocalBackup();
       setLocalProjectList(await getLocalProjects());
       setCloudProjects((prev) => [

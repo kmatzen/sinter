@@ -2,11 +2,15 @@ import { create } from 'zustand';
 import { useModelerStore } from './modelerStore';
 import { useAuthStore, getCurrentProvider } from './authStore';
 import { captureCanvasThumbnail } from '../utils/thumbnail';
-import { StorageConflictError, getStorageProvider, buildShareUrl, type ProviderName, type ProjectFileBody } from '../storage';
+import { StorageConflictError, getStorageProvider, buildShareUrl, type ProviderName, type ProjectFileBody, type ProjectCheckpoint } from '../storage';
 import { getThumbnail, putThumbnail, deleteThumbnail, thumbnailCacheKey } from '../storage/thumbnailCache';
 import { useChatStore } from './chatStore';
 import { useModalStore } from './modalStore';
 import { decodeProjectDocument, decodeTree } from '../types/documentDecoder';
+import type { SDFNodeUI } from '../types/operations';
+
+const MAX_CHECKPOINTS = 10;
+export type LiveCheckpoint = ProjectCheckpoint & { tree: SDFNodeUI | null };
 
 interface ProjectState {
   provider: ProviderName | null;
@@ -21,6 +25,9 @@ interface ProjectState {
   saveConflict: boolean;
   /** App share URL (origin + /shared#...) when this project is shareable, else null. */
   shareUrl: string | null;
+  checkpoints: LiveCheckpoint[];
+  lastSavedTree: SDFNodeUI | null;
+  lastSavedThumbnail: string | null;
 
   setProjectId: (id: string | null, provider?: ProviderName | null) => void;
   save: () => Promise<boolean>;
@@ -32,11 +39,30 @@ interface ProjectState {
   reloadRemote: () => Promise<void>;
   saveAsCopy: () => Promise<boolean>;
   overwriteRemote: () => Promise<boolean>;
+  createCheckpoint: (name: string) => Promise<boolean>;
+  restoreCheckpoint: (id: string) => Promise<boolean>;
+  deleteCheckpoint: (id: string) => Promise<boolean>;
 }
 
 function bodyHash(): string {
   const { tree, projectName } = useModelerStore.getState();
   return JSON.stringify({ tree, projectName });
+}
+
+function sameTree(a: SDFNodeUI | null, b: SDFNodeUI | null): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+function appendCheckpoint(checkpoints: LiveCheckpoint[], checkpoint: LiveCheckpoint): LiveCheckpoint[] {
+  return [...checkpoints, checkpoint].slice(-MAX_CHECKPOINTS);
+}
+
+function checkpoint(name: string, tree: SDFNodeUI | null): LiveCheckpoint {
+  return { id: crypto.randomUUID(), name, createdAt: new Date().toISOString(), tree };
+}
+
+function projectBody(tree: SDFNodeUI | null, thumbnail: string | null, checkpoints: LiveCheckpoint[]): ProjectFileBody {
+  return { version: 2, thumbnail, tree, checkpoints };
 }
 
 let nextGeneration = 1;
@@ -103,15 +129,19 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   saveError: null,
   saveConflict: false,
   shareUrl: null,
+  checkpoints: [],
+  lastSavedTree: null,
+  lastSavedThumbnail: null,
 
   setProjectId: (id, provider) => set({
     projectId: id, provider: provider ?? null, revision: '', generation: ++nextGeneration,
+    checkpoints: [], lastSavedTree: null, lastSavedThumbnail: null,
   }),
 
   clearSaveError: () => set({ saveError: null, saveConflict: false }),
 
   save: async () => {
-    const { saving, projectId, provider, remoteName, revision, generation } = get();
+    const { saving, projectId, provider, remoteName, revision, generation, checkpoints, lastSavedTree } = get();
     if (saving) return false;
 
     const hash = bodyHash();
@@ -122,7 +152,11 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     try {
       const { projectName, tree } = useModelerStore.getState();
       const thumbnail = captureCanvasThumbnail();
-      const body: ProjectFileBody = { version: 1, thumbnail, tree };
+      const savedAt = new Date().toISOString();
+      const nextCheckpoints = projectId && !sameTree(lastSavedTree, tree)
+        ? appendCheckpoint(checkpoints, checkpoint(`Autosave ${savedAt}`, lastSavedTree))
+        : checkpoints;
+      const body = projectBody(tree, thumbnail, nextCheckpoints);
 
       const activeProvider = provider ?? getCurrentProvider();
       if (!activeProvider) throw new Error('Sign in to save to cloud');
@@ -138,7 +172,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         // revision before attempting metadata so a failed rename can retry
         // against our own latest write instead of reporting a false conflict.
         if (get().generation !== generation || authIdentity() !== identity) return false;
-        set({ revision: savedRevision });
+        set({ revision: savedRevision, checkpoints: nextCheckpoints, lastSavedTree: tree, lastSavedThumbnail: thumbnail });
         if (projectName !== remoteName) {
           const renamed = await storage.rename(accessToken, externalId, projectName, savedRevision);
           savedRevision = renamed?.revision ?? savedRevision;
@@ -161,6 +195,9 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         remoteName: projectName,
         lastSavedHash: hash,
         revision: savedRevision,
+        checkpoints: nextCheckpoints,
+        lastSavedTree: tree,
+        lastSavedThumbnail: thumbnail,
         saveConflict: false,
       });
       if (wasNew) useChatStore.getState().bindConversation(cloudConversationKey(activeProvider, externalId));
@@ -239,6 +276,9 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       lastSavedHash: bodyHash(),
       revision: remote.revision ?? '',
       shareUrl,
+      checkpoints: body.checkpoints,
+      lastSavedTree: body.tree,
+      lastSavedThumbnail: body.thumbnail,
     });
     if (body.thumbnail) void putThumbnail(thumbnailKey(provider, externalId), body.thumbnail);
   },
@@ -258,6 +298,9 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       revision: '',
       generation,
       saving: false,
+      checkpoints: [],
+      lastSavedTree: null,
+      lastSavedThumbnail: null,
     });
   },
 
@@ -277,7 +320,101 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       revision: '',
       generation,
       saving: false,
+      checkpoints: [],
+      lastSavedTree: null,
+      lastSavedThumbnail: null,
     });
+  },
+
+  createCheckpoint: async (name) => {
+    const cleanName = name.trim().slice(0, 256);
+    const { projectId, provider, revision, generation, saving, checkpoints, lastSavedTree } = get();
+    if (!cleanName || !projectId || !provider || saving) return false;
+    set({ saving: true, saveError: null, saveConflict: false });
+    const identity = authIdentity();
+    try {
+      const { tree } = useModelerStore.getState();
+      const withPrevious = !sameTree(lastSavedTree, tree)
+        ? appendCheckpoint(checkpoints, checkpoint('Before named version', lastSavedTree))
+        : checkpoints;
+      const nextCheckpoints = appendCheckpoint(withPrevious, checkpoint(cleanName, tree));
+      const thumbnail = captureCanvasThumbnail();
+      const accessToken = await useAuthStore.getState().getAccessToken();
+      const result = await getStorageProvider(provider).update(accessToken, projectId, projectBody(tree, thumbnail, nextCheckpoints), revision);
+      if (get().generation !== generation || authIdentity() !== identity) return false;
+      set({
+        checkpoints: nextCheckpoints, lastSavedTree: tree, lastSavedThumbnail: thumbnail, revision: result?.revision ?? revision,
+        lastSavedHash: bodyHash(), saveError: null, saveConflict: false,
+      });
+      announceEdit(provider, projectId, result?.revision ?? revision);
+      return true;
+    } catch (err: unknown) {
+      if (get().generation === generation) set({
+        saveError: err instanceof Error ? err.message : 'Checkpoint failed',
+        saveConflict: err instanceof StorageConflictError || (err instanceof Error && err.name === 'StorageConflictError'),
+      });
+      return false;
+    } finally {
+      if (get().generation === generation) set({ saving: false });
+    }
+  },
+
+  restoreCheckpoint: async (id) => {
+    const { projectId, provider, revision, generation, saving, checkpoints } = get();
+    const target = checkpoints.find((item) => item.id === id);
+    if (!target || !projectId || !provider || saving) return false;
+    set({ saving: true, saveError: null, saveConflict: false });
+    const identity = authIdentity();
+    try {
+      const modeler = useModelerStore.getState();
+      const recovery = checkpoint(`Before restoring ${target.name}`, modeler.tree);
+      const nextCheckpoints = appendCheckpoint(checkpoints, recovery);
+      const accessToken = await useAuthStore.getState().getAccessToken();
+      const result = await getStorageProvider(provider).update(accessToken, projectId, projectBody(target.tree, null, nextCheckpoints), revision);
+      if (get().generation !== generation || authIdentity() !== identity) return false;
+      modeler.resetDocument(target.tree, modeler.projectName);
+      set({
+        checkpoints: nextCheckpoints, lastSavedTree: target.tree, lastSavedThumbnail: null, revision: result?.revision ?? revision,
+        lastSavedHash: bodyHash(), saveError: null, saveConflict: false,
+      });
+      announceEdit(provider, projectId, result?.revision ?? revision);
+      return true;
+    } catch (err: unknown) {
+      if (get().generation === generation) set({
+        saveError: err instanceof Error ? err.message : 'Restore failed',
+        saveConflict: err instanceof StorageConflictError || (err instanceof Error && err.name === 'StorageConflictError'),
+      });
+      return false;
+    } finally {
+      if (get().generation === generation) set({ saving: false });
+    }
+  },
+
+  deleteCheckpoint: async (id) => {
+    const { projectId, provider, revision, generation, saving, checkpoints, lastSavedTree, lastSavedThumbnail } = get();
+    if (!projectId || !provider || saving || !checkpoints.some((item) => item.id === id)) return false;
+    set({ saving: true, saveError: null, saveConflict: false });
+    const identity = authIdentity();
+    try {
+      const nextCheckpoints = checkpoints.filter((item) => item.id !== id);
+      const accessToken = await useAuthStore.getState().getAccessToken();
+      const result = await getStorageProvider(provider).update(accessToken, projectId, projectBody(lastSavedTree, lastSavedThumbnail, nextCheckpoints), revision);
+      if (get().generation !== generation || authIdentity() !== identity) return false;
+      set({
+        checkpoints: nextCheckpoints, revision: result?.revision ?? revision,
+        saveError: null, saveConflict: false,
+      });
+      announceEdit(provider, projectId, result?.revision ?? revision);
+      return true;
+    } catch (err: unknown) {
+      if (get().generation === generation) set({
+        saveError: err instanceof Error ? err.message : 'Checkpoint deletion failed',
+        saveConflict: err instanceof StorageConflictError || (err instanceof Error && err.name === 'StorageConflictError'),
+      });
+      return false;
+    } finally {
+      if (get().generation === generation) set({ saving: false });
+    }
   },
 
   toggleShare: async () => {
@@ -322,6 +459,8 @@ export async function deleteCloudProject(provider: ProviderName, externalId: str
     useProjectStore.setState({
       provider: null, projectId: null, remoteName: '', revision: '', shareUrl: null,
       lastSavedHash: '', saving: false, generation: ++nextGeneration,
+      checkpoints: [], lastSavedTree: null,
+      lastSavedThumbnail: null,
     });
   }
 }

@@ -3,7 +3,7 @@ import { googleStorage, clearGoogleCache } from './google';
 import { githubStorage } from './github';
 
 export { StorageConflictError } from './types';
-export type { ProviderName, StorageProvider, ProjectMeta, ProjectFileBody, ProjectReadResult } from './types';
+export type { ProviderName, StorageProvider, ProjectMeta, ProjectFileBody, ProjectReadResult, ProjectCheckpoint } from './types';
 
 export function getStorageProvider(name: ProviderName): StorageProvider {
   switch (name) {

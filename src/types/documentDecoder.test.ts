@@ -17,12 +17,27 @@ describe('document decoder', () => {
   it('loads current and legacy project envelopes', () => {
     expect(decodeProjectDocument({ version: 1, thumbnail: null, tree: box() }).tree?.id).toBe('box');
     const legacy = decodeProjectDocument({ projectName: 'Old', tree: { kind: 'sphere', params: { radius: 4 }, children: [] } });
-    expect(legacy).toMatchObject({ version: 1, projectName: 'Old', tree: { kind: 'sphere', label: 'Sphere', enabled: true } });
+    expect(legacy).toMatchObject({ version: 2, projectName: 'Old', checkpoints: [], tree: { kind: 'sphere', label: 'Sphere', enabled: true } });
     expect(legacy.tree?.id).toBe('migrated-root');
   });
 
   it('rejects unknown future document versions deliberately', () => {
-    expect(() => decodeProjectDocument({ version: 2, tree: box() })).toThrow(/version 2/);
+    expect(() => decodeProjectDocument({ version: 3, tree: box() })).toThrow(/version 3/);
+  });
+
+  it('validates and loads bounded version checkpoints', () => {
+    const decoded = decodeProjectDocument({
+      version: 2, tree: box(), thumbnail: null,
+      checkpoints: [{ id: 'v1', name: 'Before holes', createdAt: '2026-09-06T12:00:00.000Z', tree: box('old') }],
+    });
+    expect(decoded.checkpoints[0]).toMatchObject({ id: 'v1', name: 'Before holes', tree: { id: 'old' } });
+    expect(() => decodeProjectDocument({ version: 2, tree: box(), checkpoints: [
+      { id: 'same', name: 'A', createdAt: '2026-09-06T12:00:00Z', tree: box('a') },
+      { id: 'same', name: 'B', createdAt: '2026-09-06T12:00:00Z', tree: box('b') },
+    ] })).toThrow(/duplicated/);
+    expect(() => decodeProjectDocument({ version: 2, tree: box(), checkpoints: Array.from({ length: 11 }, (_, i) => ({
+      id: String(i), name: 'Version', createdAt: '2026-09-06T12:00:00Z', tree: box(`b${i}`),
+    })) })).toThrow(/at most 10/);
   });
 
   it('rejects duplicate IDs, unknown kinds, and invalid arity', () => {
