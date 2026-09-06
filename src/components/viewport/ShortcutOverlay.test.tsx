@@ -3,6 +3,11 @@ import { describe, expect, it } from 'vitest';
 import { ShortcutOverlay } from './ShortcutOverlay';
 
 describe('ShortcutOverlay touch entry point', () => {
+  it('uses the shared mobile touch-target contract', () => {
+    render(<ShortcutOverlay />);
+    expect(screen.getByRole('button', { name: /open keyboard shortcuts and accessibility help/i })).toHaveClass('tap');
+  });
+
   it('opens and closes without requiring a keyboard', () => {
     render(<ShortcutOverlay />);
     fireEvent.click(screen.getByRole('button', { name: /open keyboard shortcuts and accessibility help/i }));

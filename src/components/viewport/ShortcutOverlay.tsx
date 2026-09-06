@@ -41,7 +41,7 @@ export function ShortcutOverlay() {
       onClick={() => setVisible(true)}
       aria-label="Open keyboard shortcuts and accessibility help"
       title="Keyboard shortcuts"
-      className="absolute bottom-3 right-3 z-20 w-8 h-8 rounded-full text-sm"
+      className="absolute bottom-3 right-3 z-20 w-8 h-8 tap rounded-full text-sm"
       style={{ background: 'var(--bg-elevated)', color: 'var(--text-secondary)', border: '1px solid var(--border-default)' }}
     >?</button>
   );

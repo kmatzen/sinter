@@ -39,6 +39,12 @@ describe('ViewportToolbar camera controls', () => {
     expect(setStandardView).toHaveBeenCalledWith('top');
   });
 
+  it('keeps both mobile view selectors at the shared touch-target height', () => {
+    render(<ViewportToolbar engine={null} />);
+    expect(screen.getByRole('combobox', { name: 'Standard view' })).toHaveClass('tap-h');
+    expect(screen.getByRole('combobox', { name: 'Named view' })).toHaveClass('tap-h');
+  });
+
   it('exposes frame-all and frame-selection commands', () => {
     const zoomToFit = vi.fn();
     const frameSelection = vi.fn();

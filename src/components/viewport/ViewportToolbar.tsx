@@ -191,7 +191,7 @@ export function ViewportToolbar({ engine }: { engine: ThreeEngine | null }) {
               if (event.target.value) engine?.setStandardView(event.target.value as StandardView);
               event.target.value = '';
             }}
-            className="h-7 rounded bg-transparent text-[10px] px-1"
+            className="h-7 tap-h rounded bg-transparent text-[10px] px-1"
             style={{ color: 'var(--text-muted)' }}
           >
             <option value="" disabled>View</option>
@@ -221,7 +221,7 @@ export function ViewportToolbar({ engine }: { engine: ThreeEngine | null }) {
               if (view) engine?.applyNamedView(view);
               setSelectedNamedViewId(event.target.value);
             }}
-            className="h-7 max-w-28 rounded bg-transparent text-[10px] px-1"
+            className="h-7 tap-h max-w-28 rounded bg-transparent text-[10px] px-1"
             style={{ color: 'var(--text-muted)' }}
           >
             <option value="" disabled>Saved views</option>

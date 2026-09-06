@@ -133,14 +133,14 @@ function ParameterDefinitionRow({ parameter, value, all, onApply }: { parameter:
     <div className="rounded p-2 space-y-1.5" style={{ background: 'var(--bg-surface)' }}>
       <div className="flex items-center gap-2">
         <code className="text-[11px] flex-1 truncate" style={{ color: 'var(--accent)' }}>{parameter.name} = {value}</code>
-        <select aria-label={`Unit for ${parameter.name}`} value={unit} onChange={(event) => setUnit(event.target.value as ParameterUnit)} className="text-[10px] rounded px-1 py-0.5" style={{ background: 'var(--bg-deep)', border: '1px solid var(--border-subtle)' }}>
+        <select aria-label={`Unit for ${parameter.name}`} value={unit} onChange={(event) => setUnit(event.target.value as ParameterUnit)} className="text-[10px] tap-h rounded px-1 py-0.5" style={{ background: 'var(--bg-deep)', border: '1px solid var(--border-subtle)' }}>
           <option value="mm">mm</option><option value="deg">deg</option><option value="unitless">unitless</option>
         </select>
-        <button aria-label={`Delete parameter ${parameter.name}`} onClick={() => onApply(all.filter((item) => item.name !== parameter.name))} className="text-[10px]" style={{ color: 'var(--accent-red)' }}>Delete</button>
+        <button aria-label={`Delete parameter ${parameter.name}`} onClick={() => onApply(all.filter((item) => item.name !== parameter.name))} className="text-[10px] tap-h" style={{ color: 'var(--accent-red)' }}>Delete</button>
       </div>
       <div className="flex gap-1">
-        <input aria-label={`Expression for ${parameter.name}`} value={expression} maxLength={512} onChange={(event) => setExpression(event.target.value)} className="min-w-0 flex-1 rounded px-2 py-1 text-[11px] font-mono" style={{ background: 'var(--bg-deep)', border: '1px solid var(--border-subtle)' }} />
-        <button disabled={!expression.trim()} onClick={() => onApply(all.map((item) => item.name === parameter.name ? { ...item, expression, unit } : item))} className="text-[10px] rounded px-2 disabled:opacity-40" style={{ border: '1px solid var(--border-default)' }}>Apply</button>
+        <input aria-label={`Expression for ${parameter.name}`} value={expression} maxLength={512} onChange={(event) => setExpression(event.target.value)} className="min-w-0 flex-1 tap-h rounded px-2 py-1 text-[11px] font-mono" style={{ background: 'var(--bg-deep)', border: '1px solid var(--border-subtle)' }} />
+        <button disabled={!expression.trim()} onClick={() => onApply(all.map((item) => item.name === parameter.name ? { ...item, expression, unit } : item))} className="text-[10px] tap-h rounded px-2 disabled:opacity-40" style={{ border: '1px solid var(--border-default)' }}>Apply</button>
       </div>
     </div>
   );
@@ -164,11 +164,11 @@ function NamedParametersPanel() {
       <div className="px-2 pb-2 space-y-2">
         {parameters.map((parameter) => <ParameterDefinitionRow key={`${parameter.name}:${parameter.expression}:${parameter.unit}`} parameter={parameter} value={resolved.get(parameter.name)!} all={parameters} onApply={setParameters} />)}
         <div className="grid grid-cols-[1fr_1fr_auto] gap-1">
-          <input aria-label="New parameter name" placeholder="name" value={name} maxLength={64} onChange={(event) => setName(event.target.value)} className="min-w-0 rounded px-2 py-1 text-[11px] font-mono" style={{ background: 'var(--bg-deep)', border: '1px solid var(--border-subtle)' }} />
-          <input aria-label="New parameter expression" placeholder="value/formula" value={expression} maxLength={512} onChange={(event) => setExpression(event.target.value)} className="min-w-0 rounded px-2 py-1 text-[11px] font-mono" style={{ background: 'var(--bg-deep)', border: '1px solid var(--border-subtle)' }} />
-          <select aria-label="New parameter unit" value={unit} onChange={(event) => setUnit(event.target.value as ParameterUnit)} className="text-[10px] rounded px-1" style={{ background: 'var(--bg-deep)', border: '1px solid var(--border-subtle)' }}><option value="mm">mm</option><option value="deg">deg</option><option value="unitless">—</option></select>
+          <input aria-label="New parameter name" placeholder="name" value={name} maxLength={64} onChange={(event) => setName(event.target.value)} className="min-w-0 tap-h rounded px-2 py-1 text-[11px] font-mono" style={{ background: 'var(--bg-deep)', border: '1px solid var(--border-subtle)' }} />
+          <input aria-label="New parameter expression" placeholder="value/formula" value={expression} maxLength={512} onChange={(event) => setExpression(event.target.value)} className="min-w-0 tap-h rounded px-2 py-1 text-[11px] font-mono" style={{ background: 'var(--bg-deep)', border: '1px solid var(--border-subtle)' }} />
+          <select aria-label="New parameter unit" value={unit} onChange={(event) => setUnit(event.target.value as ParameterUnit)} className="text-[10px] tap-h rounded px-1" style={{ background: 'var(--bg-deep)', border: '1px solid var(--border-subtle)' }}><option value="mm">mm</option><option value="deg">deg</option><option value="unitless">—</option></select>
         </div>
-        <button disabled={!name.trim() || !expression.trim()} onClick={add} className="w-full rounded py-1 text-[11px] disabled:opacity-40" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-default)' }}>Add parameter</button>
+        <button disabled={!name.trim() || !expression.trim()} onClick={add} className="w-full tap-h rounded py-1 text-[11px] disabled:opacity-40" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-default)' }}>Add parameter</button>
       </div>
     </details>
   );
