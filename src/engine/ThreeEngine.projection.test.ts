@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { describe, expect, it, vi } from 'vitest';
 import { ThreeEngine } from './ThreeEngine';
+import { useViewportStore } from '../store/viewportStore';
 
 function harness() {
   const camera = new THREE.PerspectiveCamera(50, 2, 0.01, 5_000);
@@ -51,5 +52,41 @@ describe('ThreeEngine projection switching', () => {
     expect(camera.top - camera.bottom).not.toBe(previousHeight);
     expect(camera.top - camera.bottom).toBeCloseTo(Math.hypot(10, 20, 30) * 1.1, 10);
     expect(camera.right - camera.left).toBeCloseTo((camera.top - camera.bottom) * 2, 10);
+  });
+
+  it('captures and restores camera, projection, framing, and clipping exactly', () => {
+    const { engine, controls } = harness();
+    useViewportStore.setState({ clipEnabled: true, clipAxis: 'x', clipPosition: 7, clipFlip: true });
+    const saved = engine.captureNamedView('Inspection');
+
+    engine.setProjection('orthographic');
+    engine.camera.position.set(20, 30, 40);
+    controls.target.set(1, 2, 3);
+    useViewportStore.setState({ clipEnabled: false, clipAxis: 'y', clipPosition: 0, clipFlip: false });
+    engine.applyNamedView(saved);
+
+    expect(engine.camera).toBeInstanceOf(THREE.PerspectiveCamera);
+    expect(engine.camera.position.toArray()).toEqual(saved.position);
+    expect(controls.target.toArray()).toEqual(saved.target);
+    const camera = engine.camera as THREE.PerspectiveCamera;
+    const span = 2 * camera.position.distanceTo(controls.target) * Math.tan(camera.fov * Math.PI / 360) / camera.zoom;
+    expect(span).toBeCloseTo(saved.verticalSpan, 10);
+    expect(useViewportStore.getState()).toMatchObject({ projection: 'perspective', clipEnabled: true, clipAxis: 'x', clipPosition: 7, clipFlip: true });
+  });
+
+  it('eases camera transitions to the exact requested pose and allows replacement mid-flight', () => {
+    const { engine, controls } = harness();
+    const internals = engine as unknown as {
+      transitionCamera: (position: THREE.Vector3, target: THREE.Vector3, up: THREE.Vector3, halfHeight: number | null) => void;
+      stepCameraTransition: (now: number) => boolean;
+      cameraTransition: { startedAt: number; duration: number } | null;
+    };
+    internals.transitionCamera(new THREE.Vector3(10, 20, 30), new THREE.Vector3(1, 2, 3), new THREE.Vector3(0, 1, 0), null);
+    internals.stepCameraTransition(internals.cameraTransition!.startedAt + 100);
+    internals.transitionCamera(new THREE.Vector3(-30, 10, 5), new THREE.Vector3(4, 5, 6), new THREE.Vector3(0, 1, 0), null);
+    internals.stepCameraTransition(internals.cameraTransition!.startedAt + internals.cameraTransition!.duration);
+    expect(engine.camera.position.toArray()).toEqual([-30, 10, 5]);
+    expect(controls.target.toArray()).toEqual([4, 5, 6]);
+    expect(internals.cameraTransition).toBeNull();
   });
 });

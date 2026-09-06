@@ -7,6 +7,8 @@ const SHORTCUTS = [
   ['W', 'Move tool'],
   ['E', 'Rotate tool'],
   ['R', 'Scale tool'],
+  ['F', 'Frame all geometry'],
+  ['Shift+F', 'Frame selected operation'],
   ['Esc', 'Deselect tool'],
   ['Delete', 'Remove selected node'],
   ['Ctrl+C', 'Copy node'],

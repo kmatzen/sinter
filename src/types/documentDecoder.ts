@@ -2,6 +2,7 @@ import { NODE_DEFAULTS, NODE_LABELS, expectedChildren, type SDFNodeUI } from './
 import { normalizeNodeParams } from './parameterSchema';
 import type { ProjectCheckpoint, ProjectFileBody } from '../storage/types';
 import type { NamedParameter } from './operations';
+import type { NamedProjectView } from './view';
 import { FormulaError, resolveNamedParameters, resolveTreeFormulas } from './formulas';
 import { STLParseError, STL_TOPOLOGY_STATUS, validateSTLTopology } from '../worker/sdf/stl';
 import { MODEL_SPATIAL_LIMIT_MM } from './modelingEnvelope';
@@ -284,6 +285,54 @@ export interface DecodedProject {
   tree: SDFNodeUI | null;
   checkpoints: Array<ProjectCheckpoint & { tree: SDFNodeUI | null }>;
   parameters: NamedParameter[];
+  views: NamedProjectView[];
+}
+
+const MAX_NAMED_VIEWS = 20;
+
+function finiteVec3(input: unknown, path: string): [number, number, number] {
+  if (!Array.isArray(input) || input.length !== 3 || input.some((value) => typeof value !== 'number' || !Number.isFinite(value))) {
+    throw new DocumentDecodeError(`${path} must contain three finite numbers`);
+  }
+  return [input[0] as number, input[1] as number, input[2] as number];
+}
+
+function lengthSquared(value: [number, number, number]): number {
+  return value[0] ** 2 + value[1] ** 2 + value[2] ** 2;
+}
+
+function decodeNamedViews(input: unknown): NamedProjectView[] {
+  if (input === undefined) return [];
+  if (!Array.isArray(input) || input.length > MAX_NAMED_VIEWS) {
+    throw new DocumentDecodeError(`project.views must contain at most ${MAX_NAMED_VIEWS} views`);
+  }
+  const ids = new Set<string>();
+  return input.map((item, index) => {
+    const path = `project.views[${index}]`;
+    const raw = record(item, path);
+    if (typeof raw.id !== 'string' || !raw.id || raw.id.length > 128 || ids.has(raw.id)) throw new DocumentDecodeError(`${path}.id is missing, invalid, or duplicated`);
+    ids.add(raw.id);
+    if (typeof raw.name !== 'string' || !raw.name.trim() || raw.name.length > MAX_LABEL_CHARS) throw new DocumentDecodeError(`${path}.name is invalid`);
+    if (typeof raw.createdAt !== 'string' || !Number.isFinite(Date.parse(raw.createdAt))) throw new DocumentDecodeError(`${path}.createdAt is invalid`);
+    if (raw.projection !== 'perspective' && raw.projection !== 'orthographic') throw new DocumentDecodeError(`${path}.projection is invalid`);
+    if (typeof raw.verticalSpan !== 'number' || !Number.isFinite(raw.verticalSpan) || raw.verticalSpan <= 0 || raw.verticalSpan > 100_000) throw new DocumentDecodeError(`${path}.verticalSpan is invalid`);
+    const clipping = record(raw.clipping, `${path}.clipping`);
+    if (typeof clipping.enabled !== 'boolean' || typeof clipping.flip !== 'boolean' ||
+        (clipping.axis !== 'x' && clipping.axis !== 'y' && clipping.axis !== 'z') ||
+        typeof clipping.position !== 'number' || !Number.isFinite(clipping.position)) throw new DocumentDecodeError(`${path}.clipping is invalid`);
+    const position = finiteVec3(raw.position, `${path}.position`);
+    const target = finiteVec3(raw.target, `${path}.target`);
+    const up = finiteVec3(raw.up, `${path}.up`);
+    const offset: [number, number, number] = [position[0] - target[0], position[1] - target[1], position[2] - target[2]];
+    if (lengthSquared(offset) < 1e-12) throw new DocumentDecodeError(`${path}.position must differ from its target`);
+    if (lengthSquared(up) < 1e-12) throw new DocumentDecodeError(`${path}.up must be non-zero`);
+    return {
+      id: raw.id, name: raw.name.trim(), createdAt: raw.createdAt,
+      position, target, up,
+      projection: raw.projection, verticalSpan: raw.verticalSpan,
+      clipping: { enabled: clipping.enabled, axis: clipping.axis, position: clipping.position, flip: clipping.flip },
+    };
+  });
 }
 
 function decodeNamedParameters(input: unknown, path: string): NamedParameter[] {
@@ -320,6 +369,7 @@ export function decodeProjectDocument(input: unknown, fallbackName = 'Untitled')
   }
   const checkpointInput = raw.version === 2 ? raw.checkpoints ?? [] : [];
   const parameters = raw.version === 2 ? decodeNamedParameters(raw.parameters, 'project.parameters') : [];
+  const views = raw.version === 2 ? decodeNamedViews(raw.views) : [];
   if (!Array.isArray(checkpointInput) || checkpointInput.length > MAX_PROJECT_CHECKPOINTS) {
     throw new DocumentDecodeError(`project checkpoints must be an array of at most ${MAX_PROJECT_CHECKPOINTS}`);
   }
@@ -361,10 +411,11 @@ export function decodeProjectDocument(input: unknown, fallbackName = 'Untitled')
     tree,
     checkpoints,
     parameters,
+    views,
   };
 }
 
 export function decodeProjectFileBody(input: unknown): ProjectFileBody {
   const decoded = decodeProjectDocument(input);
-  return { version: 2, thumbnail: decoded.thumbnail, tree: decoded.tree, checkpoints: decoded.checkpoints, parameters: decoded.parameters };
+  return { version: 2, thumbnail: decoded.thumbnail, tree: decoded.tree, checkpoints: decoded.checkpoints, parameters: decoded.parameters, views: decoded.views };
 }

@@ -2,9 +2,11 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { MAX_HISTORY_ENTRIES, useModelerStore } from './modelerStore';
 import { isTreeValid } from '../types/operations';
 import type { SDFNodeUI } from '../types/operations';
+import { useViewportStore } from './viewportStore';
 
 // Reset store between tests
 function reset() {
+  useViewportStore.setState({ namedViews: [] });
   useModelerStore.setState({
     tree: null,
     selectedNodeId: null,
@@ -945,6 +947,13 @@ describe('Modeler editing scenarios', () => {
       getState().changeNodeKind(getState().tree!.id, 'subtract');
       getState().updateNodeParams(getState().tree!.children[0].id, { width: 100 });
       getState().setProjectName('Test Project');
+      const savedView = {
+        id: 'v1', name: 'Detail', createdAt: '2026-09-06T12:00:00Z',
+        position: [0, 0, 10] as [number, number, number], target: [0, 0, 0] as [number, number, number], up: [0, 1, 0] as [number, number, number],
+        projection: 'perspective' as const, verticalSpan: 10,
+        clipping: { enabled: false, axis: 'y' as const, position: 0, flip: false },
+      };
+      useViewportStore.setState({ namedViews: [savedView] });
 
       const json = getState().toJSON();
       reset();
@@ -954,6 +963,7 @@ describe('Modeler editing scenarios', () => {
       expect(getState().tree!.kind).toBe('subtract');
       expect(getState().tree!.children[0].params.width).toBe(100);
       expect(isTreeValid(getState().tree)).toBe(true);
+      expect(useViewportStore.getState().namedViews).toEqual([savedView]);
     });
   });
 });

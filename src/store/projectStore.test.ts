@@ -47,6 +47,7 @@ vi.mock('../storage/thumbnailCache', () => ({
 const { deleteCloudProject, isCloudDirty, requestDocumentReplacement, useProjectStore } = await import('./projectStore');
 const { useModelerStore } = await import('./modelerStore');
 const { useModalStore } = await import('./modalStore');
+const { useViewportStore } = await import('./viewportStore');
 
 const box = (width = 10): SDFNodeUI => ({
   id: 'b', kind: 'box', label: 'Box', params: { width, height: 10, depth: 10 }, children: [], enabled: true,
@@ -60,6 +61,7 @@ function resetStores() {
     checkpoints: [], lastSavedTree: null, lastSavedThumbnail: null, lastSavedParameters: [],
   });
   useModalStore.getState().hideConfirm();
+  useViewportStore.setState({ namedViews: [] });
 }
 
 describe('projectStore.save', () => {
@@ -99,6 +101,20 @@ describe('projectStore.save', () => {
       parameters: [{ name: 'opening', expression: '20', unit: 'mm' }, { name: 'wall', expression: '2', unit: 'mm' }],
       tree: { params: { width: 24 }, expressions: { width: 'opening + 2 * wall' } },
     });
+  });
+
+  it('stores named views as project data and treats view edits as unsaved changes', async () => {
+    const view = {
+      id: 'v1', name: 'Cutaway', createdAt: '2026-09-06T12:00:00Z',
+      position: [0, 0, 10] as [number, number, number], target: [0, 0, 0] as [number, number, number], up: [0, 1, 0] as [number, number, number],
+      projection: 'orthographic' as const, verticalSpan: 10,
+      clipping: { enabled: true, axis: 'z' as const, position: 2, flip: false },
+    };
+    useViewportStore.setState({ namedViews: [view] });
+    expect(isCloudDirty()).toBe(true);
+    await useProjectStore.getState().save();
+    expect(create.mock.calls[0][2].views).toEqual([view]);
+    expect(isCloudDirty()).toBe(false);
   });
 
   it('cannot attach an old save completion to a newly created document', async () => {

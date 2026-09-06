@@ -1,8 +1,9 @@
 import { useViewportStore } from '../../store/viewportStore';
 import { triggerDownload } from '../../utils/download';
-import { Move, RotateCcw, Magnet, Camera, Ruler, Scissors, Scaling, Crosshair } from 'lucide-react';
+import { Move, RotateCcw, Magnet, Camera, Ruler, Scissors, Scaling, Crosshair, Plus, Trash2 } from 'lucide-react';
 import type { ThreeEngine } from '../../engine/ThreeEngine';
-import type { ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import * as THREE from 'three';
 import type { StandardView } from '../../engine/cameraViews';
 
 const BTN = 'w-7 h-7 tap rounded flex items-center justify-center transition-colors';
@@ -61,7 +62,52 @@ function SmallBtn({ active, onClick, title, children }: { active?: boolean; onCl
   );
 }
 
+function OrientationWidget({ engine }: { engine: ThreeEngine | null }) {
+  const [axes, setAxes] = useState(() => ({ x: [50, 32], y: [32, 14], z: [32, 32] } as Record<'x' | 'y' | 'z', number[]>));
+  const drag = useRef<{ x: number; y: number } | null>(null);
+  useEffect(() => {
+    if (!engine || typeof engine.viewQuaternion !== 'function' || typeof engine.onFrame !== 'function') return;
+    const update = () => {
+      const inverse = new THREE.Quaternion(...engine.viewQuaternion()).invert();
+      const project = (axis: THREE.Vector3) => {
+        const value = axis.applyQuaternion(inverse);
+        return [32 + value.x * 19, 32 - value.y * 19];
+      };
+      setAxes({ x: project(new THREE.Vector3(1, 0, 0)), y: project(new THREE.Vector3(0, 1, 0)), z: project(new THREE.Vector3(0, 0, 1)) });
+    };
+    update();
+    return engine.onFrame(update);
+  }, [engine]);
+  return (
+    <div
+      aria-label="Orientation widget; drag to orbit"
+      className="absolute top-3 right-3 hidden sm:block w-16 h-16 rounded-lg touch-none"
+      style={{ background: 'rgba(16,16,24,0.7)' }}
+      onPointerDown={(event) => { drag.current = { x: event.clientX, y: event.clientY }; event.currentTarget.setPointerCapture?.(event.pointerId); }}
+      onPointerMove={(event) => {
+        if (!drag.current) return;
+        const dx = event.clientX - drag.current.x; const dy = event.clientY - drag.current.y;
+        drag.current.x = event.clientX; drag.current.y = event.clientY;
+        engine?.orbitFromWidget(dx, dy);
+      }}
+      onPointerUp={() => { drag.current = null; }}
+      onPointerCancel={() => { drag.current = null; }}
+    >
+      <svg aria-hidden="true" className="absolute inset-0" viewBox="0 0 64 64">
+        {(['x', 'y', 'z'] as const).map((axis) => <line key={axis} x1="32" y1="32" x2={axes[axis][0]} y2={axes[axis][1]} stroke={axis === 'x' ? '#ef4444' : axis === 'y' ? '#22c55e' : '#3b82f6'} strokeWidth="2" />)}
+      </svg>
+      {([['x', 'right'], ['y', 'top'], ['z', 'front']] as const).map(([axis, view]) => (
+        <button key={axis} aria-label={`${view[0].toUpperCase()}${view.slice(1)} view`} title={`${view} view`}
+          className="absolute w-5 h-5 -ml-2.5 -mt-2.5 rounded-full text-[9px] font-bold text-white"
+          style={{ left: axes[axis][0], top: axes[axis][1], background: axis === 'x' ? '#b91c1c' : axis === 'y' ? '#15803d' : '#1d4ed8' }}
+          onPointerDown={(event) => event.stopPropagation()} onClick={() => engine?.setStandardView(view)}>{axis.toUpperCase()}</button>
+      ))}
+    </div>
+  );
+}
+
 export function ViewportToolbar({ engine }: { engine: ThreeEngine | null }) {
+  const [selectedNamedViewId, setSelectedNamedViewId] = useState('');
   const clipEnabled = useViewportStore((s) => s.clipEnabled);
   const toggleClip = useViewportStore((s) => s.toggleClip);
   const clipAxis = useViewportStore((s) => s.clipAxis);
@@ -84,6 +130,9 @@ export function ViewportToolbar({ engine }: { engine: ThreeEngine | null }) {
   const toggleMeasurementMode = useViewportStore((s) => s.toggleMeasurementMode);
   const projection = useViewportStore((s) => s.projection);
   const setProjection = useViewportStore((s) => s.setProjection);
+  const namedViews = useViewportStore((s) => s.namedViews);
+  const addNamedView = useViewportStore((s) => s.addNamedView);
+  const removeNamedView = useViewportStore((s) => s.removeNamedView);
 
   return (
     <>
@@ -95,7 +144,7 @@ export function ViewportToolbar({ engine }: { engine: ThreeEngine | null }) {
         more than an iPhone SE is wide. `right-3` gives the wrap something to
         wrap against, and `pl-safe` keeps it clear of a landscape notch.
       */}
-      <div className="absolute top-3 left-3 right-3 flex flex-wrap items-start gap-1.5 pointer-events-none [&>*]:pointer-events-auto pl-safe">
+      <div className="absolute top-3 left-3 right-3 sm:right-20 flex flex-wrap items-start gap-1.5 pointer-events-none [&>*]:pointer-events-auto pl-safe">
         <BtnGroup>
           {([['translate', 'Move (W)', Move], ['rotate', 'Rotate (E)', RotateCcw], ['scale', 'Scale (R)', Scaling]] as const).map(([mode, title, Icon]) => (
             <SmallBtn
@@ -162,7 +211,38 @@ export function ViewportToolbar({ engine }: { engine: ThreeEngine | null }) {
             title={`Projection: ${projection}. Switch to ${projection === 'perspective' ? 'orthographic' : 'perspective'}`}
           >{projection === 'perspective' ? 'P' : 'O'}</SmallBtn>
         </BtnGroup>
+        <BtnGroup>
+          <select
+            value={selectedNamedViewId}
+            aria-label="Named view"
+            title="Named project views"
+            onChange={(event) => {
+              const view = namedViews.find((item) => item.id === event.target.value);
+              if (view) engine?.applyNamedView(view);
+              setSelectedNamedViewId(event.target.value);
+            }}
+            className="h-7 max-w-28 rounded bg-transparent text-[10px] px-1"
+            style={{ color: 'var(--text-muted)' }}
+          >
+            <option value="" disabled>Saved views</option>
+            {namedViews.map((view) => <option key={view.id} value={view.id}>{view.name}</option>)}
+          </select>
+          <SmallBtn onClick={() => {
+            if (!engine) return;
+            const name = window.prompt('Name this project view:')?.trim();
+            if (name) {
+              const view = engine.captureNamedView(name);
+              addNamedView(view);
+              setSelectedNamedViewId(view.id);
+            }
+          }} title="Save current view"><Plus size={ICON} /></SmallBtn>
+          {selectedNamedViewId && <SmallBtn onClick={() => {
+            removeNamedView(selectedNamedViewId);
+            setSelectedNamedViewId('');
+          }} title="Delete selected named view"><Trash2 size={ICON} /></SmallBtn>}
+        </BtnGroup>
       </div>
+      <OrientationWidget engine={engine} />
 
       {/* Bottom right — screenshot */}
       <div className="absolute bottom-3 right-3 pb-safe pr-safe">

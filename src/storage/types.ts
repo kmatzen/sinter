@@ -1,4 +1,5 @@
 import type { NamedParameter } from '../types/operations';
+import type { NamedProjectView } from '../types/view';
 
 // Shape of a project's content file (stored in Drive or as a Gist).
 // Project NAME and timestamps live in the provider's file metadata
@@ -18,6 +19,7 @@ export interface ProjectFileBody {
   tree: unknown;
   checkpoints?: ProjectCheckpoint[];
   parameters?: NamedParameter[];
+  views?: NamedProjectView[];
 }
 
 export interface ProjectReadResult extends ProjectFileBody {

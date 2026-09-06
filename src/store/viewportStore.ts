@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { MeasurementAnchor, PinnedMeasurement } from '../types/measurement';
+import type { NamedProjectView } from '../types/view';
 
 const GIZMO_SPACE_KEY = 'sinter_gizmo_space';
 const MEASUREMENT_UNIT_KEY = 'sinter_measurement_unit';
@@ -24,6 +25,10 @@ function initialMeasurementPrecision(): number {
 }
 
 interface ViewportState {
+  namedViews: NamedProjectView[];
+  setNamedViews: (views: NamedProjectView[]) => void;
+  addNamedView: (view: NamedProjectView) => void;
+  removeNamedView: (id: string) => void;
   projection: 'perspective' | 'orthographic';
   setProjection: (projection: 'perspective' | 'orthographic') => void;
   // Gizmo
@@ -105,6 +110,10 @@ interface ViewportState {
 }
 
 export const useViewportStore = create<ViewportState>((set) => ({
+  namedViews: [],
+  setNamedViews: (namedViews) => set({ namedViews }),
+  addNamedView: (view) => set((state) => ({ namedViews: [...state.namedViews.filter((item) => item.id !== view.id), view].slice(-20) })),
+  removeNamedView: (id) => set((state) => ({ namedViews: state.namedViews.filter((item) => item.id !== id) })),
   projection: 'perspective',
   setProjection: (projection) => set({ projection }),
   gizmoMode: 'translate',

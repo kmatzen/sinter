@@ -6,6 +6,7 @@ import type { TriangulatedMesh } from '../types/geometry';
 import { applyNodeParamPatch, normalizeNodeParams, normalizeTreeParams } from '../types/parameterSchema';
 import { decodeProjectDocument, decodeTree } from '../types/documentDecoder';
 import { FormulaError, parameterUnitFor, resolveTreeFormulas } from '../types/formulas';
+import { useViewportStore } from './viewportStore';
 
 export interface SDFDisplayData {
   glsl: string;
@@ -869,12 +870,14 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
 
   toJSON: () => {
     const { tree, projectName, namedParameters: parameters } = get();
-    return JSON.stringify({ version: 2, projectName, tree, parameters }, null, 2);
+    const views = useViewportStore.getState().namedViews;
+    return JSON.stringify({ version: 2, projectName, tree, parameters, views }, null, 2);
   },
 
   fromJSON: (json: string) => {
     const data = decodeProjectDocument(JSON.parse(json));
     get().resetDocument(data.tree, data.projectName, data.parameters);
+    useViewportStore.getState().setNamedViews(data.views);
   },
 }));
 
