@@ -62,6 +62,10 @@ function artifact(size: number, triangleCount: number): ExportArtifact {
         overhangAngle: 45, buildDirection: 'z', riskyTriangles: 3, analyzedTriangles: 12,
         affectedTriangleIds: [1, 2, 3], affectedBounds: { min: [0, 0, 0], max: [5, 6, 1] }, affectedIdsTruncated: false,
       },
+      thickness: {
+        threshold: 1.2, status: 'analyzed', sampledTriangles: 12, totalTriangles: 12, thinTriangles: 2,
+        minimumThickness: 0.8, affectedTriangleIds: [4, 5], affectedBounds: { min: [1, 2, 3], max: [4, 5, 6] }, affectedIdsTruncated: false,
+      },
     },
   };
 }
@@ -105,7 +109,8 @@ describe('Toolbar export cancellation', () => {
     expect(screen.getByText('Verified samples')).toBeInTheDocument();
     expect(screen.getByText('Maximum deviation')).toBeInTheDocument();
     expect(screen.getByText(/Support risk: 3 of 12 export triangles/)).toBeInTheDocument();
-    expect(screen.getByText(/Affected region:/)).toBeInTheDocument();
+    expect(screen.getByText(/Thin feature risk: 2 of 12 sampled export triangles/)).toBeInTheDocument();
+    expect(screen.getAllByText(/Affected region:/)).toHaveLength(2);
     expect(screen.getByText('2')).toBeInTheDocument();
   });
 
@@ -205,7 +210,7 @@ describe('Toolbar export cancellation', () => {
     exportSTL.mockReturnValue(job.promise);
     await startExport();
 
-    expect(exportSTL).toHaveBeenCalledWith(BOX, expect.any(Function), 128, { overhangAngle: 45, buildDirection: 'z' });
+    expect(exportSTL).toHaveBeenCalledWith(BOX, expect.any(Function), 128, { overhangAngle: 45, buildDirection: 'z', minimumWallThickness: 1.2 });
 
     job.resolve(artifact(1024, 12));
     await flush();
@@ -220,7 +225,7 @@ describe('Toolbar export cancellation', () => {
     fireEvent.click(screen.getByTitle('Export 3MF'));
     await waitFor(() => expect(screen.getByTitle('Cancel export')).toBeInTheDocument());
 
-    expect(export3MF).toHaveBeenCalledWith(BOX, expect.any(Function), 384, { overhangAngle: 45, buildDirection: 'z' });
+    expect(export3MF).toHaveBeenCalledWith(BOX, expect.any(Function), 384, { overhangAngle: 45, buildDirection: 'z', minimumWallThickness: 1.2 });
 
     job.resolve(artifact(2048, 7));
     await waitFor(() => expect(screen.getByText('7')).toBeInTheDocument());

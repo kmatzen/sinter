@@ -720,6 +720,17 @@ function ExportPreview({ triangles, size, name, diagnostics, conformance, approx
               {diagnostics.overhang.affectedBounds && <> Affected region: {diagnostics.overhang.affectedBounds.min.map((value) => formatLength(value, { displayUnit, decimalPrecision, fractionalDenominator }, false)).join(', ')} to {diagnostics.overhang.affectedBounds.max.map((value) => formatLength(value, { displayUnit, decimalPrecision, fractionalDenominator }, false)).join(', ')}{displayUnit === 'ft-in' ? '' : ` ${displayUnit}`}.</>}
             </p>
           )}
+          {diagnostics.thickness?.status === 'inconclusive' && (
+            <p role="alert" className="text-[11px] leading-relaxed rounded p-2" style={{ color: 'var(--warning, #f59e0b)', background: 'var(--bg-elevated)' }}>
+              Wall-thickness analysis was inconclusive because the export mesh is not a valid closed solid.
+            </p>
+          )}
+          {diagnostics.thickness?.status === 'analyzed' && diagnostics.thickness.thinTriangles > 0 && (
+            <p role="alert" className="text-[11px] leading-relaxed rounded p-2" style={{ color: 'var(--warning, #f59e0b)', background: 'var(--bg-elevated)' }}>
+              Thin feature risk: {diagnostics.thickness.thinTriangles.toLocaleString()} of {diagnostics.thickness.sampledTriangles.toLocaleString()} sampled export triangles measure below the configured {formatLength(diagnostics.thickness.threshold, { displayUnit, decimalPrecision, fractionalDenominator }, false)}{displayUnit === 'ft-in' ? '' : ` ${displayUnit}`} minimum.
+              {diagnostics.thickness.affectedBounds && <> Affected region: {diagnostics.thickness.affectedBounds.min.map((value) => formatLength(value, { displayUnit, decimalPrecision, fractionalDenominator }, false)).join(', ')} to {diagnostics.thickness.affectedBounds.max.map((value) => formatLength(value, { displayUnit, decimalPrecision, fractionalDenominator }, false)).join(', ')}{displayUnit === 'ft-in' ? '' : ` ${displayUnit}`}.</>}
+            </p>
+          )}
           <details className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>
             <summary className="cursor-pointer select-none">Print profile</summary>
             <div className="grid grid-cols-2 gap-2 mt-2">
@@ -727,6 +738,7 @@ function ExportPreview({ triangles, size, name, diagnostics, conformance, approx
               <ProfileInput label="Layer" value={profile.layerHeight} onChange={(layerHeight) => profile.updateProfile({ layerHeight })} />
               <ProfileInput label="Tolerance" value={profile.tolerance} onChange={(tolerance) => profile.updateProfile({ tolerance })} />
               <ProfileInput label="Overhang angle" value={profile.overhangAngle} onChange={(overhangAngle) => profile.updateProfile({ overhangAngle })} />
+              <ProfileInput label="Min wall" value={profile.minimumWallThickness} onChange={(minimumWallThickness) => profile.updateProfile({ minimumWallThickness })} />
               <label className="text-[10px]" style={{ color: 'var(--text-muted)' }}>Build direction
                 <select aria-label="Build direction" value={profile.buildDirection} onChange={(event) => profile.updateProfile({ buildDirection: event.target.value as typeof profile.buildDirection })} className="mt-1 w-full rounded px-1 py-1" style={{ background: 'var(--bg-deep)', border: '1px solid var(--border-subtle)', color: 'var(--text-primary)' }}>
                   <option value="z">+Z</option><option value="-z">−Z</option><option value="y">+Y</option><option value="-y">−Y</option><option value="x">+X</option><option value="-x">−X</option>

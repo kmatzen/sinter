@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { analyzeMesh, analyzeOverhangs, removeDegenerateTriangles, projectVerticesToSurface } from './meshRepair';
+import { analyzeMesh, analyzeOverhangs, analyzeWallThickness, removeDegenerateTriangles, projectVerticesToSurface } from './meshRepair';
 import { dualContour } from './dualContour';
 import { evaluateSDF } from './evaluate';
 import type { MeshResult } from './marchingCubes';
@@ -105,7 +105,7 @@ describe('analyzeOverhangs', () => {
   });
 
   it('localizes downward faces for the selected build direction and threshold', () => {
-    const result = analyzeOverhangs(calibration(), { overhangAngle: 45, buildDirection: 'z' });
+    const result = analyzeOverhangs(calibration(), { overhangAngle: 45, buildDirection: 'z', minimumWallThickness: 1.2 });
     expect(result.riskyTriangles).toBe(1);
     expect(result.analyzedTriangles).toBe(2);
     expect(result.affectedTriangleIds).toEqual([0]);
@@ -113,7 +113,7 @@ describe('analyzeOverhangs', () => {
   });
 
   it('reverses the risky region with print orientation and bounds returned ids', () => {
-    const result = analyzeOverhangs(calibration(), { overhangAngle: 45, buildDirection: '-z' }, 0);
+    const result = analyzeOverhangs(calibration(), { overhangAngle: 45, buildDirection: '-z', minimumWallThickness: 1.2 }, 0);
     expect(result.riskyTriangles).toBe(1);
     expect(result.affectedTriangleIds).toEqual([]);
     expect(result.affectedIdsTruncated).toBe(true);
@@ -124,8 +124,46 @@ describe('analyzeOverhangs', () => {
     const slope = {
       positions: new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 1]), normals: new Float32Array(9), indices: new Uint32Array([0, 2, 1]),
     };
-    expect(analyzeOverhangs(slope, { overhangAngle: 30, buildDirection: 'z' }).riskyTriangles).toBe(1);
-    expect(analyzeOverhangs(slope, { overhangAngle: 60, buildDirection: 'z' }).riskyTriangles).toBe(0);
+    expect(analyzeOverhangs(slope, { overhangAngle: 30, buildDirection: 'z', minimumWallThickness: 1.2 }).riskyTriangles).toBe(1);
+    expect(analyzeOverhangs(slope, { overhangAngle: 60, buildDirection: 'z', minimumWallThickness: 1.2 }).riskyTriangles).toBe(0);
+  });
+});
+
+function box(x: number, y: number, z: number): MeshResult {
+  return {
+    positions: new Float32Array([0,0,0, x,0,0, x,y,0, 0,y,0, 0,0,z, x,0,z, x,y,z, 0,y,z]),
+    normals: new Float32Array(24),
+    indices: new Uint32Array([
+      0,2,1, 0,3,2, 4,5,6, 4,6,7,
+      0,1,5, 0,5,4, 3,7,6, 3,6,2,
+      0,4,7, 0,7,3, 1,2,6, 1,6,5,
+    ]),
+  };
+}
+
+describe('analyzeWallThickness', () => {
+  it('flags a thin closed solid and localizes sampled faces', () => {
+    const result = analyzeWallThickness(box(1, 10, 10), 1.2);
+    expect(result.status).toBe('analyzed');
+    expect(result.minimumThickness).toBeCloseTo(1, 4);
+    expect(result.thinTriangles).toBeGreaterThan(0);
+    expect(result.affectedTriangleIds.length).toBe(result.thinTriangles);
+    expect(result.affectedBounds).not.toBeNull();
+  });
+
+  it('does not flag a solid above the configured threshold', () => {
+    const result = analyzeWallThickness(box(2, 10, 10), 1.2);
+    expect(result.status).toBe('analyzed');
+    expect(result.thinTriangles).toBe(0);
+  });
+
+  it('is bounded and refuses to claim thickness for an open mesh', () => {
+    const closed = analyzeWallThickness(box(1, 10, 10), 1.2, 3, 1);
+    expect(closed.sampledTriangles).toBeLessThanOrEqual(3);
+    expect(closed.affectedTriangleIds.length).toBeLessThanOrEqual(1);
+    const open = box(1, 10, 10);
+    open.indices = open.indices.slice(0, -3) as Uint32Array;
+    expect(analyzeWallThickness(open, 1.2).status).toBe('inconclusive');
   });
 });
 
