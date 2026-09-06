@@ -30,8 +30,10 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
   const shareUrl = useProjectStore((s) => s.shareUrl);
   const toggleShare = useProjectStore((s) => s.toggleShare);
   const projectId = useProjectStore((s) => s.projectId);
+  const projectProvider = useProjectStore((s) => s.provider);
   const [showProjects, setShowProjects] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [shareError, setShareError] = useState<string | null>(null);
   const [showImport, setShowImport] = useState(false);
   const [showImportMesh, setShowImportMesh] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -62,6 +64,15 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
   }, [showOverflow]);
 
   const onProgress = (stage: string, percent: number) => setExportProgress({ stage, percent });
+
+  const handleToggleShare = async () => {
+    setShareError(null);
+    try {
+      await toggleShare();
+    } catch (error) {
+      setShareError(error instanceof Error ? error.message : 'Sharing change failed');
+    }
+  };
 
   /**
    * Bumped by every cancel. An export captures it at the start and compares
@@ -171,15 +182,17 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
             <IconBtn
               icon={<Link size={14} />}
               label={copied ? 'Copied!' : 'Shared'}
-              title="Click to copy share link, Shift+click to revoke"
+              title={projectProvider === 'github' ? 'Copy share link (GitHub gist links cannot be revoked without deleting the project)' : 'Copy share link'}
               onClick={() => {
-                if ((window.event as MouseEvent)?.shiftKey) { toggleShare(); return; }
                 navigator.clipboard.writeText(shareUrl).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); });
               }}
             />
           ) : (
-            <IconBtn icon={<Share2 size={14} />} title="Create share link" onClick={toggleShare} />
+            <IconBtn icon={<Share2 size={14} />} title="Create share link" onClick={handleToggleShare} />
           )
+        )}
+        {projectId && shareUrl && projectProvider === 'google' && (
+          <IconBtn icon={<Share2 size={14} />} title="Revoke share link" onClick={handleToggleShare} />
         )}
         <div className="w-px h-4 mx-1" style={{ background: 'var(--border-default)' }} />
         <IconBtn icon={<Undo2 size={14} />} title="Undo" onClick={undo} />
@@ -283,7 +296,13 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
                     });
                   }} />
                 ) : (
-                  <OverflowItem label="Create Share Link" onClick={() => { toggleShare(); setShowOverflow(false); }} />
+                  <OverflowItem label="Create Share Link" onClick={() => { void handleToggleShare(); setShowOverflow(false); }} />
+                )}
+                {shareUrl && projectProvider === 'google' && (
+                  <OverflowItem label="Revoke Share Link" onClick={() => { void handleToggleShare(); setShowOverflow(false); }} />
+                )}
+                {shareUrl && projectProvider === 'github' && (
+                  <p className="px-3 py-1 text-[11px]" style={{ color: 'var(--text-muted)' }}>GitHub gist links cannot be revoked without deleting the project.</p>
                 )}
               </>
             )}
@@ -365,6 +384,14 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
            style={{ background: 'var(--accent-red)', color: '#fff' }}>
         <span>{saveError}</span>
         <button onClick={clearSaveError} className="ml-2 opacity-70 hover:opacity-100">&times;</button>
+      </div>
+    )}
+
+    {shareError && (
+      <div role="alert" className="absolute top-12 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 px-4 py-2 rounded-lg shadow-lg text-sm"
+           style={{ background: 'var(--accent-red)', color: '#fff' }}>
+        <span>{shareError}</span>
+        <button onClick={() => setShareError(null)} aria-label="Dismiss sharing error" className="ml-2 opacity-70 hover:opacity-100">&times;</button>
       </div>
     )}
 

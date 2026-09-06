@@ -97,4 +97,35 @@ describe('Google Drive storage', () => {
     expect(String(fetchMock.mock.calls[2][0])).toContain('fields=id,createdTime');
     expect(String(fetchMock.mock.calls[4][0])).toContain("'other-tab'%20in%20parents");
   });
+
+  it('does not report revocation until public permissions are gone', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(json({ permissions: [{ id: 'public', type: 'anyone' }] }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+      .mockResolvedValueOnce(json({ permissions: [{ type: 'anyone' }] }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(googleStorage.setPublic('token', 'file', false)).rejects.toThrow('still public');
+  });
+
+  it('rejects permission-list and permission-delete failures', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(json({}, 503)));
+    await expect(googleStorage.setPublic('token', 'file', false)).rejects.toThrow('listing failed');
+
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(json({ permissions: [{ id: 'public', type: 'anyone' }] }))
+      .mockResolvedValueOnce(json({}, 403));
+    vi.stubGlobal('fetch', fetchMock);
+    await expect(googleStorage.setPublic('token', 'file', false)).rejects.toThrow('removal failed');
+  });
+
+  it('completes revocation only after verification sees no public permission', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(json({ permissions: [{ id: 'public', type: 'anyone' }] }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+      .mockResolvedValueOnce(json({ permissions: [{ type: 'user' }] }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(googleStorage.setPublic('token', 'file', false)).resolves.toBeUndefined();
+  });
 });

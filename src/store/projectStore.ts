@@ -147,8 +147,9 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       await storage.setPublic(accessToken, projectId, makePublic);
       set({ shareUrl: makePublic ? buildShareUrl(provider, projectId) : null });
     } else {
-      // Gist: URL is permanent; "revoke" only forgets the URL locally.
-      set({ shareUrl: shareUrl ? null : buildShareUrl(provider, projectId) });
+      // Secret gists remain URL-accessible. Never clear the UI and imply that
+      // an old URL stopped working; deleting the gist is the revocation path.
+      if (!shareUrl) set({ shareUrl: buildShareUrl(provider, projectId) });
     }
   },
 }));

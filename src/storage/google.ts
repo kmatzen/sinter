@@ -233,15 +233,27 @@ export const googleStorage: StorageProvider = {
         `${DRIVE_API}/drive/v3/files/${externalId}/permissions?fields=permissions(id,type)`,
         { headers: authHeaders(token) },
       );
-      if (!listRes.ok) return;
+      if (!listRes.ok) throw new Error(`Drive permission listing failed (${listRes.status})`);
       const perms = await listRes.json();
       for (const perm of perms.permissions || []) {
         if (perm.type === 'anyone') {
-          await fetch(
+          const deleteRes = await fetch(
             `${DRIVE_API}/drive/v3/files/${externalId}/permissions/${perm.id}`,
             { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } },
           );
+          if (!deleteRes.ok && deleteRes.status !== 404) {
+            throw new Error(`Drive permission removal failed (${deleteRes.status})`);
+          }
         }
+      }
+      const verifyRes = await fetch(
+        `${DRIVE_API}/drive/v3/files/${externalId}/permissions?fields=permissions(type)`,
+        { headers: authHeaders(token) },
+      );
+      if (!verifyRes.ok) throw new Error(`Drive permission verification failed (${verifyRes.status})`);
+      const remaining = await verifyRes.json();
+      if ((remaining.permissions ?? []).some((permission: { type: string }) => permission.type === 'anyone')) {
+        throw new Error('Drive share link is still public after revocation');
       }
     }
   },

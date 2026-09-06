@@ -278,3 +278,39 @@ describe('projectStore.createProject', () => {
     expect(s.dirty).toBe(false);
   });
 });
+
+describe('projectStore.toggleShare', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getAccessToken.mockResolvedValue('token');
+    resetStores();
+  });
+
+  it('retains a GitHub URL because forgetting it would not revoke it', async () => {
+    useProjectStore.setState({ projectId: 'gist-1', provider: 'github', shareUrl: 'https://old-link' });
+
+    await useProjectStore.getState().toggleShare();
+
+    expect(setPublic).not.toHaveBeenCalled();
+    expect(useProjectStore.getState().shareUrl).toBe('https://old-link');
+  });
+
+  it('retains a Google URL when provider revocation fails', async () => {
+    setPublic.mockRejectedValueOnce(new Error('still public'));
+    useProjectStore.setState({ projectId: 'file-1', provider: 'google', shareUrl: 'https://old-link' });
+
+    await expect(useProjectStore.getState().toggleShare()).rejects.toThrow('still public');
+
+    expect(useProjectStore.getState().shareUrl).toBe('https://old-link');
+  });
+
+  it('clears a Google URL after verified provider revocation', async () => {
+    setPublic.mockResolvedValueOnce(undefined);
+    useProjectStore.setState({ projectId: 'file-1', provider: 'google', shareUrl: 'https://old-link' });
+
+    await useProjectStore.getState().toggleShare();
+
+    expect(setPublic).toHaveBeenCalledWith('token', 'file-1', false);
+    expect(useProjectStore.getState().shareUrl).toBeNull();
+  });
+});
