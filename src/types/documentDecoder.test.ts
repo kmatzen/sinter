@@ -71,8 +71,18 @@ describe('document decoder', () => {
   it('rejects missing and non-finite current parameters while normalizing legacy values', () => {
     expect(() => decodeTree({ ...box(), params: { width: 1, height: 2 } })).toThrow(/depth is required/);
     expect(() => decodeTree({ ...box(), params: { width: Infinity, height: 2, depth: 3 } })).toThrow(/must be finite/);
+    expect(() => decodeTree({ ...box(), params: { width: 1e20, height: 2, depth: 3 } })).toThrow(/does not require clamping/);
+    expect(() => decodeTree({ ...box(), kind: 'torus', params: { majorRadius: 2, minorRadius: 3 } })).toThrow(/does not require clamping/);
     const legacy = decodeProjectDocument({ tree: { kind: 'sphere', params: { radius: -4 }, children: [] } });
     expect(legacy.tree?.params.radius).toBe(0.1);
+  });
+
+  it('canonicalizes equivalent current-document rotations without rejecting them', () => {
+    const rotation = decodeTree({
+      id: 'r', kind: 'rotate', label: 'Rotate', params: { x: 360, y: -720, z: 1_000_080 },
+      children: [box()], enabled: true,
+    });
+    expect(rotation?.params).toEqual({ x: 0, y: 0, z: 0 });
   });
 
   it('rejects excessive depth before recursive consumers see it', () => {

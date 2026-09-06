@@ -1,9 +1,12 @@
 import { NODE_DEFAULTS, type SDFNodeUI } from './operations';
+import { MODEL_SPATIAL_LIMIT_MM } from './modelingEnvelope';
+
+export { MODEL_SPATIAL_LIMIT_MM } from './modelingEnvelope';
 
 interface Rule { min?: number; max?: number; integer?: boolean; boolean?: boolean }
 type Schema = Record<string, Rule>;
 
-const positive = { min: 0.1 };
+const positive = { min: 0.1, max: MODEL_SPATIAL_LIMIT_MM };
 const bounded = (min: number, max: number, integer = false): Rule => ({ min, max, integer });
 
 export const PARAMETER_SCHEMAS: Record<string, Schema> = {
@@ -14,7 +17,7 @@ export const PARAMETER_SCHEMAS: Record<string, Schema> = {
   cone: { radius: positive, height: positive },
   capsule: { radius: positive, height: positive },
   ellipsoid: { width: positive, height: positive, depth: positive },
-  text: { size: { min: 1 }, depth: positive },
+  text: { size: { min: 1, max: MODEL_SPATIAL_LIMIT_MM }, depth: positive },
   mesh: { resolution: bounded(8, 96, true) },
   union: { smooth: bounded(0, 20) },
   subtract: { smooth: bounded(0, 20) },
@@ -22,14 +25,16 @@ export const PARAMETER_SCHEMAS: Record<string, Schema> = {
   shell: { thickness: bounded(0.1, 20) },
   offset: { distance: bounded(-20, 20) },
   round: { radius: bounded(0, 20) },
-  translate: { x: bounded(-1e6, 1e6), y: bounded(-1e6, 1e6), z: bounded(-1e6, 1e6) },
-  rotate: { x: bounded(-1e6, 1e6), y: bounded(-1e6, 1e6), z: bounded(-1e6, 1e6) },
+  translate: { x: bounded(-MODEL_SPATIAL_LIMIT_MM, MODEL_SPATIAL_LIMIT_MM), y: bounded(-MODEL_SPATIAL_LIMIT_MM, MODEL_SPATIAL_LIMIT_MM), z: bounded(-MODEL_SPATIAL_LIMIT_MM, MODEL_SPATIAL_LIMIT_MM) },
+  // Finite angles have no spatial magnitude. They are reduced to one turn
+  // below, before they reach float32 shader uniforms.
+  rotate: { x: {}, y: {}, z: {} },
   scale: { x: bounded(0.01, 1000), y: bounded(0.01, 1000), z: bounded(0.01, 1000) },
   mirror: { mirrorX: { boolean: true }, mirrorY: { boolean: true }, mirrorZ: { boolean: true } },
-  halfSpace: { axis: bounded(0, 2, true), position: bounded(-1e6, 1e6), flip: { boolean: true } },
+  halfSpace: { axis: bounded(0, 2, true), position: bounded(-MODEL_SPATIAL_LIMIT_MM, MODEL_SPATIAL_LIMIT_MM), flip: { boolean: true } },
   linearPattern: {
     axisX: bounded(-1, 1), axisY: bounded(-1, 1), axisZ: bounded(-1, 1),
-    count: bounded(2, 50, true), spacing: bounded(0.1, 1e6),
+    count: bounded(2, 50, true), spacing: bounded(0.1, MODEL_SPATIAL_LIMIT_MM),
   },
   circularPattern: {
     axisX: bounded(-1, 1), axisY: bounded(-1, 1), axisZ: bounded(-1, 1), count: bounded(2, 50, true),
@@ -60,6 +65,14 @@ export function normalizeNodeParams(kind: string, input: Record<string, number> 
   }
 
   if (kind === 'torus') out.minorRadius = Math.min(out.minorRadius, out.majorRadius);
+  if (kind === 'rotate') {
+    for (const axis of ['x', 'y', 'z']) {
+      // One canonical turn: equivalent large angles no longer spend float32
+      // precision on whole revolutions in shader uniforms.
+      out[axis] = ((out[axis] + 180) % 360 + 360) % 360 - 180;
+      if (Object.is(out[axis], -0)) out[axis] = 0;
+    }
+  }
   if ((kind === 'linearPattern' || kind === 'circularPattern')
       && Math.hypot(out.axisX ?? 0, out.axisY ?? 0, out.axisZ ?? 0) < 1e-8) {
     Object.assign(out, kind === 'linearPattern' ? { axisX: 1, axisY: 0, axisZ: 0 } : { axisX: 0, axisY: 1, axisZ: 0 });

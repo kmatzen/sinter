@@ -4,6 +4,7 @@ import type { ProjectCheckpoint, ProjectFileBody } from '../storage/types';
 import type { NamedParameter } from './operations';
 import { FormulaError, resolveNamedParameters, resolveTreeFormulas } from './formulas';
 import { STLParseError, STL_TOPOLOGY_STATUS, validateSTLTopology } from '../worker/sdf/stl';
+import { MODEL_SPATIAL_LIMIT_MM } from './modelingEnvelope';
 
 export const CURRENT_DOCUMENT_VERSION = 2;
 export const MAX_PROJECT_CHECKPOINTS = 10;
@@ -75,8 +76,8 @@ function validateMeshPayload(value: string, path: string): void {
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
   const values = new Float32Array(bytes.buffer);
   for (let i = 0; i < values.length; i++) {
-    if (!Number.isFinite(values[i]) || Math.abs(values[i]) > 1e6) {
-      throw new DocumentDecodeError(`${path} mesh coordinate ${i} is non-finite or outside the supported range`);
+    if (!Number.isFinite(values[i]) || Math.abs(values[i]) > MODEL_SPATIAL_LIMIT_MM) {
+      throw new DocumentDecodeError(`${path} mesh coordinate ${i} is non-finite or outside the ±${MODEL_SPATIAL_LIMIT_MM} mm modeling envelope`);
     }
   }
   try {
@@ -250,9 +251,20 @@ function decodeNode(input: unknown, path: number[], depth: number, context: Cont
     }
     if (!Object.keys(expressions).length) expressions = undefined;
   }
+  const normalizedParams = normalizeNodeParams(kind, params);
+  if (!context.legacy && kind !== 'rotate') {
+    for (const key of Object.keys(defaults)) {
+      if (!Object.is(normalizedParams[key], params[key])) {
+        throw new DocumentDecodeError(
+          `${labelPath}.params.${key} is outside the supported modeling domain; ` +
+          `use a value that does not require clamping`,
+        );
+      }
+    }
+  }
   return {
     id, kind, label,
-    params: normalizeNodeParams(kind, params),
+    params: normalizedParams,
     ...(data ? { data } : {}),
     ...(expressions ? { expressions } : {}),
     children,

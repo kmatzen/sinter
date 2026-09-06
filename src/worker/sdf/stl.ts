@@ -1,3 +1,5 @@
+import { MODEL_SPATIAL_LIMIT_MM } from '../../types/modelingEnvelope';
+
 /**
  * STL reader (#87).
  *
@@ -29,7 +31,6 @@ export class STLParseError extends Error {
 /** Header is 80 bytes of comment, then a uint32 triangle count. */
 const BINARY_HEADER = 84;
 const BINARY_TRIANGLE = 50;
-const MAX_ABS_COORDINATE = 1e9;
 export const MAX_STL_TRIANGLES = 60_000;
 export const STL_TOPOLOGY_STATUS = 'closed-manifold; self-intersections not checked';
 
@@ -156,8 +157,8 @@ function validatePositions(positions: ArrayLike<number>): STLTopology {
   for (let i = 0; i < positions.length; i++) {
     const value = positions[i];
     if (!Number.isFinite(value)) throw new STLParseError(`Vertex coordinate ${i + 1} is not finite`);
-    if (Math.abs(value) > MAX_ABS_COORDINATE) {
-      throw new STLParseError(`Vertex coordinate ${i + 1} exceeds the supported range`);
+    if (Math.abs(value) > MODEL_SPATIAL_LIMIT_MM) {
+      throw new STLParseError(`Vertex coordinate ${i + 1} exceeds the ±${MODEL_SPATIAL_LIMIT_MM} mm modeling envelope`);
     }
     const axis = i % 3;
     min[axis] = Math.min(min[axis], value);

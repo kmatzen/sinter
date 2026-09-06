@@ -259,7 +259,7 @@ describe('STL parsing', () => {
   it('rejects unsafe coordinate magnitudes', () => {
     const triangle = [...TRI];
     triangle[3] = 2e9;
-    expect(() => parseSTL(binarySTL([triangle]))).toThrow(/supported range/);
+    expect(() => parseSTL(binarySTL([triangle]))).toThrow(/modeling envelope/);
   });
 
   it('rejects meshes whose vertices all coincide', () => {

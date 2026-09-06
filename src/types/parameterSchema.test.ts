@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { NODE_DEFAULTS, type SDFNodeUI } from './operations';
-import { applyNodeParamPatch, normalizeNodeParams } from './parameterSchema';
+import { applyNodeParamPatch, MODEL_SPATIAL_LIMIT_MM, normalizeNodeParams } from './parameterSchema';
 
 describe('parameter schemas', () => {
   it('defines and produces finite defaults for every parameterized node kind', () => {
@@ -22,6 +22,14 @@ describe('parameter schemas', () => {
 
   it('enforces torus cross-field constraints', () => {
     expect(normalizeNodeParams('torus', { majorRadius: 5, minorRadius: 10 })).toMatchObject({ majorRadius: 5, minorRadius: 5 });
+  });
+
+  it('uses one spatial envelope and canonicalizes equivalent rotations', () => {
+    expect(normalizeNodeParams('box', { width: 1e20, height: 1, depth: 1 }).width).toBe(MODEL_SPATIAL_LIMIT_MM);
+    expect(normalizeNodeParams('translate', { x: 1e6, y: -1e6, z: 0 })).toMatchObject({
+      x: MODEL_SPATIAL_LIMIT_MM, y: -MODEL_SPATIAL_LIMIT_MM,
+    });
+    expect(normalizeNodeParams('rotate', { x: 0, y: 360, z: 1_000_080 })).toMatchObject({ x: 0, y: 0, z: 0 });
   });
 
   it('rejects a non-finite live patch atomically', () => {
