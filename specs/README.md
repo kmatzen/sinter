@@ -186,3 +186,153 @@ moves `tree` while leaving `history` and `idx` behind.
 ### `UndoHistoryFixed.tla` — `toggleNode` records like every other mutator.
 
 Both properties hold; 29 distinct states, no error.
+
+## NodeTree — `src/store/modelerStore.ts`
+
+Models the *shape* of the document under editing, where `UndoHistory` models
+the history beside it. Every action is a gesture: click a row to select,
+drag a row onto another row, drag a shape in from the palette, drop on empty
+canvas, press the X, Cmd-D, Cmd-C/Cmd-V, wrap from the Add menu.
+
+The tree is deliberately **not** modelled as a tree. `kid` is a general
+graph, because the implementation manipulates parent links and child arrays
+independently — whether the result is still a tree is the question, not an
+assumption. Kinds are abstracted to arity, with one distinction that does all
+the work:
+
+| kind | arity | in `NODE_KINDS.primitives`? |
+|------|-------|------------------------------|
+| `Prim` — box, sphere, … | 0 | yes |
+| `Leaf` — `text`, `mesh` | 0 | **no** (`operations.ts:14-17`) |
+| `Bool` — union, subtract, intersect | 2 | — |
+| `Mod` — modifiers, transforms, patterns | 1 | — |
+| `Empty` — the `_empty` placeholder | 0 | — |
+
+`addNodeFromData` asks `expectedChildren(...) === 0` of the *dropped* node
+(`:413`) and `NODE_KINDS.primitives.includes(...)` of the *target* (`:441`).
+Collapsing `Prim` and `Leaf` would hide that disagreement, which is one of the
+counterexamples.
+
+Five safety properties:
+
+- **`IsATree`** — every node in the document occupies exactly one slot. Two
+  slots means one *id* in two places: `findNode` returns only the first,
+  `updateInTree` rewrites both, and an edit aimed at one lands on both.
+- **`Acyclic`** — no node is its own descendant. `findNode`, `updateInTree`,
+  `cloneTree` and `toSDFNode` all recurse without a visited set, so a cycle
+  is a hung tab, not a wrong render.
+- **`WithinCapacity`** — no node carries more children than its kind can use.
+- **`SelectionValid`** — `selectedNodeId` names a node that exists.
+- **`NoSilentLoss`** — no edit destroys work it was not asked to destroy,
+  tracked in an auxiliary `lost` set.
+
+`Live` restricts every gesture to non-placeholder nodes: an `_empty` renders
+as a `PlaceholderSlot` (`TreeNode.tsx:254`) with no click handler, no drag
+handle and no X, and its drop handler passes the *parent* id (`:299`,`:303`).
+Without that restriction TLC produces counterexamples that no user can reach —
+worth recording, because the first run of the fixed spec failed on exactly one.
+
+### `NodeTree.tla` — the design as shipped. **Four of the five fail.**
+
+`Acyclic` holds at this bound, but only conditionally: the model's descendant
+guard consults the true graph, where the implementation's `findNode` sees only
+the first occurrence of a duplicated id. Once `IsATree` is violated the two
+diverge, so acyclicity is a guarantee only for as long as the document stays a
+tree — which is the argument for fixing `IsATree` rather than a reason to
+relax about cycles.
+
+**`WithinCapacity` — 2 states, the shortest counterexample in the model.**
+Import a mesh, then drop a box on it. `text` and `mesh` take no children but
+are not in `NODE_KINDS.primitives`, so they miss both the wrap branch and the
+union branch and land on `targetExpected === 0` (`:467`), which hands them a
+child. `toSDFNode` reads `children[0]`/`children[1]` and nothing after
+(`convert.ts:97-165`), so the box is dropped at mesh time. Nothing warns:
+`incompleteNodeIds` flags only nodes with too *few* children
+(`operations.ts:109`). The shape is in the outline and is not in the model.
+
+The same invariant fails five more ways, all the same unconditional append —
+`moveNode` (`:507`), `duplicateSelected` (`:560`), `pasteToSelected` (`:534`),
+`addChildToSelected` (`:381`), and the last branch of `addNodeFromData`
+(`:483`). A third operand under a union is invisible in exactly the same way.
+`moveNode` does not check the target's kind at all, so a drag can park a
+subtree under a sphere.
+
+**`IsATree` — 5 states.** Add a box, add a sphere, drop a subtract on the box,
+drag the subtract onto the sphere. `moveNode` deletes the source with
+`removeFromTree`, whose promote-sole-child rule (`:141`) hands the box up into
+the vacated slot — and then re-attaches the subtract, *still holding the box*,
+under the sphere. The box is now in the document twice under one id.
+
+**`NoSilentLoss` — 5 states.** Build `union(box, sphere)`, delete the sphere,
+delete the union. The union now holds `[box, _empty]`, so `children.length` is
+still 2, so the promote rule declines — and the box is destroyed. Deleting a
+union that had *never* lost an operand would have promoted it. Removing one
+operand quietly changes what deleting the parent means.
+
+**`SelectionValid` — 4 states.** Select a node, then delete one of its
+ancestors. `removeNode` clears the selection only when the selected id *is*
+the target (`:268`). The store already knows this matters — `surviving`
+(`:85`) exists to stop undo leaving a dangling id, and its comment says a
+dangling id "makes every `findNode` consumer silently no-op". It does:
+`addNodeFromData` bails at `if (!targetNode) return` (`:440`), so the palette
+stops responding, with nothing on screen to say why.
+
+### `NodeTreeFixed.tla` — all five hold.
+
+Checked exhaustively at `MaxNodes = 6, MaxOps = 4` (11,301 distinct states,
+depth 5) and again at `MaxNodes = 7, MaxOps = 5` (280,582 distinct states,
+depth 6, 9m37s). Adds `NoStrayPlaceholder`: an `_empty` appears only under a
+boolean, which is the only place `isTreeValid` tolerates one
+(`operations.ts:88`).
+
+Four changes:
+
+1. **`moveNode` detaches instead of deleting.** `removeFromTree` takes a
+   `promote` flag; a move passes `false`, so the subtree travels whole and
+   nothing is left behind wearing its ids.
+2. **One `attachChild`.** Fill a vacated slot; else append if the kind has
+   room; else the parent is full, so replace it in place with a union of
+   itself and the newcomer. Every append site now routes through it. Unioning
+   in place is not a new gesture — it is what `addPrimitive` does to the root
+   and what dropping a shape on a shape already did.
+3. **The drop target is classified by arity**, the same question already asked
+   of the dropped node, so `text` and `mesh` are treated as the leaves they
+   are.
+4. **Promotion counts real operands**, not placeholders; and the selection is
+   clamped in `commit`, the one funnel every mutator already goes through,
+   rather than at the call sites that happened to remember.
+
+The counterexamples are replayed as executable tests in
+`src/store/modelerStore.treeShape.test.ts` — nine of them fail against the old
+design and pass against the new one, alongside three controls that must not
+change.
+
+One existing test had to be updated rather than kept: "moves a child from one
+parent to another" asserted that a drag into a full union produces a union
+with three children. That assertion *was* the defect.
+
+### Not modelled
+
+- **`changeNodeKind`** can strand children when the new kind has a smaller
+  arity, but `PropertyPanel` only ever offers a switch within a class —
+  boolean↔boolean, primitive↔primitive (`PropertyPanel.tsx:151-157`) — so
+  arity never changes. Reachable through the store API, not through the UI.
+- **`simplifyTree`** and **`wrapSelected`'s** choice between wrapping outside
+  and inserting inside turn on specific kinds (`translate` versus
+  `rotate`/`scale`), which arity cannot express. `Wrap` offers both branches
+  nondeterministically wherever the real code could take either.
+- **`expandedNodes`** is view state and accumulates ids of nodes that no
+  longer exist. A leak, not a correctness problem.
+- **Deep copies.** `duplicateSelected` and `pasteToSelected` are modelled as
+  attaching a single fresh node. `reassignIds` gives a clone entirely fresh
+  ids, so its internal shape can neither collide with nor overflow anything;
+  where the copy *lands* is the structural question, and that is faithful.
+
+### Reported and deliberately not changed
+
+An operation dragged to empty canvas falls through every branch of
+`addNodeFromData` and does nothing at all (`:431-435`) — silently, with no
+cursor feedback. The model shows it as a no-op. It loses nothing and breaks no
+invariant, and the behaviour is asserted by an existing test ("ignores a
+dropped operation with no target on an existing tree"), so it is left alone. A
+UX gap, not a defect.

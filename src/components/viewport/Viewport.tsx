@@ -3,6 +3,8 @@ import { ThreeEngine } from '../../engine/ThreeEngine';
 import { ViewportToolbar } from './ViewportToolbar';
 import { ShortcutOverlay } from './ShortcutOverlay';
 import { DimensionLabels } from './DimensionLabels';
+import { SelectionOverlay } from './SelectionOverlay';
+import { SelectionBreadcrumb } from './SelectionBreadcrumb';
 import { useModelerStore } from '../../store/modelerStore';
 import { setEngineRef } from '../../engine/engineRef';
 
@@ -29,7 +31,9 @@ export function Viewport() {
       <div className="absolute inset-0" style={{ background: 'radial-gradient(ellipse at 50% 40%, #252538 0%, #111118 100%)' }} />
       <div ref={containerRef} className="absolute inset-0" />
 
+      <SelectionOverlay engine={engine} />
       <DimensionLabels engine={engine} />
+      <SelectionBreadcrumb />
       <ViewportToolbar engine={engine} />
       <ShortcutOverlay />
 

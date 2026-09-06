@@ -5,7 +5,7 @@ import { useViewportStore } from '../store/viewportStore';
 import { SdfMesh } from './SdfMesh';
 import { OutlinePass } from './OutlinePass';
 import { GizmoController } from './GizmoController';
-import { attributePoint } from './sdfPicking';
+import { attributePath } from './sdfPicking';
 import type { Vec3 } from '../worker/sdf/types';
 
 export class ThreeEngine {
@@ -112,9 +112,11 @@ export class ThreeEngine {
     this.outlinePass = new OutlinePass(this);
     this.gizmo = new GizmoController(this);
 
-    // Click handling for selection
+    // Click handling for selection, and hover preview of what a click would hit
     this.renderer.domElement.addEventListener('pointerdown', this.onPointerDown);
     this.renderer.domElement.addEventListener('pointerup', this.onPointerUp);
+    this.renderer.domElement.addEventListener('pointermove', this.onPointerMove);
+    this.renderer.domElement.addEventListener('pointerleave', this.onPointerLeave);
 
     // Resize
     this.resizeObserver = new ResizeObserver(() => this.resize());
@@ -203,15 +205,13 @@ export class ThreeEngine {
   }
 
   private pointerStart: { x: number; y: number } = { x: 0, y: 0 };
+  private pointerIsDown = false;
   /**
    * Picking is asynchronous now, so two quick clicks are two in-flight reads
    * that can resolve in either order. Without this, the second click's
    * selection could be overwritten by the first click's late answer.
    */
   private pickSeq = 0;
-  private onPointerDown = (e: PointerEvent) => {
-    this.pointerStart = { x: e.clientX, y: e.clientY };
-  };
   /**
    * How far a pointer may travel between down and up and still count as a tap
    * rather than an orbit.
@@ -223,39 +223,65 @@ export class ThreeEngine {
    * having missed the model. 10px for touch still separates a tap from any
    * orbit gesture, which covers far more ground than that.
    */
-  private static TAP_SLOP_MOUSE = 4;
-  private static TAP_SLOP_TOUCH = 10;
-  private onPointerUp = async (e: PointerEvent) => {
-    const dx = e.clientX - this.pointerStart.x;
-    const dy = e.clientY - this.pointerStart.y;
-    const slop = e.pointerType === 'mouse'
-      ? ThreeEngine.TAP_SLOP_MOUSE
-      : ThreeEngine.TAP_SLOP_TOUCH;
-    if (dx * dx + dy * dy > slop * slop) return;
+  /** Hover's own sequence, so a slow hover read cannot clobber a click. */
+  private hoverSeq = 0;
+  private lastHoverAt = 0;
+  private hoverPending = false;
+  /**
+   * A click's depth read is outstanding.
+   *
+   * Both paths go through one 1x1 pick target and one shared sample-UV
+   * uniform, so a hover pick starting between a click's render and its readback
+   * would redraw that target from under it — and the click is the one that must
+   * not be wrong. Hover yields; it gets another sample 50ms later.
+   */
+  private clickPending = false;
+  private static readonly TAP_SLOP_MOUSE = 4;
+  private static readonly TAP_SLOP_TOUCH = 10;
 
+  /**
+   * How often a pointer move is allowed to trigger a pick.
+   *
+   * Each one costs a 1x1 render plus an async buffer read, and the CPU-side
+   * attribution walks the tree — cheap individually, but a pointer move fires
+   * per frame. 50ms is under the ~100ms at which a highlight stops feeling
+   * attached to the cursor, and an order of magnitude fewer reads.
+   */
+  private static readonly HOVER_INTERVAL_MS = 50;
+
+  /**
+   * Which node owns the surface under a screen point, root-first, or [] for a
+   * miss. Shared by click and hover so the thing the highlight promises and the
+   * thing the click delivers cannot drift apart.
+   *
+   * `allowRender` is the difference between them: a click may force a frame to
+   * get an up-to-date depth buffer, because a wrong selection is worse than a
+   * hitch. Hover will not — forcing a full sphere-march per pointer move to
+   * refresh a *preview* is the wrong trade, so it declines to guess instead.
+   */
+  private async pickPathAt(clientX: number, clientY: number, allowRender: boolean): Promise<string[] | null> {
     const rect = this.renderer.domElement.getBoundingClientRect();
-    const ndcX = ((e.clientX - rect.left) / rect.width) * 2 - 1;
-    const ndcY = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+    if (rect.width === 0 || rect.height === 0) return null;
+    const ndcX = ((clientX - rect.left) / rect.width) * 2 - 1;
+    const ndcY = -((clientY - rect.top) / rect.height) * 2 + 1;
 
-    const seq = ++this.pickSeq;
-
-    // Read depth from GPU depth buffer at click location
-    const store = useModelerStore.getState();
-    const { tree } = store;
+    const { tree } = useModelerStore.getState();
     const u = (ndcX + 1) / 2;
     const v = (ndcY + 1) / 2;
+
     // The depth texture holds the last frame drawn. With on-demand rendering
     // that can be one invalidation behind if the click lands before rAF fires,
     // and picking against a stale depth buffer selects the wrong node.
-    if (this.dirty) { this.dirty = false; this.renderNow(); }
+    if (this.dirty) {
+      if (!allowRender) return null;
+      this.dirty = false;
+      this.renderNow();
+    }
     const depth = await this.outlinePass.readDepthAt(u, v);
-    if (seq !== this.pickSeq || this.disposed) return;
+    if (this.disposed) return null;
 
     // depth ≈ 1 means far plane = no hit
-    if (depth >= 1.0 - 1e-6 || !tree) {
-      store.selectNode(null);
-      return;
-    }
+    if (depth >= 1.0 - 1e-6 || !tree) return [];
 
     // Unproject depth to world position
     const zNdc = depth * 2 - 1;
@@ -265,10 +291,98 @@ export class ThreeEngine {
     const worldPos = new THREE.Vector4(ndcX, ndcY, zNdc, 1).applyMatrix4(invProjView);
     worldPos.divideScalar(worldPos.w);
 
-    // Attribute the surface point to a node in the tree
     const hitPoint: Vec3 = [worldPos.x, worldPos.y, worldPos.z];
-    const nodeId = attributePoint(tree, hitPoint);
-    store.selectNode(nodeId);
+    return attributePath(tree, hitPoint);
+  }
+
+  private onPointerDown = (e: PointerEvent) => {
+    this.pointerStart = { x: e.clientX, y: e.clientY };
+    this.pointerIsDown = true;
+  };
+
+  private onPointerUp = async (e: PointerEvent) => {
+    this.pointerIsDown = false;
+    // A fingertip's contact centroid wanders farther than a mouse while tapping.
+    const dx = e.clientX - this.pointerStart.x;
+    const dy = e.clientY - this.pointerStart.y;
+    const slop = e.pointerType === 'mouse'
+      ? ThreeEngine.TAP_SLOP_MOUSE
+      : ThreeEngine.TAP_SLOP_TOUCH;
+    if (dx * dx + dy * dy > slop * slop) return;
+
+    const seq = ++this.pickSeq;
+    this.clickPending = true;
+    let path: string[] | null;
+    try {
+      path = await this.pickPathAt(e.clientX, e.clientY, true);
+    } finally {
+      this.clickPending = false;
+    }
+    if (path === null || seq !== this.pickSeq || this.disposed) return;
+
+    const store = useModelerStore.getState();
+    if (path.length === 0) {
+      store.selectNode(null);
+      useViewportStore.getState().setHoveredNode(null);
+      return;
+    }
+
+    // Alt-click steps one level up the chain that owns the surface, so the
+    // boolean or transform *containing* the clicked primitive can be selected
+    // without hunting for it in the tree. Picking always lands on a leaf —
+    // that is what "which shape is this pixel" means — but the node a user
+    // wants to edit is often the operation just above it.
+    const index = e.altKey ? Math.max(0, path.length - 2) : path.length - 1;
+    store.selectNode(path[index]);
+
+    // A finger has no hover state to leave behind, and `pointerleave` is not
+    // guaranteed after a touch ends — so without this the last tapped node
+    // stays highlighted as "what a click would select" indefinitely.
+    if (e.pointerType !== 'mouse') useViewportStore.getState().setHoveredNode(null);
+  };
+
+  /**
+   * Preview which node a click would select.
+   *
+   * Selection used to be entirely blind: the model gives no clue where one
+   * node's surface ends and the next begins, so clicking was a guess followed
+   * by reading a side panel to find out what you got. Hovering resolves that
+   * before the click instead of after it.
+   */
+  private onPointerMove = (e: PointerEvent) => {
+    // Mid-drag the pointer is orbiting the camera or pulling a gizmo handle;
+    // neither is aiming at anything, and the depth buffer is stale anyway.
+    if (this.pointerIsDown || useViewportStore.getState().dragging) return;
+    if (this.hoverPending || this.clickPending) return;
+
+    const now = performance.now();
+    if (now - this.lastHoverAt < ThreeEngine.HOVER_INTERVAL_MS) return;
+    this.lastHoverAt = now;
+
+    const seq = ++this.hoverSeq;
+    this.hoverPending = true;
+    const { clientX, clientY } = e;
+    this.pickPathAt(clientX, clientY, false)
+      .then((path) => {
+        if (seq !== this.hoverSeq || this.disposed) return;
+        // null means "could not answer this time" (no fresh frame). Leaving the
+        // previous highlight alone beats flickering it off and back on while
+        // the model re-renders.
+        if (path === null) return;
+        const id = path.length > 0 ? path[path.length - 1] : null;
+        useViewportStore.getState().setHoveredNode(id, 'viewport');
+        this.renderer.domElement.style.cursor = id ? 'pointer' : '';
+      })
+      .finally(() => {
+        this.hoverPending = false;
+      });
+  };
+
+  private onPointerLeave = () => {
+    this.pointerIsDown = false;
+    this.hoverSeq++;
+    useViewportStore.getState().setHoveredNode(null);
+    this.renderer.domElement.style.cursor = '';
   };
 
   private resize() {
@@ -556,6 +670,9 @@ export class ThreeEngine {
     this.resizeObserver.disconnect();
     this.renderer.domElement.removeEventListener('pointerdown', this.onPointerDown);
     this.renderer.domElement.removeEventListener('pointerup', this.onPointerUp);
+    this.renderer.domElement.removeEventListener('pointermove', this.onPointerMove);
+    this.renderer.domElement.removeEventListener('pointerleave', this.onPointerLeave);
+    useViewportStore.getState().setHoveredNode(null);
     this.sdfMesh.dispose();
     this.outlinePass.dispose();
     this.gizmo.dispose();

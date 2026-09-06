@@ -40,69 +40,144 @@ function inverseTransform(ui: SDFNodeUI, p: Vec3): Vec3 {
   return p;
 }
 
-const PRIMITIVES = new Set([
-  'box', 'sphere', 'cylinder', 'torus', 'cone', 'capsule', 'ellipsoid', 'text',
+/**
+ * Kinds that end the descent: they take no children, so the surface stops here.
+ *
+ * `mesh` belongs in this list for the same reason the others do — `toSDFNode`
+ * emits it as a leaf field — but it was missing, so an imported STL matched no
+ * branch below, fell through to the childless tail, and returned null. The
+ * caller reads null as "the click missed the model", so clicking an imported
+ * mesh *cleared* the selection instead of selecting it (the one node kind you
+ * cannot drag in from the palette, and therefore the one you most need to be
+ * able to find by clicking it).
+ */
+const LEAF_KINDS = new Set([
+  'box', 'sphere', 'cylinder', 'torus', 'cone', 'capsule', 'ellipsoid', 'text', 'mesh',
 ]);
+
+/**
+ * Cache of UI node -> compiled SDF node, for the duration of one pick.
+ *
+ * Guarantees each UI node is compiled at most once per pick, no matter how many
+ * of the branches below ask for it. It does *not* make the pick cheap:
+ * `toSDFNode` compiles a node's whole subtree and recurses without consulting
+ * this map, so a chain of nested booleans still compiles the deeper subtrees
+ * once per level it descends through. Fixing that means memoising inside the
+ * converter, which is a change to the worker's compile path rather than to
+ * picking. This bounds what picking itself can duplicate, and picking now runs
+ * on pointer moves rather than only on clicks — so the cheap guarantee is worth
+ * stating rather than leaving to whoever adds the next branch.
+ */
+type Compiled = Map<SDFNodeUI, ReturnType<typeof toSDFNode>>;
+
+function compile(cache: Compiled, ui: SDFNodeUI) {
+  let node = cache.get(ui);
+  if (node === undefined) {
+    node = toSDFNode(ui);
+    cache.set(ui, node);
+  }
+  return node;
+}
+
+/**
+ * The chain of node IDs, root first, ending at the leaf that owns the surface
+ * at `p`. Empty if nothing owns it.
+ *
+ * The path — not just the leaf — because "which node did I just click?" is only
+ * half the question a user is asking. The other half is "and where does it sit
+ * in the tree?", which the breadcrumb answers from this, and "give me the
+ * operation that leaf belongs to", which alt-click answers by stepping back
+ * along it.
+ */
+export function attributePath(ui: SDFNodeUI, p: Vec3): string[] {
+  const out: string[] = [];
+  descend(ui, p, out, new Map());
+  return out;
+}
 
 /**
  * Determine which leaf node in the UI tree "owns" the surface at the given
  * world-space point. Returns the node ID of the deepest contributing primitive.
  */
 export function attributePoint(ui: SDFNodeUI, p: Vec3): string | null {
-  if (!ui.enabled) return null;
+  const path = attributePath(ui, p);
+  return path.length > 0 ? path[path.length - 1] : null;
+}
 
-  if (PRIMITIVES.has(ui.kind)) return ui.id;
+/**
+ * Append the owning path for `p` under `ui` to `out`; report whether one
+ * exists. On failure `out` is left exactly as it was found, so a caller that
+ * tries a branch and loses does not have to unwind by hand.
+ */
+function descend(ui: SDFNodeUI, p: Vec3, out: string[], cache: Compiled): boolean {
+  const mark = out.length;
+  if (!attribute(ui, p, out, cache)) {
+    out.length = mark;
+    return false;
+  }
+  return true;
+}
 
+function attribute(ui: SDFNodeUI, p: Vec3, out: string[], cache: Compiled): boolean {
+  if (!ui.enabled) return false;
+
+  out.push(ui.id);
+
+  if (LEAF_KINDS.has(ui.kind)) return true;
+
+  // Placeholder slots are `enabled: false`, so this drops them too.
   const enabledChildren = ui.children.filter(c => c.enabled);
 
   // Booleans: decide which child owns the surface
   if (ui.kind === 'union' || ui.kind === 'subtract' || ui.kind === 'intersect') {
-    if (enabledChildren.length === 0) return null;
-    if (enabledChildren.length === 1) return attributePoint(enabledChildren[0], p);
+    if (enabledChildren.length === 0) return false;
+    if (enabledChildren.length === 1) return descend(enabledChildren[0], p, out, cache);
 
     const [childA, childB] = enabledChildren;
-    const sdfA = toSDFNode(childA);
-    const sdfB = toSDFNode(childB);
-    if (!sdfA) return attributePoint(childB, p);
-    if (!sdfB) return attributePoint(childA, p);
+    const sdfA = compile(cache, childA);
+    const sdfB = compile(cache, childB);
+    if (!sdfA) return descend(childB, p, out, cache);
+    if (!sdfB) return descend(childA, p, out, cache);
 
     const dA = evaluateSDF(sdfA, p);
     const dB = evaluateSDF(sdfB, p);
 
+    let winner: SDFNodeUI;
     if (ui.kind === 'union') {
-      return attributePoint(dA <= dB ? childA : childB, p);
+      winner = dA <= dB ? childA : childB;
     } else if (ui.kind === 'subtract') {
-      return attributePoint(dA >= -dB ? childA : childB, p);
+      winner = dA >= -dB ? childA : childB;
     } else {
-      return attributePoint(dA >= dB ? childA : childB, p);
+      winner = dA >= dB ? childA : childB;
     }
+    return descend(winner, p, out, cache);
   }
 
   // Transforms: inverse-transform point then recurse
   if (ui.kind === 'translate' || ui.kind === 'rotate' || ui.kind === 'scale') {
-    if (enabledChildren.length === 0) return null;
-    return attributePoint(enabledChildren[0], inverseTransform(ui, p));
+    if (enabledChildren.length === 0) return false;
+    return descend(enabledChildren[0], inverseTransform(ui, p), out, cache);
   }
 
   // Mirror: fold point
   if (ui.kind === 'mirror') {
-    if (enabledChildren.length === 0) return null;
+    if (enabledChildren.length === 0) return false;
     const mp: Vec3 = [
       ui.params.mirrorX ? Math.abs(p[0]) : p[0],
       ui.params.mirrorY ? Math.abs(p[1]) : p[1],
       ui.params.mirrorZ ? Math.abs(p[2]) : p[2],
     ];
-    return attributePoint(enabledChildren[0], mp);
+    return descend(enabledChildren[0], mp, out, cache);
   }
 
   // Linear pattern: find nearest copy, undo repetition
   if (ui.kind === 'linearPattern') {
-    if (enabledChildren.length === 0) return null;
+    if (enabledChildren.length === 0) return false;
     const params = ui.params;
     const hasAxis = (params.axisX || 0) !== 0 || (params.axisY || 0) !== 0 || (params.axisZ || 0) !== 0;
     const ax: Vec3 = hasAxis ? [params.axisX || 0, params.axisY || 0, params.axisZ || 0] : [1, 0, 0];
     const axLen = Math.sqrt(ax[0] ** 2 + ax[1] ** 2 + ax[2] ** 2);
-    if (axLen < 1e-8) return attributePoint(enabledChildren[0], p);
+    if (axLen < 1e-8) return descend(enabledChildren[0], p, out, cache);
     const nax: Vec3 = [ax[0] / axLen, ax[1] / axLen, ax[2] / axLen];
     const dot = p[0] * nax[0] + p[1] * nax[1] + p[2] * nax[2];
     const count = params.count || 2;
@@ -111,8 +186,8 @@ export function attributePoint(ui: SDFNodeUI, p: Vec3): string | null {
     const clamped = Math.max(0, Math.min(totalLen, dot));
     const idx = Math.round(clamped / spacing);
 
-    const sdfChild = toSDFNode(enabledChildren[0]);
-    if (!sdfChild) return null;
+    const sdfChild = compile(cache, enabledChildren[0]);
+    if (!sdfChild) return false;
     let bestDist = Infinity;
     let bestP: Vec3 = p;
     for (let di = -1; di <= 1; di++) {
@@ -123,12 +198,12 @@ export function attributePoint(ui: SDFNodeUI, p: Vec3): string | null {
       const d = evaluateSDF(sdfChild, lp);
       if (d < bestDist) { bestDist = d; bestP = lp; }
     }
-    return attributePoint(enabledChildren[0], bestP);
+    return descend(enabledChildren[0], bestP, out, cache);
   }
 
   // Circular pattern: find nearest sector, undo rotation
   if (ui.kind === 'circularPattern') {
-    if (enabledChildren.length === 0) return null;
+    if (enabledChildren.length === 0) return false;
     const params = ui.params;
     const hasAxis = (params.axisX || 0) !== 0 || (params.axisY || 0) !== 0 || (params.axisZ || 0) !== 0;
     const ax: Vec3 = hasAxis ? [params.axisX || 0, params.axisY || 0, params.axisZ || 0] : [0, 1, 0];
@@ -150,8 +225,8 @@ export function attributePoint(ui: SDFNodeUI, p: Vec3): string | null {
     const sector = (2 * Math.PI) / count;
     const sect = Math.round(angle / sector);
 
-    const sdfChild = toSDFNode(enabledChildren[0]);
-    if (!sdfChild) return null;
+    const sdfChild = compile(cache, enabledChildren[0]);
+    if (!sdfChild) return false;
     let bestDist = Infinity;
     let bestP: Vec3 = p;
     for (let di = -1; di <= 1; di++) {
@@ -164,10 +239,10 @@ export function attributePoint(ui: SDFNodeUI, p: Vec3): string | null {
       const d = evaluateSDF(sdfChild, cp);
       if (d < bestDist) { bestDist = d; bestP = cp; }
     }
-    return attributePoint(enabledChildren[0], bestP);
+    return descend(enabledChildren[0], bestP, out, cache);
   }
 
   // All other modifiers (shell, offset, round, halfSpace): pass through
-  if (enabledChildren.length > 0) return attributePoint(enabledChildren[0], p);
-  return null;
+  if (enabledChildren.length > 0) return descend(enabledChildren[0], p, out, cache);
+  return false;
 }

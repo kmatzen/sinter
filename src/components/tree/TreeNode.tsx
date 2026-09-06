@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
 import { useModelerStore } from '../../store/modelerStore';
+import { useViewportStore } from '../../store/viewportStore';
 import { useTreeUiStore } from '../../store/treeUiStore';
 import { NODE_LABELS, nodeSummary, expectedChildren, incompleteNodeIds } from '../../types/operations';
 import type { SDFNodeUI } from '../../types/operations';
@@ -36,6 +37,9 @@ export function TreeNode({ node, depth, isLast = true, incompleteIds: incomplete
   const duplicateSelected = useModelerStore((s) => s.duplicateSelected);
   const moveNode = useModelerStore((s) => s.moveNode);
   const addNodeFromData = useModelerStore((s) => s.addNodeFromData);
+  // Subscribe to booleans so only rows whose hover state changes re-render.
+  const isHovered = useViewportStore((s) => s.hoveredNodeId === node.id);
+  const setHoveredNode = useViewportStore((s) => s.setHoveredNode);
   const movingNodeId = useTreeUiStore((s) => s.movingNodeId);
   const beginMove = useTreeUiStore((s) => s.beginMove);
   const cancelMove = useTreeUiStore((s) => s.cancelMove);
@@ -107,9 +111,11 @@ export function TreeNode({ node, depth, isLast = true, incompleteIds: incomplete
             : isMoving ? 'var(--accent-subtle)'
             : isSelected ? 'var(--accent-subtle)'
             : dragOver ? 'rgba(91,140,223,0.1)'
+            : isHovered ? 'var(--bg-hover)'
             : isIncomplete ? 'rgba(212,90,90,0.08)' : 'transparent',
           borderLeft: isMoving ? '2px solid var(--accent-blue)'
             : isSelected ? `2px solid var(--accent)`
+            : isHovered ? '2px solid rgba(255,255,255,0.35)'
             : isIncomplete ? '2px solid rgba(212,90,90,0.5)' : '2px solid transparent',
           opacity: node.enabled ? 1 : 0.35,
         }}
@@ -124,8 +130,8 @@ export function TreeNode({ node, depth, isLast = true, incompleteIds: incomplete
           }
           selectNode(node.id);
         }}
-        onMouseEnter={(e) => { if (!isSelected) e.currentTarget.style.background = 'var(--bg-hover)'; }}
-        onMouseLeave={(e) => { if (!isSelected && !dragOver) e.currentTarget.style.background = 'transparent'; }}
+        onMouseEnter={() => setHoveredNode(node.id)}
+        onMouseLeave={() => setHoveredNode(null)}
         draggable
         onDragStart={(e) => {
           e.dataTransfer.setData('text/plain', node.id);
