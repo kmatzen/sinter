@@ -94,6 +94,8 @@ export function NodeTreeContent({ onClose }: { onClose?: () => void } = {}) {
   const duplicateSelected = useModelerStore((s) => s.duplicateSelected);
   const toggleSelected = useModelerStore((s) => s.toggleSelected);
   const unionSelected = useModelerStore((s) => s.unionSelected);
+  const alignSelected = useModelerStore((s) => s.alignSelected);
+  const distributeSelected = useModelerStore((s) => s.distributeSelected);
   const removeSelected = useModelerStore((s) => s.removeSelected);
   const cancelMove = useTreeUiStore((s) => s.cancelMove);
   const hiddenCount = useTreeUiStore((s) => s.hiddenNodeIds.size);
@@ -198,6 +200,24 @@ export function NodeTreeContent({ onClose }: { onClose?: () => void } = {}) {
           <button onClick={duplicateSelected} className="tap-h rounded px-2 text-[10px]" style={{ border: '1px solid var(--border-default)' }}>Duplicate</button>
           <button onClick={toggleSelected} className="tap-h rounded px-2 text-[10px]" style={{ border: '1px solid var(--border-default)' }}>Enable/disable</button>
           <button onClick={unionSelected} className="tap-h rounded px-2 text-[10px]" style={{ border: '1px solid var(--border-default)' }}>Union</button>
+          <details className="relative">
+            <summary role="button" className="tap-h cursor-pointer list-none rounded px-2 text-[10px]" style={{ border: '1px solid var(--border-default)' }}>Align</summary>
+            <div className="absolute right-0 top-8 z-40 w-52 rounded p-2 shadow-lg" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-default)' }}>
+              {(['x', 'y', 'z'] as const).map((axis) => (
+                <div key={axis} className="mb-1 flex items-center gap-1 last:mb-0">
+                  <span className="w-4 text-[10px] font-mono uppercase" style={{ color: 'var(--text-muted)' }}>{axis}</span>
+                  {(['min', 'center', 'max'] as const).map((anchor) => (
+                    <button key={anchor} aria-label={`Align ${axis.toUpperCase()} ${anchor}`} onClick={() => alignSelected(axis, anchor)} className="tap-h flex-1 rounded px-1 text-[10px]" style={{ border: '1px solid var(--border-subtle)' }}>
+                      {anchor}
+                    </button>
+                  ))}
+                  <button aria-label={`Distribute ${axis.toUpperCase()} evenly`} onClick={() => distributeSelected(axis)} disabled={selectedNodeIds.length < 3} className="tap-h rounded px-1 text-[10px] disabled:opacity-40" style={{ border: '1px solid var(--border-subtle)' }}>
+                    space
+                  </button>
+                </div>
+              ))}
+            </div>
+          </details>
           <button onClick={removeSelected} className="tap-h rounded px-2 text-[10px]" style={{ color: 'var(--accent-red)', border: '1px solid var(--border-default)' }}>Delete</button>
         </div>
       )}

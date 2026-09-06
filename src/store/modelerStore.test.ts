@@ -1130,6 +1130,70 @@ describe('ordered multi-selection', () => {
     getState().undo();
     expect(getState().tree?.kind).toBe('subtract');
   });
+
+  const positionedDocument = (): SDFNodeUI => ({
+    id: 'assembly', kind: 'union', label: 'Assembly', params: {}, enabled: true,
+    children: [
+      { id: 'ta', kind: 'translate', label: 'A position', params: { x: 0, y: 0, z: 0 }, enabled: true, children: [
+        { id: 'pa', kind: 'box', label: 'A', params: { width: 2, height: 2, depth: 2 }, enabled: true, children: [] },
+      ] },
+      { id: 'tb', kind: 'translate', label: 'B position', params: { x: 10, y: 0, z: 0 }, enabled: true, children: [
+        { id: 'pb', kind: 'box', label: 'B', params: { width: 4, height: 2, depth: 2 }, enabled: true, children: [] },
+      ] },
+      { id: 'tc', kind: 'translate', label: 'C position', params: { x: 30, y: 0, z: 0 }, enabled: true, children: [
+        { id: 'pc', kind: 'box', label: 'C', params: { width: 2, height: 2, depth: 2 }, enabled: true, children: [] },
+      ] },
+    ],
+  });
+
+  it('aligns world-space centers deterministically as one undo entry', () => {
+    getState().resetDocument(positionedDocument());
+    getState().selectNode('ta');
+    getState().selectNode('tb', 'toggle');
+    getState().selectNode('tc', 'toggle');
+    getState().alignSelected('x', 'center');
+
+    expect(getState().tree?.children.map((node) => node.params.x)).toEqual([15, 5, -15]);
+    expect(getState().history).toHaveLength(2);
+    getState().undo();
+    expect(getState().tree?.children.map((node) => node.id)).toEqual(['ta', 'tb', 'tc']);
+  });
+
+  it('distributes bounding boxes with equal gaps independent of selection order', () => {
+    getState().resetDocument(positionedDocument());
+    getState().selectNode('tc');
+    getState().selectNode('ta', 'toggle');
+    getState().selectNode('tb', 'toggle');
+    getState().distributeSelected('x');
+
+    expect(getState().tree?.children.map((node) => node.params.x)).toEqual([0, 5, 30]);
+    expect(getState().tree?.children[1].children[0].id).toBe('tb');
+    expect(getState().history).toHaveLength(2);
+  });
+
+  it('converts world alignment deltas through rotated ancestors', () => {
+    const tree: SDFNodeUI = {
+      id: 'root', kind: 'union', label: 'Assembly', params: {}, enabled: true,
+      children: [
+        { id: 'a', kind: 'sphere', label: 'A', params: { radius: 1 }, enabled: true, children: [] },
+        { id: 'r', kind: 'rotate', label: 'Quarter turn', params: { x: 0, y: 0, z: 90 }, enabled: true, children: [
+          { id: 't', kind: 'translate', label: 'Offset', params: { x: 10, y: 0, z: 0 }, enabled: true, children: [
+            { id: 'b', kind: 'sphere', label: 'B', params: { radius: 1 }, enabled: true, children: [] },
+          ] },
+        ] },
+      ],
+    };
+    getState().resetDocument(tree);
+    getState().selectNode('a');
+    getState().selectNode('b', 'toggle');
+    getState().alignSelected('y', 'min');
+
+    const wrapper = getState().tree!.children[1].children[0].children[0];
+    expect(wrapper.kind).toBe('translate');
+    expect(wrapper.params.x).toBeCloseTo(-10);
+    expect(wrapper.params.y).toBeCloseTo(0);
+    expect(wrapper.children[0].id).toBe('b');
+  });
 });
 
 describe('bounded structurally-shared history', () => {
