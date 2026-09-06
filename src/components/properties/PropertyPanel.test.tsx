@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('../../engine/workerBridge', () => ({ workerBridge: { fitMesh: vi.fn() } }));
 import { PropertyContent } from './PropertyPanel';
 import { useModelerStore } from '../../store/modelerStore';
+import { useTreeUiStore } from '../../store/treeUiStore';
 
 const box = {
   id: 'box', kind: 'box', label: 'Box', params: { width: 10, height: 20, depth: 30 }, children: [], enabled: true,
@@ -39,5 +40,14 @@ describe('property formulas', () => {
     fireEvent.click(screen.getByText('Promote'));
     expect(useModelerStore.getState().namedParameters[0]).toEqual({ name: 'bodyHeight', expression: '20', unit: 'mm' });
     expect(useModelerStore.getState().tree?.expressions?.height).toBe('bodyHeight');
+  });
+
+  it('does not expose editing controls for a locked node', () => {
+    useTreeUiStore.getState().toggleLocked('box');
+    render(<PropertyContent />);
+
+    expect(screen.getByRole('status')).toHaveTextContent('This node is locked');
+    expect(screen.queryByLabelText('Width')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Driven properties/)).not.toBeInTheDocument();
   });
 });

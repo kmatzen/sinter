@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useModelerStore } from '../../store/modelerStore';
 import type { SDFNodeUI } from '../../types/operations';
 import { NodeTreeContent } from './NodeTreePanel';
+import { useTreeUiStore } from '../../store/treeUiStore';
 
 vi.stubGlobal('localStorage', { getItem: () => null, setItem: vi.fn(), removeItem: vi.fn() });
 
@@ -18,7 +19,10 @@ const tree: SDFNodeUI = {
 };
 
 describe('node naming and search workflow', () => {
-  beforeEach(() => useModelerStore.getState().resetDocument(tree));
+  beforeEach(() => {
+    useModelerStore.getState().resetDocument(tree);
+    useTreeUiStore.getState().resetViewState();
+  });
 
   it('reveals and selects a deeply nested name while retaining its ancestors', () => {
     render(<NodeTreeContent />);
@@ -40,5 +44,22 @@ describe('node naming and search workflow', () => {
 
     expect(useModelerStore.getState().tree?.label).toBe('Printer enclosure');
     expect(screen.getByRole('treeitem', { name: /Printer enclosure/ })).toBeInTheDocument();
+  });
+
+  it('locks selection/editing and keeps hide/isolate out of document history', () => {
+    render(<NodeTreeContent />);
+    fireEvent.click(screen.getByRole('treeitem', { name: /Assembly/ }));
+    const historyLength = useModelerStore.getState().history.length;
+    fireEvent.click(screen.getByRole('button', { name: 'Lock node' }));
+
+    expect(useModelerStore.getState().selectedNodeId).toBeNull();
+    fireEvent.click(screen.getByRole('treeitem', { name: /Assembly, Union, locked/ }));
+    expect(useModelerStore.getState().selectedNodeId).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Hide node in viewport' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Isolate node in viewport' }));
+    expect(useModelerStore.getState().history).toHaveLength(historyLength);
+    expect(JSON.parse(useModelerStore.getState().toJSON()).tree).not.toHaveProperty('locked');
+    expect(screen.getByRole('button', { name: /Show all/ })).toBeInTheDocument();
   });
 });

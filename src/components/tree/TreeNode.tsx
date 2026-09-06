@@ -45,6 +45,12 @@ export function TreeNode({ node, depth, isLast = true, incompleteIds: incomplete
   const movingNodeId = useTreeUiStore((s) => s.movingNodeId);
   const beginMove = useTreeUiStore((s) => s.beginMove);
   const cancelMove = useTreeUiStore((s) => s.cancelMove);
+  const isLocked = useTreeUiStore((s) => s.lockedNodeIds.has(node.id));
+  const isHidden = useTreeUiStore((s) => s.hiddenNodeIds.has(node.id));
+  const isolatedNodeId = useTreeUiStore((s) => s.isolatedNodeId);
+  const toggleLocked = useTreeUiStore((s) => s.toggleLocked);
+  const toggleHidden = useTreeUiStore((s) => s.toggleHidden);
+  const isolate = useTreeUiStore((s) => s.isolate);
   const [dragOver, setDragOver] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [draftLabel, setDraftLabel] = useState(node.label);
@@ -115,7 +121,7 @@ export function TreeNode({ node, depth, isLast = true, incompleteIds: incomplete
         tabIndex={isSelected || (!selectedId && depth === 0) ? 0 : -1}
         aria-selected={isSelected}
         aria-expanded={hasChildren ? isExpanded : undefined}
-        aria-label={`${accessibleLabel}${isIncomplete ? ', incomplete' : ''}${node.enabled ? '' : ', disabled'}`}
+        aria-label={`${accessibleLabel}${isIncomplete ? ', incomplete' : ''}${node.enabled ? '' : ', disabled'}${isLocked ? ', locked' : ''}${isHidden ? ', hidden in viewport' : ''}${isolatedNodeId === node.id ? ', isolated' : ''}`}
         className="flex items-center gap-1 pr-1.5 h-[26px] tap-h cursor-pointer relative"
         style={{
           paddingLeft: `${leftPad}px`,
@@ -129,7 +135,7 @@ export function TreeNode({ node, depth, isLast = true, incompleteIds: incomplete
             : isSelected ? `2px solid var(--accent)`
             : isHovered ? '2px solid rgba(255,255,255,0.35)'
             : isIncomplete ? '2px solid rgba(212,90,90,0.5)' : '2px solid transparent',
-          opacity: node.enabled ? 1 : 0.35,
+          opacity: node.enabled && !isHidden ? 1 : 0.35,
         }}
         onClick={() => {
           // While a move is in flight the whole row is a destination, so a tap
@@ -140,7 +146,7 @@ export function TreeNode({ node, depth, isLast = true, incompleteIds: incomplete
             cancelMove();
             return;
           }
-          selectNode(node.id);
+          if (!isLocked) selectNode(node.id);
         }}
         onKeyDown={(event) => {
           if (event.target !== event.currentTarget) return;
@@ -149,7 +155,7 @@ export function TreeNode({ node, depth, isLast = true, incompleteIds: incomplete
             if (movingNodeId) {
               if (movingNodeId !== node.id) moveNode(movingNodeId, node.id);
               cancelMove();
-            } else selectNode(node.id);
+            } else if (!isLocked) selectNode(node.id);
           } else if (event.key === 'ArrowRight' && hasChildren && !isExpanded) {
             event.preventDefault(); toggleExpanded(node.id);
           } else if (event.key === 'ArrowLeft' && hasChildren && isExpanded) {
@@ -163,7 +169,7 @@ export function TreeNode({ node, depth, isLast = true, incompleteIds: incomplete
         }}
         onMouseEnter={() => setHoveredNode(node.id)}
         onMouseLeave={() => setHoveredNode(null)}
-        draggable={!renaming}
+        draggable={!renaming && !isLocked}
         onDragStart={(e) => {
           e.dataTransfer.setData('text/plain', node.id);
           e.dataTransfer.effectAllowed = 'move';
@@ -234,7 +240,7 @@ export function TreeNode({ node, depth, isLast = true, incompleteIds: incomplete
             className="text-[11px] font-medium truncate shrink-0 max-w-28"
             style={{ color: isIncomplete ? '#d45a5a' : isSelected ? 'var(--text-primary)' : 'var(--text-secondary)' }}
             title={`${displayLabel} (${kindLabel})`}
-            onDoubleClick={(event) => { event.stopPropagation(); setDraftLabel(node.label); setRenaming(true); }}
+            onDoubleClick={(event) => { event.stopPropagation(); if (!isLocked) { setDraftLabel(node.label); setRenaming(true); } }}
           >
             {displayLabel}
           </span>
@@ -261,6 +267,40 @@ export function TreeNode({ node, depth, isLast = true, incompleteIds: incomplete
 
         {/* Actions — visible on hover (desktop) or when selected (mobile) */}
         <span className={`flex items-center gap-0.5 shrink-0 ${isSelected ? 'opacity-100' : 'opacity-0 group-hover-actions'}`}>
+          <button
+            onClick={(e) => { e.stopPropagation(); toggleHidden(node.id); }}
+            className="w-5 h-5 tap flex items-center justify-center rounded text-[10px]"
+            style={{ color: isHidden ? 'var(--accent-blue)' : 'var(--text-muted)' }}
+            title={isHidden ? 'Show in viewport' : 'Hide in viewport (exports unchanged)'}
+            aria-label={isHidden ? 'Show node in viewport' : 'Hide node in viewport'}
+            aria-pressed={isHidden}
+          >
+            {isHidden ? '◌' : '◉'}
+          </button>
+          <button
+            onClick={(e) => { e.stopPropagation(); isolate(isolatedNodeId === node.id ? null : node.id); }}
+            className="w-5 h-5 tap flex items-center justify-center rounded text-[10px]"
+            style={{ color: isolatedNodeId === node.id ? 'var(--accent-blue)' : 'var(--text-muted)' }}
+            title={isolatedNodeId === node.id ? 'Exit isolate' : 'Isolate in viewport'}
+            aria-label={isolatedNodeId === node.id ? 'Exit node isolation' : 'Isolate node in viewport'}
+            aria-pressed={isolatedNodeId === node.id}
+          >
+            {'◎'}
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              if (!isLocked && isSelected) selectNode(null);
+              toggleLocked(node.id);
+            }}
+            className="w-5 h-5 tap flex items-center justify-center rounded text-[10px]"
+            style={{ color: isLocked ? 'var(--accent-blue)' : 'var(--text-muted)' }}
+            title={isLocked ? 'Unlock editing' : 'Lock selection and editing'}
+            aria-label={isLocked ? 'Unlock node' : 'Lock node'}
+            aria-pressed={isLocked}
+          >
+            {isLocked ? '▣' : '□'}
+          </button>
           {/*
             Move: the touch counterpart to dragging the row. Dragging is HTML5
             DnD, which touch never fires, so without this a phone cannot
@@ -269,6 +309,7 @@ export function TreeNode({ node, depth, isLast = true, incompleteIds: incomplete
           */}
           <button
             onClick={(e) => { e.stopPropagation(); setDraftLabel(node.label); setRenaming(true); }}
+            disabled={isLocked}
             className="w-5 h-5 tap flex items-center justify-center rounded text-[10px]"
             style={{ color: 'var(--text-muted)' }}
             title="Rename"

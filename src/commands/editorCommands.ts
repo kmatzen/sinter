@@ -36,7 +36,9 @@ const exportReason = () => {
   const state = useModelerStore.getState();
   if (!state.tree) return 'Add geometry first';
   if (!isTreeExportable(state.tree)) return 'Complete every enabled operation first';
-  if (state.evaluating || !state.sdfDisplay || state.evaluatedTree !== state.tree) return 'Wait for model evaluation to finish';
+  // A viewport-only hide may intentionally produce no sdfDisplay. The source
+  // document is still exportable once its current revision was accepted.
+  if (state.evaluating || state.evaluatedTree !== state.tree) return 'Wait for model evaluation to finish';
   return null;
 };
 

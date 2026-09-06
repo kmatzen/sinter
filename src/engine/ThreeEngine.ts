@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { useModelerStore } from '../store/modelerStore';
+import { useTreeUiStore } from '../store/treeUiStore';
 import { useViewportStore } from '../store/viewportStore';
 import { SdfMesh } from './SdfMesh';
 import { OutlinePass } from './OutlinePass';
@@ -292,7 +293,8 @@ export class ThreeEngine {
     const ndcX = ((clientX - rect.left) / rect.width) * 2 - 1;
     const ndcY = -((clientY - rect.top) / rect.height) * 2 + 1;
 
-    const { tree } = useModelerStore.getState();
+    const model = useModelerStore.getState();
+    const tree = model.evaluatedTree === model.tree ? (model.evaluatedViewTree ?? model.tree) : null;
     const u = (ndcX + 1) / 2;
     const v = (ndcY + 1) / 2;
 
@@ -369,7 +371,9 @@ export class ThreeEngine {
     // that is what "which shape is this pixel" means — but the node a user
     // wants to edit is often the operation just above it.
     const index = e.altKey ? Math.max(0, path.length - 2) : path.length - 1;
-    store.selectNode(path[index]);
+    const locked = useTreeUiStore.getState().lockedNodeIds;
+    const selectable = path.slice(0, index + 1).reverse().find((id) => !locked.has(id));
+    if (selectable) store.selectNode(selectable);
 
     // A finger has no hover state to leave behind, and `pointerleave` is not
     // guaranteed after a touch ends — so without this the last tapped node

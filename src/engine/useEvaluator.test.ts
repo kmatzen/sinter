@@ -31,6 +31,7 @@ vi.mock('./workerBridge', () => ({
 // Imported after the mock is registered so the hook picks up the fake bridge.
 const { useEvaluator } = await import('./useEvaluator');
 const { useModelerStore } = await import('../store/modelerStore');
+const { useTreeUiStore } = await import('../store/treeUiStore');
 
 const box = (width = 100): SDFNodeUI => ({
   id: 'box-1',
@@ -63,6 +64,7 @@ beforeEach(() => {
   evaluate.mockReset();
   evaluate.mockResolvedValue(display);
   hydrate(null);
+  useTreeUiStore.getState().resetViewState();
 });
 
 afterEach(() => {
@@ -120,6 +122,44 @@ describe('useEvaluator', () => {
     await flush();
 
     expect(evaluate).toHaveBeenCalledTimes(1);
+  });
+
+  it('re-evaluates a viewport-only projection when a node is hidden', async () => {
+    const tree: SDFNodeUI = {
+      id: 'union', kind: 'union', label: 'Union', params: { smooth: 0 }, enabled: true,
+      children: [box(100), { ...box(20), id: 'box-2' }],
+    };
+    hydrate(tree);
+    renderHook(() => useEvaluator());
+    await flush();
+    evaluate.mockClear();
+
+    useTreeUiStore.getState().toggleHidden('box-2');
+    await flush();
+
+    expect(evaluate).toHaveBeenCalledTimes(1);
+    expect((evaluate.mock.calls[0][0] as SDFNodeUI).children[1].enabled).toBe(false);
+    expect(useModelerStore.getState().tree).toBe(tree);
+    expect(useModelerStore.getState().evaluatedTree).toBe(tree);
+  });
+
+  it('isolates an operand as a positive solid while retaining unary transforms', async () => {
+    const target = { ...box(20), id: 'target' };
+    const tree: SDFNodeUI = {
+      id: 'move', kind: 'translate', label: 'Move', params: { x: 12, y: 0, z: 0 }, enabled: true,
+      children: [{
+        id: 'cut', kind: 'subtract', label: 'Cut', params: { smooth: 0 }, enabled: true,
+        children: [box(100), target],
+      }],
+    };
+    hydrate(tree);
+    useTreeUiStore.getState().isolate('target');
+    renderHook(() => useEvaluator());
+    await flush();
+
+    expect(evaluate.mock.calls[0][0]).toMatchObject({
+      id: 'move', kind: 'translate', children: [{ id: 'target', kind: 'box' }],
+    });
   });
 
   it('re-evaluates once the tree actually changes', async () => {

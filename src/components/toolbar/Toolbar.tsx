@@ -28,7 +28,6 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
   const setProjectName = useModelerStore((s) => s.setProjectName);
   const tree = useModelerStore((s) => s.tree);
   const evaluating = useModelerStore((s) => s.evaluating);
-  const sdfDisplay = useModelerStore((s) => s.sdfDisplay);
   const evaluatedTree = useModelerStore((s) => s.evaluatedTree);
   const setError = useModelerStore((s) => s.setError);
   const selectedNodeId = useModelerStore((s) => s.selectedNodeId);
@@ -276,8 +275,8 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
           <option value={256}>Standard</option>
           <option value={384}>Fine</option>
         </select>
-        <IconBtn icon={<FileDown size={14} />} label={exporting === 'STL' && exportProgress ? `${Math.round(exportProgress.percent)}%` : 'STL'} title="Export STL" onClick={handleExportSTL} disabled={evaluating || !sdfDisplay || evaluatedTree !== tree || !isTreeExportable(tree) || !!exporting} />
-        <IconBtn icon={<FileDown size={14} />} label={exporting === '3MF' && exportProgress ? `${Math.round(exportProgress.percent)}%` : '3MF'} title="Export 3MF" onClick={handleExport3MF} disabled={evaluating || !sdfDisplay || evaluatedTree !== tree || !isTreeExportable(tree) || !!exporting} />
+        <IconBtn icon={<FileDown size={14} />} label={exporting === 'STL' && exportProgress ? `${Math.round(exportProgress.percent)}%` : 'STL'} title="Export STL" onClick={handleExportSTL} disabled={evaluating || evaluatedTree !== tree || !isTreeExportable(tree) || !!exporting} />
+        <IconBtn icon={<FileDown size={14} />} label={exporting === '3MF' && exportProgress ? `${Math.round(exportProgress.percent)}%` : '3MF'} title="Export 3MF" onClick={handleExport3MF} disabled={evaluating || evaluatedTree !== tree || !isTreeExportable(tree) || !!exporting} />
         <div className="w-px h-4 mx-1" style={{ background: 'var(--border-default)' }} />
       </div>
 
@@ -342,8 +341,8 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
                 <option value={384}>Fine</option>
               </select>
             </div>
-            <OverflowItem label={exporting === 'STL' && exportProgress ? `Exporting ${exportProgress.percent}%` : 'Export STL'} onClick={() => { handleExportSTL(); setShowOverflow(false); }} disabled={evaluating || !sdfDisplay || evaluatedTree !== tree || !isTreeExportable(tree) || !!exporting} />
-            <OverflowItem label={exporting === '3MF' && exportProgress ? `Exporting ${exportProgress.percent}%` : 'Export 3MF'} onClick={() => { handleExport3MF(); setShowOverflow(false); }} disabled={evaluating || !sdfDisplay || evaluatedTree !== tree || !isTreeExportable(tree) || !!exporting} />
+            <OverflowItem label={exporting === 'STL' && exportProgress ? `Exporting ${exportProgress.percent}%` : 'Export STL'} onClick={() => { handleExportSTL(); setShowOverflow(false); }} disabled={evaluating || evaluatedTree !== tree || !isTreeExportable(tree) || !!exporting} />
+            <OverflowItem label={exporting === '3MF' && exportProgress ? `Exporting ${exportProgress.percent}%` : 'Export 3MF'} onClick={() => { handleExport3MF(); setShowOverflow(false); }} disabled={evaluating || evaluatedTree !== tree || !isTreeExportable(tree) || !!exporting} />
             {projectId && (
               <>
                 <OverflowDivider />

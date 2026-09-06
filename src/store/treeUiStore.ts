@@ -20,12 +20,35 @@ interface TreeUiState {
    * identically with a mouse, a finger, or a keyboard.
    */
   movingNodeId: string | null;
+  /** Editor-only guards. These never enter the model document or its undo history. */
+  lockedNodeIds: Set<string>;
+  hiddenNodeIds: Set<string>;
+  isolatedNodeId: string | null;
   beginMove: (id: string) => void;
   cancelMove: () => void;
+  toggleLocked: (id: string) => void;
+  toggleHidden: (id: string) => void;
+  isolate: (id: string | null) => void;
+  showAll: () => void;
+  resetViewState: () => void;
+}
+
+function toggled(values: Set<string>, id: string): Set<string> {
+  const next = new Set(values);
+  if (next.has(id)) next.delete(id); else next.add(id);
+  return next;
 }
 
 export const useTreeUiStore = create<TreeUiState>((set) => ({
   movingNodeId: null,
+  lockedNodeIds: new Set(),
+  hiddenNodeIds: new Set(),
+  isolatedNodeId: null,
   beginMove: (id) => set({ movingNodeId: id }),
   cancelMove: () => set({ movingNodeId: null }),
+  toggleLocked: (id) => set((state) => ({ lockedNodeIds: toggled(state.lockedNodeIds, id) })),
+  toggleHidden: (id) => set((state) => ({ hiddenNodeIds: toggled(state.hiddenNodeIds, id) })),
+  isolate: (id) => set({ isolatedNodeId: id }),
+  showAll: () => set({ hiddenNodeIds: new Set(), isolatedNodeId: null }),
+  resetViewState: () => set({ movingNodeId: null, lockedNodeIds: new Set(), hiddenNodeIds: new Set(), isolatedNodeId: null }),
 }));
