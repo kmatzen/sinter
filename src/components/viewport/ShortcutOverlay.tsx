@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 
 const SHORTCUTS = [
+  ['Click', 'Select the shape under the pointer'],
+  ['Alt+Click', 'Select the operation above that shape'],
   ['W', 'Move tool'],
   ['E', 'Rotate tool'],
   ['R', 'Scale tool'],

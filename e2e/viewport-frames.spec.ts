@@ -310,3 +310,96 @@ test.describe('Viewport picking', () => {
       .toBe('pick-box');
   });
 });
+
+/**
+ * Making the pick legible.
+ *
+ * Picking landed on the right node before this, but nothing on screen said so
+ * until you went looking in a side panel: the click was a guess, and the
+ * result was a row highlighting somewhere off to the left. These cover the
+ * three things that now answer "what does clicking here select?" — the
+ * breadcrumb naming it, the hover naming it *before* the click, and alt-click
+ * reaching the operation above the leaf that picking can never land on.
+ */
+test.describe('Selection legibility', () => {
+  test.slow();
+
+  /** union(box, sphere): a leaf to click, and an operation above it. */
+  async function nestedInView(page: Page) {
+    await page.evaluate(() => {
+      (window as any).__MODELER_STORE__.setTree({
+        id: 'pick-union', kind: 'union', label: 'Union', params: { smooth: 0 }, enabled: true,
+        children: [
+          {
+            id: 'pick-box', kind: 'box', label: 'Box',
+            params: { width: 60, height: 60, depth: 60 }, children: [], enabled: true,
+          },
+          {
+            id: 'pick-sphere', kind: 'sphere', label: 'Sphere',
+            params: { radius: 12 }, children: [], enabled: true,
+          },
+        ],
+      });
+    });
+    await page.waitForFunction(
+      () => !!(window as any).__MODELER_STORE__?.sdfDisplay && !(window as any).__MODELER_STORE__?.evaluating,
+      null,
+      { timeout: PRECONDITION_TIMEOUT },
+    );
+    await page.evaluate(() => (window as any).__ENGINE_REF__.zoomToFit());
+    await page.waitForTimeout(500);
+  }
+
+  test('names the selected node and the chain above it', async ({ page }) => {
+    await enterModeler(page);
+    await nestedInView(page);
+
+    const crumb = page.locator('[data-testid="selection-breadcrumb"]');
+    // Nothing selected: say how selection works, because tap-to-select is not
+    // visible as an affordance until you try it.
+    await expect(crumb).toContainText('Click a surface to select its node');
+
+    const canvas = page.locator('canvas').first();
+    const box = (await canvas.boundingBox())!;
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+
+    // The leaf picking landed on, and the operation it belongs to.
+    await expect(crumb).toContainText('Union', { timeout: 15000 });
+    await expect(crumb).toContainText(/Box|Sphere/);
+  });
+
+  test('previews the node under the pointer before the click', async ({ page }) => {
+    await enterModeler(page);
+    await nestedInView(page);
+    await page.evaluate(() => (window as any).__MODELER_STORE__.selectNode(null));
+
+    const canvas = page.locator('canvas').first();
+    const box = (await canvas.boundingBox())!;
+    // Two moves: the handler throttles, and the first one may be swallowed.
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.waitForTimeout(120);
+    await page.mouse.move(box.x + box.width / 2 + 1, box.y + box.height / 2 + 1);
+
+    const crumb = page.locator('[data-testid="selection-breadcrumb"]');
+    await expect(crumb).toContainText('Click to select', { timeout: 15000 });
+    // A preview only — hovering must not select anything.
+    expect(await page.evaluate(() => (window as any).__MODELER_STORE__.selectedNodeId)).toBeNull();
+  });
+
+  test('alt-click selects the operation above the shape', async ({ page }) => {
+    await enterModeler(page);
+    await nestedInView(page);
+    await page.evaluate(() => (window as any).__MODELER_STORE__.selectNode(null));
+
+    const canvas = page.locator('canvas').first();
+    const box = (await canvas.boundingBox())!;
+    await page.keyboard.down('Alt');
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+    await page.keyboard.up('Alt');
+
+    // A plain click here lands on a leaf; alt steps one level up the chain.
+    await expect
+      .poll(() => page.evaluate(() => (window as any).__MODELER_STORE__.selectedNodeId), { timeout: 15000 })
+      .toBe('pick-union');
+  });
+});

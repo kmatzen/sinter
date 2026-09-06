@@ -18,6 +18,7 @@
 import type { SDFNode, BBox, Vec3 } from './types';
 import { evaluateSDF } from './evaluate';
 import { solveQEF } from './qef';
+import { clusterByOctree, addSample, solveCluster, QEF_STRIDE } from './cluster';
 import { TRI_TABLE } from './tables';
 import type { MeshResult } from './marchingCubes';
 
@@ -120,7 +121,15 @@ export interface ActiveBlocks {
   bits: Uint8Array;
 }
 
-export function dualContour(grid: Float32Array, res: number, bbox: BBox, sdf: SDFNode, onProgress?: (pct: number) => void, active?: ActiveBlocks): MeshResult {
+/**
+ * @param clusterError  When > 0, cells whose surface a single point can
+ *   represent within this distance share one vertex, so a flat face costs two
+ *   triangles instead of thousands. See `cluster.ts` for why this is crack-free
+ *   where adaptive dual contouring is not. Omit (or pass 0) for the dense
+ *   one-vertex-per-cell mesh, which is what the geometry tests assert against.
+ */
+export function dualContour(grid: Float32Array, res: number, bbox: BBox, sdf: SDFNode, onProgress?: (pct: number) => void, active?: ActiveBlocks, clusterError = 0): MeshResult {
+  const clustering = clusterError > 0;
   const dx = (bbox.max[0] - bbox.min[0]) / res;
   const dy = (bbox.max[1] - bbox.min[1]) / res;
   const dz = (bbox.max[2] - bbox.min[2]) / res;
@@ -253,6 +262,13 @@ export function dualContour(grid: Float32Array, res: number, bbox: BBox, sdf: SD
   const normals: number[] = [];
   let vertCount = 0;
 
+  // Only collected when clustering: the cell each vertex came from, its hermite
+  // QEF, and whether it may merge at all. Left empty otherwise so the dense
+  // path pays nothing for a feature it is not using.
+  const vertCellList: number[] = [];
+  const vertQList: number[] = [];
+  const mergeableList: number[] = [];
+
   let lastPct = -1;
   forEachCell((x, y, z) => {
     {
@@ -306,6 +322,16 @@ export function dualContour(grid: Float32Array, res: number, bbox: BBox, sdf: SD
           const g = sdfGradient(sdf, v, eps);
           const len = Math.sqrt(g[0] * g[0] + g[1] * g[1] + g[2] * g[2]) || 1;
 
+          if (clustering) {
+            const q = new Float64Array(QEF_STRIDE);
+            for (let i = 0; i < crossPoints.length; i++) addSample(q, 0, crossPoints[i], crossNormals[i]);
+            for (let i = 0; i < QEF_STRIDE; i++) vertQList.push(q[i]);
+            vertCellList.push(cellIdx);
+            // A cell with several patches holds several surface sheets; merging
+            // them is the non-manifold pinch the patch split exists to prevent.
+            mergeableList.push(patches.length > 1 ? 0 : 1);
+          }
+
           vertCount++;
           positions.push(v[0], v[1], v[2]);
           normals.push(-g[0] / len, -g[1] / len, -g[2] / len);
@@ -318,6 +344,62 @@ export function dualContour(grid: Float32Array, res: number, bbox: BBox, sdf: SD
     if (pct > lastPct) { lastPct = pct; onProgress(pct); }
   });
 
+  // --- Step 1b: Collapse cells that one vertex can represent ---------------
+  //
+  // Only the identity of the vertex each cell names changes. Step 2 still emits
+  // exactly one quad per sign-changing grid edge over the same four cells, so
+  // the mesh stays closed by construction and there are no cracks to stitch.
+  let vertexRemap: Int32Array | null = null;
+  if (clustering && vertCount > 0) {
+    const cluster = clusterByOctree(
+      vertCount,
+      Int32Array.from(vertCellList),
+      Float64Array.from(vertQList),
+      Uint8Array.from(mergeableList),
+      res,
+      clusterError,
+    );
+
+    const newPos = new Float64Array(cluster.count * 3);
+    const newNorm = new Float64Array(cluster.count * 3);
+    // A cluster of one keeps step 1's vertex exactly, so a mesh where nothing
+    // collapsed is identical to the dense one rather than merely close.
+    const representative = new Int32Array(cluster.count).fill(-1);
+    for (let v = vertCount - 1; v >= 0; v--) representative[cluster.remap[v]] = v;
+
+    for (let c = 0; c < cluster.count; c++) {
+      const rep = representative[c];
+      if (cluster.size[c] === 1) {
+        newPos[c * 3] = positions[rep * 3];
+        newPos[c * 3 + 1] = positions[rep * 3 + 1];
+        newPos[c * 3 + 2] = positions[rep * 3 + 2];
+        newNorm[c * 3] = normals[rep * 3];
+        newNorm[c * 3 + 1] = normals[rep * 3 + 1];
+        newNorm[c * 3 + 2] = normals[rep * 3 + 2];
+        continue;
+      }
+      let p = solveCluster(cluster.qef, c * QEF_STRIDE);
+      // Clamped into the node it represents, for the same reason step 1 clamps
+      // into the cell: a vertex outside its own region can cross a neighbour's.
+      const key = cluster.key[c], size = 1 << cluster.level[c];
+      const nz = (key / r2) | 0, ny = ((key % r2) / res) | 0, nx = key % res;
+      p = [
+        Math.max(ox + nx * dx, Math.min(ox + (nx + size) * dx, p[0])),
+        Math.max(oy + ny * dy, Math.min(oy + (ny + size) * dy, p[1])),
+        Math.max(oz + nz * dz, Math.min(oz + (nz + size) * dz, p[2])),
+      ];
+      newPos[c * 3] = p[0]; newPos[c * 3 + 1] = p[1]; newPos[c * 3 + 2] = p[2];
+      const cg = sdfGradient(sdf, p, eps);
+      const cl = Math.sqrt(cg[0] * cg[0] + cg[1] * cg[1] + cg[2] * cg[2]) || 1;
+      newNorm[c * 3] = -cg[0] / cl; newNorm[c * 3 + 1] = -cg[1] / cl; newNorm[c * 3 + 2] = -cg[2] / cl;
+    }
+
+    positions.length = 0;
+    normals.length = 0;
+    for (let i = 0; i < newPos.length; i++) { positions.push(newPos[i]); normals.push(newNorm[i]); }
+    vertexRemap = cluster.remap;
+  }
+
   // --- Step 2: Emit quads for each sign-changing grid edge ---
   // The 4 cells sharing the edge each contribute the vertex of the patch
   // that contains this edge (looked up through the cell's local edge index).
@@ -328,9 +410,15 @@ export function dualContour(grid: Float32Array, res: number, bbox: BBox, sdf: SD
     const base = cellBase[cellIdx];
     if (base < 0) return -1;
     const edgePatch = multiPatchCells.get(cellIdx);
-    if (edgePatch === undefined) return base;
-    const patch = edgePatch[localEdge];
-    return patch < 0 ? -1 : base + patch;
+    let v: number;
+    if (edgePatch === undefined) {
+      v = base;
+    } else {
+      const patch = edgePatch[localEdge];
+      if (patch < 0) return -1;
+      v = base + patch;
+    }
+    return vertexRemap === null ? v : vertexRemap[v];
   }
 
   function triDot(a: number, b: number, c: number, d: number): number {
@@ -357,6 +445,24 @@ export function dualContour(grid: Float32Array, res: number, bbox: BBox, sdf: SD
    */
   function emitQuad(r0: number, r1: number, r2q: number, r3: number) {
     if (r0 < 0 || r1 < 0 || r2q < 0 || r3 < 0) return;
+    if (vertexRemap !== null) {
+      // Clustering merges ring corners. Dropping duplicates in place preserves
+      // the winding, and a ring left with fewer than three distinct vertices
+      // had no area. This is where the triangle count actually falls: the quad
+      // is never emitted rather than being removed by a later pass.
+      if (r0 === r1 || r1 === r2q || r2q === r3 || r3 === r0 || r0 === r2q || r1 === r3) {
+        const ring = [r0, r1, r2q, r3];
+        const uniq: number[] = [];
+        for (let i = 0; i < 4; i++) if (ring[i] !== ring[(i + 3) % 4]) uniq.push(ring[i]);
+        if (uniq.length < 3) return;
+        if (uniq.length === 3) {
+          if (uniq[0] === uniq[1] || uniq[1] === uniq[2] || uniq[0] === uniq[2]) return;
+          indices.push(uniq[0], uniq[1], uniq[2]);
+          return;
+        }
+        r0 = uniq[0]; r1 = uniq[1]; r2q = uniq[2]; r3 = uniq[3];
+      }
+    }
     const qA = triDot(r0, r1, r2q, r3); // diagonal r0-r2
     const qB = triDot(r1, r2q, r3, r0); // diagonal r1-r3
     if (qB > qA) {

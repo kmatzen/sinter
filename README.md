@@ -44,6 +44,10 @@ No Sinter account is needed for any of that: OpenRouter bills your own OpenRoute
 ### Viewport
 - GPU ray marching with screen-space outline post-process
 - **Tap-to-select** — click/tap on a surface to select the contributing node
+- **Hover preview** — the node under the pointer is outlined and named before you click, so selection is not a guess
+- **Selection breadcrumb** — shows where the selected node sits in the tree (`Subtract › Move › Cylinder`); click any crumb to select that ancestor
+- **Alt+Click** — select the operation *above* the shape you clicked, since picking always lands on a leaf
+- Hovering a row in the node tree highlights its geometry, and vice versa
 - Clipping plane (+X/-X/+Y/-Y/+Z/-Z) with cross-section fill
 - Per-node dimension labels with wireframe bounding box
 - Transform gizmo with snap-to-grid (1/5/10mm)
@@ -66,6 +70,8 @@ No Sinter account is needed for any of that: OpenRouter bills your own OpenRoute
 ### Keyboard Shortcuts
 | Key | Action |
 |-----|--------|
+| Click | Select the shape under the pointer |
+| Alt+Click | Select the operation above that shape |
 | W | Move tool |
 | E | Rotate tool |
 | R | Scale tool |
