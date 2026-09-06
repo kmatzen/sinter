@@ -487,6 +487,11 @@ function NodeEditor({ node, onUpdate, onUpdateStr }: { node: SDFNodeUI; onUpdate
                title={node.data?.meshName || 'Imported mesh'}>
             {node.data?.meshName || 'Imported mesh'}
           </div>
+          <div role="status" className="mx-2 mb-2 px-2 py-1.5 rounded text-[10px] leading-snug"
+               style={{ background: 'var(--bg-elevated)', color: 'var(--accent-orange, #d9a441)' }}>
+            Closed-manifold edges verified. Self-intersections are not checked;
+            boolean and export results use ray-parity approximation.
+          </div>
           <SectionLabel>Field Resolution</SectionLabel>
           <NumberInput
             label="Grid"

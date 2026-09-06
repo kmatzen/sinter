@@ -18,6 +18,10 @@ import { useDialogFocus } from '../ui/useDialogFocus';
 import type { ExportDiagnostics } from '../../types/geometry';
 import { dimensionsOutsideBuildVolume, useManufacturingProfileStore } from '../../store/manufacturingProfile';
 
+function hasImportedMesh(node: ReturnType<typeof useModelerStore.getState>['tree']): boolean {
+  return !!node && (node.kind === 'mesh' || node.children.some(hasImportedMesh));
+}
+
 export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => void; onMobileProps?: () => void } = {}) {
   const projectName = useModelerStore((s) => s.projectName);
   const setProjectName = useModelerStore((s) => s.setProjectName);
@@ -66,7 +70,7 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
   const [avatarFailed, setAvatarFailed] = useState(false);
   const [exporting, setExporting] = useState<string | null>(null);
   const [exportProgress, setExportProgress] = useState<{ stage: string; percent: number } | null>(null);
-  const [exportPreview, setExportPreview] = useState<{ blob: Blob; name: string; triangles: number; size: number; diagnostics: ExportDiagnostics } | null>(null);
+  const [exportPreview, setExportPreview] = useState<{ blob: Blob; name: string; triangles: number; size: number; diagnostics: ExportDiagnostics; approximateSource: boolean } | null>(null);
   const [dirty, setDirty] = useState(() => isCloudDirty());
   const overflowRef = useRef<HTMLDivElement>(null);
 
@@ -134,7 +138,7 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
     try {
       const { blob, triangleCount: triangles, diagnostics } = await workerBridge.exportSTL(tree, onProgress, exportResolution);
       if (exportEpoch.current !== epoch) return;
-      setExportPreview({ blob, name: `${projectName}.stl`, triangles, size: blob.size, diagnostics });
+      setExportPreview({ blob, name: `${projectName}.stl`, triangles, size: blob.size, diagnostics, approximateSource: hasImportedMesh(tree) });
     } catch (err: any) {
       if (!isCancelled(err)) setError(`STL export failed: ${err?.message || String(err)}`);
     } finally {
@@ -151,7 +155,7 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
     try {
       const { blob, triangleCount: triangles, diagnostics } = await workerBridge.export3MF(tree, onProgress, exportResolution);
       if (exportEpoch.current !== epoch) return;
-      setExportPreview({ blob, name: `${projectName}.3mf`, triangles, size: blob.size, diagnostics });
+      setExportPreview({ blob, name: `${projectName}.3mf`, triangles, size: blob.size, diagnostics, approximateSource: hasImportedMesh(tree) });
     } catch (err: any) {
       if (!isCancelled(err)) setError(`3MF export failed: ${err?.message || String(err)}`);
     } finally {
@@ -484,6 +488,7 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
         size={exportPreview.size}
         name={exportPreview.name}
         diagnostics={exportPreview.diagnostics}
+        approximateSource={exportPreview.approximateSource}
         onDownload={() => { triggerDownload(exportPreview.blob, exportPreview.name); setExportPreview(null); }}
         onCancel={() => setExportPreview(null)}
       />
@@ -585,9 +590,10 @@ function formatTriangles(n: number): string {
   return `${(n / 1_000_000).toFixed(1)}M`;
 }
 
-function ExportPreview({ triangles, size, name, diagnostics, onDownload, onCancel }: {
+function ExportPreview({ triangles, size, name, diagnostics, approximateSource, onDownload, onCancel }: {
   triangles: number; size: number; name: string;
   diagnostics: ExportDiagnostics;
+  approximateSource: boolean;
   onDownload: () => void; onCancel: () => void;
 }) {
   const surface = useRef<HTMLDivElement>(null);
@@ -626,6 +632,12 @@ function ExportPreview({ triangles, size, name, diagnostics, onDownload, onCance
                 diagnostics.invalidIndices && `${diagnostics.invalidIndices} invalid indices`,
                 diagnostics.nonFiniteVertices && `${diagnostics.nonFiniteVertices} non-finite vertices`,
               ].filter(Boolean).join(', ')}. Download remains available for inspection.
+            </p>
+          )}
+          {approximateSource && (
+            <p role="alert" className="text-[11px] leading-relaxed rounded p-2" style={{ color: 'var(--warning, #f59e0b)', background: 'var(--bg-elevated)' }}>
+              Source includes an imported mesh. Edge topology was verified, but
+              self-intersections were not; this export uses ray-parity approximation.
             </p>
           )}
           {outsideVolume && (

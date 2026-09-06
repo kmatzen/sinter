@@ -16,6 +16,7 @@ export interface RawMesh {
   /** Per-triangle facet normals as written in the file, 3 per triangle. */
   normals: Float32Array;
   triangleCount: number;
+  topology: STLTopology;
 }
 
 export class STLParseError extends Error {
@@ -30,11 +31,13 @@ const BINARY_HEADER = 84;
 const BINARY_TRIANGLE = 50;
 const MAX_ABS_COORDINATE = 1e9;
 export const MAX_STL_TRIANGLES = 60_000;
+export const STL_TOPOLOGY_STATUS = 'closed-manifold; self-intersections not checked';
 
 export interface STLTopology {
   vertexCount: number;
   componentCount: number;
   weldTolerance: number;
+  selfIntersections: 'unchecked';
 }
 
 /**
@@ -143,10 +146,10 @@ export function validateSTLTopology(positions: ArrayLike<number>): STLTopology {
   const join = (a: number, b: number) => { a = root(a); b = root(b); if (a !== b) parent[b] = a; };
   for (const edge of edges.values()) join(edge.triangles[0], edge.triangles[1]);
   const componentCount = new Set(Array.from(parent, (_, i) => root(i))).size;
-  return { vertexCount: vertices.length, componentCount, weldTolerance: tolerance };
+  return { vertexCount: vertices.length, componentCount, weldTolerance: tolerance, selfIntersections: 'unchecked' };
 }
 
-function validatePositions(positions: ArrayLike<number>): void {
+function validatePositions(positions: ArrayLike<number>): STLTopology {
   if (positions.length === 0) throw new STLParseError('No triangles found — is this an STL file?');
   const min = [Infinity, Infinity, Infinity];
   const max = [-Infinity, -Infinity, -Infinity];
@@ -171,7 +174,7 @@ function validatePositions(positions: ArrayLike<number>): void {
     if (nx * nx + ny * ny + nz * nz > 0) { hasArea = true; break; }
   }
   if (!hasArea) throw new STLParseError('Every triangle is degenerate; the STL has no usable surface');
-  validateSTLTopology(positions);
+  return validateSTLTopology(positions);
 }
 
 export function isBinarySTL(buffer: ArrayBuffer): boolean {
@@ -221,8 +224,8 @@ function parseBinary(buffer: ArrayBuffer): RawMesh {
     }
     off += 2; // attribute byte count, unused
   }
-  validatePositions(positions);
-  return { positions, normals, triangleCount: count };
+  const topology = validatePositions(positions);
+  return { positions, normals, triangleCount: count, topology };
 }
 
 function parseAscii(buffer: ArrayBuffer): RawMesh {
@@ -280,7 +283,7 @@ function parseAscii(buffer: ArrayBuffer): RawMesh {
   if (inFacet) throw new STLParseError('The final facet is missing endfacet');
   const triangleCount = positions.length / 9;
 
-  validatePositions(positions);
+  const topology = validatePositions(positions);
 
-  return { positions: new Float32Array(positions), normals: new Float32Array(normals), triangleCount };
+  return { positions: new Float32Array(positions), normals: new Float32Array(normals), triangleCount, topology };
 }

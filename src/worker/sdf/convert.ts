@@ -71,7 +71,7 @@ export function toSDFNode(ui: SDFNodeUI): SDFNode | null {
         // report, not something to bake half of.
         return bakeMeshField(positions.subarray(0, Math.floor(positions.length / 9) * 9), res);
       });
-      return { kind: 'mesh', field, name: ui.data?.meshName };
+      return { kind: 'mesh', field, name: ui.data?.meshName, warn: true };
     }
 
     case 'text': {

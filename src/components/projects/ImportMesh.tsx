@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { useModelerStore } from '../../store/modelerStore';
-import { MAX_STL_TRIANGLES, parseSTL, STLParseError } from '../../worker/sdf/stl';
+import { MAX_STL_TRIANGLES, parseSTL, STLParseError, STL_TOPOLOGY_STATUS, type RawMesh } from '../../worker/sdf/stl';
 import type { SDFNodeUI } from '../../types/operations';
 import { useDialogFocus } from '../ui/useDialogFocus';
 
@@ -42,7 +42,7 @@ export function buildMeshNode(name: string, positions: Float32Array, resolution 
     kind: 'mesh',
     label: name.replace(/\.stl$/i, '').slice(0, 40) || 'Imported Mesh',
     params: { resolution },
-    data: { meshPositions: toBase64(positions), meshName: name },
+    data: { meshPositions: toBase64(positions), meshName: name, meshTopology: STL_TOPOLOGY_STATUS },
     children: [],
     enabled: true,
   };
@@ -53,12 +53,14 @@ export function ImportMesh({ onDone }: { onDone: () => void }) {
   const selectedId = useModelerStore((s) => s.selectedNodeId);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [pending, setPending] = useState<{ file: File; mesh: RawMesh } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const surface = useRef<HTMLDivElement>(null);
   useDialogFocus(surface, onDone);
 
   const handleFile = async (file: File) => {
     setError(null);
+    setPending(null);
     setBusy(true);
     try {
       const mesh = parseSTL(await file.arrayBuffer());
@@ -73,8 +75,7 @@ export function ImportMesh({ onDone }: { onDone: () => void }) {
         );
         return;
       }
-      addNodeFromData(selectedId, buildMeshNode(file.name, mesh.positions));
-      onDone();
+      setPending({ file, mesh });
     } catch (err) {
       setError(err instanceof STLParseError ? err.message : `Could not read that file: ${String(err)}`);
     } finally {
@@ -119,6 +120,27 @@ export function ImportMesh({ onDone }: { onDone: () => void }) {
           <div role="alert" className="text-[11px] mb-3 px-2 py-1.5 rounded"
                style={{ background: 'var(--bg-elevated)', color: 'var(--accent-red, #e06c6c)' }}>
             {error}
+          </div>
+        )}
+
+        {pending && (
+          <div className="text-[11px] mb-3 px-2 py-2 rounded" style={{ background: 'var(--bg-elevated)', color: 'var(--text-secondary)' }}>
+            <div style={{ color: 'var(--text-primary)' }}>
+              Closed manifold · {pending.mesh.topology.componentCount} shell{pending.mesh.topology.componentCount === 1 ? '' : 's'}
+            </div>
+            <div className="mt-1" style={{ color: 'var(--accent-orange, #d9a441)' }}>
+              Self-intersections cannot currently be ruled out. Import uses ray-parity approximation and the mesh will remain visibly marked.
+            </div>
+            <button
+              onClick={() => {
+                addNodeFromData(selectedId, buildMeshNode(pending.file.name, pending.mesh.positions));
+                onDone();
+              }}
+              className="w-full px-3 py-2 rounded text-[12px] font-medium mt-2"
+              style={{ background: 'var(--accent)', color: 'var(--bg-deep)' }}
+            >
+              Import approximately
+            </button>
           </div>
         )}
 

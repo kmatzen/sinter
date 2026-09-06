@@ -3,7 +3,7 @@ import { normalizeNodeParams } from './parameterSchema';
 import type { ProjectCheckpoint, ProjectFileBody } from '../storage/types';
 import type { NamedParameter } from './operations';
 import { FormulaError, resolveNamedParameters, resolveTreeFormulas } from './formulas';
-import { STLParseError, validateSTLTopology } from '../worker/sdf/stl';
+import { STLParseError, STL_TOPOLOGY_STATUS, validateSTLTopology } from '../worker/sdf/stl';
 
 export const CURRENT_DOCUMENT_VERSION = 2;
 export const MAX_PROJECT_CHECKPOINTS = 10;
@@ -153,7 +153,7 @@ function validateGlyphPayload(value: string, path: string): void {
 function decodeData(kind: string, input: unknown, path: string, context: Context): Record<string, string> | undefined {
   if (input === undefined) return undefined;
   const raw = record(input, `${path}.data`);
-  const allowed = kind === 'mesh' ? new Set(['meshPositions', 'meshName'])
+  const allowed = kind === 'mesh' ? new Set(['meshPositions', 'meshName', 'meshTopology'])
     : kind === 'text' ? new Set(['text', 'glyphPaths']) : new Set<string>();
   const out: Record<string, string> = {};
   for (const [key, value] of Object.entries(raw)) {
@@ -176,6 +176,7 @@ function decodeData(kind: string, input: unknown, path: string, context: Context
   if (kind === 'mesh' && typeof out.meshPositions !== 'string') {
     throw new DocumentDecodeError(`${path} imported mesh has no geometry payload`);
   }
+  if (kind === 'mesh') out.meshTopology = STL_TOPOLOGY_STATUS;
   return Object.keys(out).length ? out : undefined;
 }
 

@@ -332,6 +332,14 @@ describe('STL parsing', () => {
     const topology = validateSTLTopology(noisy);
     expect(topology.componentCount).toBe(2);
     expect(topology.vertexCount).toBe(8);
+    expect(topology.selfIntersections).toBe('unchecked');
+  });
+
+  it('reports the explicit limitation for geometrically intersecting closed shells', () => {
+    const crossing = TETRA.map((triangle) => triangle.map((value, i) => value + (i % 3 === 0 ? 0.25 : 0.1)));
+    const topology = validateSTLTopology([...TETRA, ...crossing].flat());
+    expect(topology.componentCount).toBe(2);
+    expect(topology.selfIntersections).toBe('unchecked');
   });
 
   it('rejects oversized binary declarations before allocating vertex arrays', () => {
