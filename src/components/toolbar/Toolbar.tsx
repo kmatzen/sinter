@@ -15,6 +15,7 @@ import { useLocalBackupStore } from '../../store/localPersist';
 import { isTreeExportable } from '../../types/operations';
 import { useDialogFocus } from '../ui/useDialogFocus';
 import type { ExportDiagnostics } from '../../types/geometry';
+import { dimensionsOutsideBuildVolume, useManufacturingProfileStore } from '../../store/manufacturingProfile';
 
 export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => void; onMobileProps?: () => void } = {}) {
   const projectName = useModelerStore((s) => s.projectName);
@@ -528,6 +529,8 @@ function ExportPreview({ triangles, size, name, diagnostics, onDownload, onCance
   onDownload: () => void; onCancel: () => void;
 }) {
   const surface = useRef<HTMLDivElement>(null);
+  const profile = useManufacturingProfileStore();
+  const outsideVolume = dimensionsOutsideBuildVolume(diagnostics.dimensions, profile);
   useDialogFocus(surface, onCancel);
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.5)' }} onClick={onCancel}>
@@ -563,6 +566,27 @@ function ExportPreview({ triangles, size, name, diagnostics, onDownload, onCance
               ].filter(Boolean).join(', ')}. Download remains available for inspection.
             </p>
           )}
+          {outsideVolume && (
+            <p role="alert" className="text-[11px] leading-relaxed rounded p-2" style={{ color: 'var(--warning, #f59e0b)', background: 'var(--bg-elevated)' }}>
+              Part exceeds the configured {profile.buildVolume.join(' × ')} mm build volume.
+            </p>
+          )}
+          <details className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>
+            <summary className="cursor-pointer select-none">Print profile</summary>
+            <div className="grid grid-cols-2 gap-2 mt-2">
+              <ProfileInput label="Nozzle" value={profile.nozzleDiameter} onChange={(nozzleDiameter) => profile.updateProfile({ nozzleDiameter })} />
+              <ProfileInput label="Layer" value={profile.layerHeight} onChange={(layerHeight) => profile.updateProfile({ layerHeight })} />
+              <ProfileInput label="Tolerance" value={profile.tolerance} onChange={(tolerance) => profile.updateProfile({ tolerance })} />
+              {profile.buildVolume.map((value, axis) => (
+                <ProfileInput key={axis} label={`Build ${'XYZ'[axis]}`} value={value} onChange={(next) => {
+                  const buildVolume = [...profile.buildVolume] as [number, number, number];
+                  buildVolume[axis] = next;
+                  profile.updateProfile({ buildVolume });
+                }} />
+              ))}
+            </div>
+            <p className="mt-2" style={{ color: 'var(--text-muted)' }}>Advisory values in millimeters. Thickness and overhang analysis are resolution dependent.</p>
+          </details>
           <div className="flex justify-between text-[12px]">
             <span style={{ color: 'var(--text-muted)' }}>Triangles</span>
             <span className="font-mono" style={{ color: 'var(--text-primary)' }}>{formatTriangles(triangles)}</span>
@@ -584,5 +608,17 @@ function ExportPreview({ triangles, size, name, diagnostics, onDownload, onCance
         </div>
       </div>
     </div>
+  );
+}
+
+function ProfileInput({ label, value, onChange }: { label: string; value: number; onChange: (value: number) => void }) {
+  return (
+    <label className="space-y-1">
+      <span>{label} (mm)</span>
+      <input type="number" min="0.01" step="0.01" value={value}
+             onChange={(event) => onChange(Number(event.target.value))}
+             className="w-full rounded px-2 py-1 font-mono"
+             style={{ background: 'var(--bg-deep)', border: '1px solid var(--border-default)', color: 'var(--text-primary)' }} />
+    </label>
   );
 }
