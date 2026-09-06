@@ -4,6 +4,20 @@ import { TreeNode } from './TreeNode';
 import { PartsPalette } from './PartsPalette';
 import { NODE_LABELS } from '../../types/operations';
 import { Sparkles, ChevronsDownUp, ChevronsUpDown, X } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import type { SDFNodeUI } from '../../types/operations';
+
+export function filterNodeTree(node: SDFNodeUI | null, query: string): SDFNodeUI | null {
+  if (!node) return null;
+  const terms = query.toLocaleLowerCase().trim().split(/\s+/).filter(Boolean);
+  if (!terms.length) return node;
+  const searchable = `${node.label} ${NODE_LABELS[node.kind] ?? node.kind} ${node.kind}`.toLocaleLowerCase();
+  const ownMatch = terms.every((term) => searchable.includes(term));
+  const children = node.children
+    .map((child) => filterNodeTree(child, query))
+    .filter((child): child is SDFNodeUI => child !== null);
+  return ownMatch || children.length ? { ...node, children: ownMatch ? node.children : children } : null;
+}
 
 /**
  * Inner content — reused by desktop sidebar and mobile overlay.
@@ -13,6 +27,7 @@ import { Sparkles, ChevronsDownUp, ChevronsUpDown, X } from 'lucide-react';
  * slide-over used to do.
  */
 export function NodeTreeContent({ onClose }: { onClose?: () => void } = {}) {
+  const [query, setQuery] = useState('');
   const tree = useModelerStore((s) => s.tree);
   const expandedNodes = useModelerStore((s) => s.expandedNodes);
   const addNodeFromData = useModelerStore((s) => s.addNodeFromData);
@@ -26,18 +41,20 @@ export function NodeTreeContent({ onClose }: { onClose?: () => void } = {}) {
   const selectedLabel = (() => {
     const find = (node: typeof tree): string | null => {
       if (!node) return null;
-      if (node.id === selectedNodeId) return NODE_LABELS[node.kind] || node.label;
+      if (node.id === selectedNodeId) return node.label || NODE_LABELS[node.kind];
       for (const child of node.children) { const label = find(child); if (label) return label; }
       return null;
     };
     return find(tree);
   })();
+  const filteredTree = useMemo(() => filterNodeTree(tree, query), [tree, query]);
 
   return (
     <>
       <div className="sr-only" role="status" aria-live="polite">
         {selectedLabel ? `Selected ${selectedLabel}` : 'No model node selected'}
       </div>
+
       <div className="px-3 py-2.5 flex items-center justify-between" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
         <span className="font-mono text-[10px] tracking-[0.15em] uppercase" style={{ color: 'var(--text-muted)' }}>
           Node Tree
@@ -76,6 +93,26 @@ export function NodeTreeContent({ onClose }: { onClose?: () => void } = {}) {
         )}
         </div>
       </div>
+
+      {tree && (
+        <div className="px-2 py-1.5" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+          <div className="flex items-center gap-1">
+            <input
+              type="search"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Find name or kind"
+              aria-label="Search node tree"
+              className="min-w-0 flex-1 h-7 rounded px-2 text-[11px]"
+              style={{ background: 'var(--bg-deep)', color: 'var(--text-primary)', border: '1px solid var(--border-default)' }}
+            />
+            {query && <button onClick={() => setQuery('')} aria-label="Clear node search" className="w-7 h-7 tap rounded" style={{ color: 'var(--text-muted)' }}>×</button>}
+          </div>
+          {query && <div role="status" className="mt-1 text-[10px]" style={{ color: 'var(--text-muted)' }}>
+            {filteredTree ? 'Matching nodes shown with their context' : 'No matching nodes'}
+          </div>}
+        </div>
+      )}
 
       {/*
         Move mode is the only state in the tree where a tap does something
@@ -126,7 +163,7 @@ export function NodeTreeContent({ onClose }: { onClose?: () => void } = {}) {
             </p>
           </div>
         )}
-        {tree && <TreeNode node={tree} depth={0} />}
+        {tree && filteredTree && <TreeNode node={filteredTree} depth={0} forceExpanded={Boolean(query)} />}
       </div>
 
       <PartsPalette />
