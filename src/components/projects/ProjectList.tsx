@@ -5,6 +5,7 @@ import { useAuthStore, getCurrentProvider } from '../../store/authStore';
 import { useProjectStore, deleteCloudProject, requestDocumentReplacement } from '../../store/projectStore';
 import { getStorageProvider, type ProviderName, type ProjectMeta } from '../../storage';
 import { getThumbnail } from '../../storage/thumbnailCache';
+import { deleteLocalBackup, readLocalBackupJSON, useLocalBackupStore, writeLocalBackupJSON } from '../../store/localPersist';
 
 interface CloudProject extends ProjectMeta {
   source: 'cloud';
@@ -26,28 +27,26 @@ interface Props {
   onImport?: () => void;
 }
 
-const LEGACY_LOCAL_KEY = 'sinter_local_project';
-
-function getLocalProjects(): LocalProject[] {
+async function getLocalProjects(): Promise<LocalProject[]> {
+  const json = await readLocalBackupJSON();
+  if (!json) return [];
   try {
-    const legacy = localStorage.getItem(LEGACY_LOCAL_KEY);
-    if (legacy) {
-      const data = JSON.parse(legacy);
-      return [{
-        id: 'local_default',
-        name: data.projectName || 'Untitled',
-        thumbnail: null,
-        updated_at: new Date().toISOString(),
-        source: 'local',
-      }];
-    }
-  } catch { /* */ }
-  return [];
+    const data = JSON.parse(json);
+    return [{
+      id: 'local_default',
+      name: data.projectName || 'Untitled',
+      thumbnail: null,
+      updated_at: useLocalBackupStore.getState().lastSavedAt ?? new Date().toISOString(),
+      source: 'local',
+    }];
+  } catch {
+    return [];
+  }
 }
 
 export function ProjectList({ onClose, onLoaded, onImport }: Props) {
   const [cloudProjects, setCloudProjects] = useState<CloudProject[]>([]);
-  const [localProjectList, setLocalProjectList] = useState<LocalProject[]>(getLocalProjects());
+  const [localProjectList, setLocalProjectList] = useState<LocalProject[]>([]);
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState<string | null>(null);
   const user = useAuthStore((s) => s.user);
@@ -89,6 +88,12 @@ export function ProjectList({ onClose, onLoaded, onImport }: Props) {
     return () => { cancelled = true; controller.abort(); };
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    void getLocalProjects().then((projects) => { if (!cancelled) setLocalProjectList(projects); });
+    return () => { cancelled = true; };
+  }, []);
+
   function showToast(msg: string) {
     setToast(msg);
     setTimeout(() => setToast(null), 2000);
@@ -103,16 +108,19 @@ export function ProjectList({ onClose, onLoaded, onImport }: Props) {
     }
   });
 
-  const selectLocal = (_p: LocalProject) => requestDocumentReplacement(() => {
+  const selectLocal = (_p: LocalProject) => requestDocumentReplacement(async () => {
     // Local project is already loaded by startLocalAutoSave on app boot.
     // Selecting it just clears any cloud project state.
     try {
-      const raw = localStorage.getItem(LEGACY_LOCAL_KEY);
+      const raw = await readLocalBackupJSON();
       if (raw) {
         const data = JSON.parse(raw);
         loadLocalDocument(data.projectName || 'Untitled', data.tree ?? null);
       }
-    } catch { /* */ }
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Local backup could not be opened');
+      return;
+    }
     onLoaded();
   });
 
@@ -132,11 +140,15 @@ export function ProjectList({ onClose, onLoaded, onImport }: Props) {
     );
   };
 
-  const handleDeleteLocal = (id: string, e: React.MouseEvent) => {
+  const handleDeleteLocal = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (id === 'local_default') localStorage.removeItem(LEGACY_LOCAL_KEY);
-    setLocalProjectList(getLocalProjects());
-    showToast('Deleted from browser');
+    try {
+      if (id === 'local_default') await deleteLocalBackup();
+      setLocalProjectList(await getLocalProjects());
+      showToast('Deleted from browser');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Local delete failed');
+    }
   };
 
   const handleDownloadCloud = async (p: CloudProject, e: React.MouseEvent) => {
@@ -157,10 +169,10 @@ export function ProjectList({ onClose, onLoaded, onImport }: Props) {
       const accessToken = await useAuthStore.getState().getAccessToken();
       const body = await getStorageProvider(p.provider).read(accessToken, p.externalId);
       const json = JSON.stringify({ projectName: p.name, tree: body?.tree ?? null });
-      localStorage.setItem(LEGACY_LOCAL_KEY, json);
+      await writeLocalBackupJSON(json);
       await deleteCloudProject(p.provider, p.externalId);
       setCloudProjects((prev) => prev.filter((x) => x.externalId !== p.externalId));
-      setLocalProjectList(getLocalProjects());
+      setLocalProjectList(await getLocalProjects());
       showToast(`Moved "${p.name}" to browser`);
     } catch (err: unknown) {
       showToast(err instanceof Error ? err.message : 'Move failed');
@@ -174,7 +186,7 @@ export function ProjectList({ onClose, onLoaded, onImport }: Props) {
       showToast('Sign in to enable cloud storage');
       return;
     }
-    const legacy = localStorage.getItem(LEGACY_LOCAL_KEY);
+    const legacy = await readLocalBackupJSON();
     if (!legacy) return;
     let data: { projectName?: string; tree?: unknown };
     try { data = JSON.parse(legacy); } catch { return; }
@@ -183,8 +195,8 @@ export function ProjectList({ onClose, onLoaded, onImport }: Props) {
       const storage = getStorageProvider(provider);
       const name = data.projectName || 'Untitled';
       const result = await storage.create(accessToken, name, { version: 1, thumbnail: null, tree: data.tree ?? null });
-      localStorage.removeItem(LEGACY_LOCAL_KEY);
-      setLocalProjectList(getLocalProjects());
+      await deleteLocalBackup();
+      setLocalProjectList(await getLocalProjects());
       setCloudProjects((prev) => [
         {
           externalId: result.externalId,

@@ -11,6 +11,7 @@ import { ImportProject } from '../projects/ImportProject';
 import { ImportMesh } from '../projects/ImportMesh';
 import { SettingsPage } from '../settings/SettingsPage';
 import { FolderOpen, Save, Undo2, Redo2, MessageSquare, FileDown, FilePlus, Share2, Link, List, SlidersHorizontal, MoreHorizontal, Upload, Settings } from 'lucide-react';
+import { useLocalBackupStore } from '../../store/localPersist';
 
 export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => void; onMobileProps?: () => void } = {}) {
   const projectName = useModelerStore((s) => s.projectName);
@@ -31,6 +32,8 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
   const projectId = useProjectStore((s) => s.projectId);
   const projectProvider = useProjectStore((s) => s.provider);
   const createProject = useProjectStore((s) => s.createProject);
+  const backupStatus = useLocalBackupStore((s) => s.status);
+  const backupError = useLocalBackupStore((s) => s.error);
   const [showProjects, setShowProjects] = useState(false);
   const [copied, setCopied] = useState(false);
   const [shareError, setShareError] = useState<string | null>(null);
@@ -165,6 +168,12 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
           className="bg-transparent border-none text-sm font-medium w-24 lg:w-32 focus:outline-none rounded px-1 min-w-0 tap-h"
           style={{ color: 'var(--text-primary)' }}
         />
+        {backupStatus !== 'idle' && (
+          <span role="status" title={backupError ?? undefined} className="hidden md:inline text-[10px] whitespace-nowrap"
+                style={{ color: backupStatus === 'failed' ? 'var(--accent-red)' : 'var(--text-muted)' }}>
+            {backupStatus === 'saving' ? 'Backing up…' : backupStatus === 'failed' ? 'Backup failed' : 'Saved locally'}
+          </span>
+        )}
       </div>
 
       {/* Mobile-only: tree + props toggles */}
@@ -395,6 +404,19 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
            style={{ background: 'var(--accent-red)', color: '#fff' }}>
         <span>{shareError}</span>
         <button onClick={() => setShareError(null)} aria-label="Dismiss sharing error" className="ml-2 opacity-70 hover:opacity-100">&times;</button>
+      </div>
+    )}
+
+    {backupStatus === 'failed' && backupError && (
+      <div role="alert" className="absolute top-12 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 px-4 py-2 rounded-lg shadow-lg text-sm max-w-[min(90vw,640px)]"
+           style={{ background: 'var(--accent-red)', color: '#fff' }}>
+        <span>{backupError}</span>
+        <button
+          onClick={() => triggerDownload(new Blob([useModelerStore.getState().toJSON()], { type: 'application/json' }), `${projectName}.json`)}
+          className="shrink-0 underline font-medium"
+        >
+          Download project
+        </button>
       </div>
     )}
 

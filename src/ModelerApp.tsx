@@ -69,7 +69,7 @@ function ModelerApp() {
 
   useEffect(() => {
     startAutoSave();
-    startLocalAutoSave();
+    void startLocalAutoSave();
   }, []);
 
   useEffect(() => {
