@@ -1,9 +1,11 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import * as THREE from 'three';
-import { SdfMesh, shaderCapacityError } from './SdfMesh';
+import { MAX_GENERATED_SHADER_CHARS, SdfMesh, shaderCapacityError } from './SdfMesh';
 import { useModelerStore, type SDFDisplayData } from '../store/modelerStore';
 import { useViewportStore } from '../store/viewportStore';
 import type { ThreeEngine } from './ThreeEngine';
+import { generateSDFFunction } from '../worker/sdf/codegen';
+import type { SDFNode } from '../worker/sdf/types';
 
 /**
  * Three.js does not free GPU resources when an object leaves the scene graph,
@@ -159,10 +161,18 @@ describe('SdfMesh GPU resource lifecycle', () => {
 
 describe('shader capacity preflight', () => {
   it('rejects a document-sized parameter array on minimum WebGL 2 limits', () => {
-    expect(shaderCapacityError(display('', 0, { paramCount: 1_999 }), {
+    let level: SDFNode[] = Array.from({ length: 500 }, () => ({ kind: 'box', size: [1, 1, 1] }));
+    while (level.length > 1) {
+      const next: SDFNode[] = [];
+      for (let i = 0; i < level.length; i += 2) next.push(i + 1 < level.length ? { kind: 'union', a: level[i], b: level[i + 1], k: 0 } : level[i]);
+      level = next;
+    }
+    const generated = generateSDFFunction(level[0]);
+    expect(generated.paramCount).toBe(1_500);
+    expect(shaderCapacityError({ ...display(generated.glsl), ...generated }, {
       maxFragmentUniformComponents: 1_024,
       maxTextureImageUnits: 16,
-    })).toMatch(/needs 2037.*supports 1024/);
+    })).toMatch(/needs 1538.*supports 1024/);
   });
 
   it('accounts for fixed uniforms and imported-field samplers', () => {
@@ -170,6 +180,12 @@ describe('shader capacity preflight', () => {
     expect(shaderCapacityError(display('', 0, { paramCount: 31 }), capacity)).toMatch(/fragment-uniform/);
     expect(shaderCapacityError(display('', 2, { paramCount: 1 }), capacity)).toMatch(/needs 2 fragment textures/);
     expect(shaderCapacityError(display('', 1, { paramCount: 1 }), capacity)).toBeNull();
+  });
+
+  it('rejects overly large generated source before compilation', () => {
+    expect(shaderCapacityError(display('x'.repeat(MAX_GENERATED_SHADER_CHARS + 1)), {
+      maxFragmentUniformComponents: 4_096, maxTextureImageUnits: 16,
+    })).toMatch(/generated shader source.*above the supported/i);
   });
 
   it('refuses an unsupported display before allocating GPU resources', () => {
@@ -180,8 +196,30 @@ describe('shader capacity preflight', () => {
 
     expect(engine.scene.children).toHaveLength(0);
     expect(currentResources(sdfMesh).material).toBeNull();
-    expect(useModelerStore.getState().sdfDisplay).toBeNull();
+    expect(useModelerStore.getState().sdfDisplay).not.toBeNull();
     expect(useModelerStore.getState().error).toMatch(/this GPU supports 64/i);
+    expect(useModelerStore.getState().error).toMatch(/CPU export remains available/i);
+  });
+
+  it('preserves the prior material when a replacement shader fails compilation', () => {
+    const engine = renderableEngine() as any;
+    engine.renderer.debug = { onShaderError: null };
+    const compile = vi.fn();
+    engine.renderer.compile = compile;
+    useModelerStore.setState({ sdfDisplay: display('float sdf(vec3 p){return 1.0;}'), error: null });
+    const sdfMesh = new SdfMesh(engine);
+    const prior = currentResources(sdfMesh);
+    compile.mockImplementationOnce(() => engine.renderer.debug.onShaderError?.(null, null, null, null));
+
+    const failed = display('float sdf(vec3 p){return 2.0;}', 0, { paramValues: [99], bbMin: [50, 50, 50], bbMax: [60, 60, 60] });
+    useModelerStore.setState({ sdfDisplay: failed, error: null });
+    sdfMesh.update();
+
+    expect(currentResources(sdfMesh)).toMatchObject({ material: prior.material, mesh: prior.mesh });
+    expect(useModelerStore.getState().sdfDisplay).toBe(failed);
+    expect(useModelerStore.getState().error).toMatch(/prior preview is preserved/i);
+    expect((prior.material!.uniforms.u_p.value as Float32Array)[0]).toBe(0);
+    expect(prior.material!.uniforms.u_bbMin.value.toArray()).toEqual([-Math.sqrt(3), -Math.sqrt(3), -Math.sqrt(3)]);
   });
 });
 

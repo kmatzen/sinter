@@ -294,23 +294,26 @@ export interface ShaderCapacity {
   maxTextureImageUnits: number;
 }
 
+export const MAX_GENERATED_SHADER_CHARS = 250_000;
+
 // Scalars/vectors/matrix used by buildFrag apart from the generated u_p array.
 // Samplers have their own independently queried limit.
 const FIXED_FRAGMENT_UNIFORM_COMPONENTS = 38;
 
 /** Return an actionable portability error before asking WebGL to link. */
 export function shaderCapacityError(
-  sdf: Pick<SDFDisplayData, 'paramCount' | 'textures'>,
+  sdf: Pick<SDFDisplayData, 'glsl' | 'paramCount' | 'textures'>,
   capacity: ShaderCapacity,
 ): string | null {
   const requiredComponents = sdf.paramCount + FIXED_FRAGMENT_UNIFORM_COMPONENTS;
   if (requiredComponents > capacity.maxFragmentUniformComponents) {
-    return `This model needs ${requiredComponents} fragment-uniform components, but this GPU supports ${capacity.maxFragmentUniformComponents}. Simplify or group repeated operations before previewing it.`;
+    return `Viewport unavailable: this model needs ${requiredComponents} fragment-uniform components, but this GPU supports ${capacity.maxFragmentUniformComponents}. Simplify or group repeated operations; CPU export remains available.`;
   }
   const textureCount = sdf.textures?.length ?? 0;
   if (textureCount > capacity.maxTextureImageUnits) {
-    return `This model needs ${textureCount} fragment textures, but this GPU supports ${capacity.maxTextureImageUnits}. Reduce imported mesh fields before previewing it.`;
+    return `Viewport unavailable: this model needs ${textureCount} fragment textures, but this GPU supports ${capacity.maxTextureImageUnits}. Reduce imported mesh fields; CPU export remains available.`;
   }
+  if (sdf.glsl.length > MAX_GENERATED_SHADER_CHARS) return `Viewport unavailable: generated shader source is ${sdf.glsl.length.toLocaleString()} characters, above the supported ${MAX_GENERATED_SHADER_CHARS.toLocaleString()}-character budget. Simplify the model; CPU export remains available.`;
   return null;
 }
 
@@ -337,6 +340,8 @@ export class SdfMesh {
   private lastHasWarn = false;
   private lastTextureKey = '';
   private lastBBKey = '';
+  private renderedSdf: SDFDisplayData | null = null;
+  private rebuilding = false;
   private unsubs: (() => void)[] = [];
 
   constructor(engine: ThreeEngine) {
@@ -370,6 +375,7 @@ export class SdfMesh {
     }
     this.mesh = null;
     this.material = null;
+    this.renderedSdf = null;
   }
 
   private onStoreChange() {
@@ -387,9 +393,10 @@ export class SdfMesh {
     const capacity = rendererCapacity(this.engine);
     const capacityError = capacity && shaderCapacityError(sdf, capacity);
     if (capacityError) {
-      // Clear the unrenderable display atomically so this subscription's
-      // re-entrant notification takes the ordinary release path exactly once.
-      useModelerStore.setState({ sdfDisplay: null, evaluatedTree: null, error: capacityError });
+      // Keep both the current CPU evaluation and the last known-good material.
+      // The former remains exportable/editable; the latter makes the failed
+      // viewport update visibly non-destructive.
+      if (useModelerStore.getState().error !== capacityError) useModelerStore.setState({ error: capacityError });
       return;
     }
 
@@ -403,18 +410,26 @@ export class SdfMesh {
       sdf.hasWarn !== this.lastHasWarn ||
       texKey !== this.lastTextureKey
     ) {
+      const previousKey = [this.lastGlsl, this.lastParamCount, this.lastHasWarn, this.lastTextureKey] as const;
       this.lastGlsl = sdf.glsl;
       this.lastParamCount = sdf.paramCount;
       this.lastHasWarn = sdf.hasWarn;
       this.lastTextureKey = texKey;
-      this.rebuild(sdf);
+      let rebuilt = false;
+      this.rebuilding = true;
+      try { rebuilt = this.rebuild(sdf); }
+      finally { this.rebuilding = false; }
+      if (!rebuilt) {
+        [this.lastGlsl, this.lastParamCount, this.lastHasWarn, this.lastTextureKey] = previousKey;
+      }
+    } else if (this.material && !this.rebuilding) {
+      // Parameter values and bounds are dynamic uniforms/geometry and do not
+      // require a new program, but update() must read the accepted new values.
+      this.renderedSdf = sdf;
     }
   }
 
-  private rebuild(sdf: { glsl: string; paramCount: number; paramValues: number[]; textures: any[]; bbMin: [number,number,number]; bbMax: [number,number,number]; hasWarn: boolean }) {
-    // Dispose the previous build before allocating its replacement.
-    this.releaseGpu();
-
+  private rebuild(sdf: { glsl: string; paramCount: number; paramValues: number[]; textures: any[]; bbMin: [number,number,number]; bbMax: [number,number,number]; hasWarn: boolean }): boolean {
     const initialParams = new Float32Array(sdf.paramCount);
     for (let i = 0; i < sdf.paramValues.length; i++) initialParams[i] = sdf.paramValues[i];
 
@@ -440,7 +455,7 @@ export class SdfMesh {
     const clipAxis = useViewportStore.getState().clipAxis;
     const clipPosition = useViewportStore.getState().clipPosition;
 
-    this.material = new THREE.ShaderMaterial({
+    const nextMaterial = new THREE.ShaderMaterial({
       vertexShader: VERT,
       fragmentShader: buildFrag(sdf.glsl, sdf.paramCount, sdf.hasWarn),
       uniforms: {
@@ -478,8 +493,30 @@ export class SdfMesh {
     const geo = new THREE.BoxGeometry(diag, diag, diag);
     geo.translate(cx, cy, cz);
 
-    this.mesh = new THREE.Mesh(geo, this.material);
-    this.engine.scene.add(this.mesh);
+    const nextMesh = new THREE.Mesh(geo, nextMaterial);
+    const renderer = this.engine.renderer;
+    if (typeof renderer?.compile === 'function') {
+      const staging = new THREE.Scene();
+      staging.add(nextMesh);
+      let shaderError = false;
+      const previousHandler = renderer.debug.onShaderError;
+      renderer.debug.onShaderError = (...args) => { shaderError = true; previousHandler?.(...args); };
+      try { renderer.compile(staging, this.engine.camera); }
+      catch { shaderError = true; }
+      finally { renderer.debug.onShaderError = previousHandler; }
+      if (shaderError) {
+        geo.dispose(); nextMaterial.dispose();
+        const message = 'Viewport shader failed to compile on this GPU. The prior preview is preserved; simplify the model or use CPU export.';
+        if (useModelerStore.getState().error !== message) useModelerStore.setState({ error: message });
+        return false;
+      }
+    }
+    this.releaseGpu();
+    this.material = nextMaterial;
+    this.mesh = nextMesh;
+    this.renderedSdf = sdf as SDFDisplayData;
+    this.engine.scene.add(nextMesh);
+    return true;
   }
 
   update() {
@@ -498,7 +535,7 @@ export class SdfMesh {
     u.u_clipAxis.value = vs.clipAxis === 'x' ? 0 : vs.clipAxis === 'z' ? 2 : 1;
     u.u_clipFlip.value = vs.clipFlip ? 1.0 : 0.0;
 
-    const sdf = useModelerStore.getState().sdfDisplay;
+    const sdf = this.renderedSdf;
     if (sdf) {
       const [x0, y0, z0] = sdf.bbMin;
       const [x1, y1, z1] = sdf.bbMax;
