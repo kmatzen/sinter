@@ -30,6 +30,7 @@ import type { BBox } from '../../worker/sdf/types';
 const SELECTED_COLOR = 0xd4845a; // --accent
 const HOVER_COLOR = 0xffffff;
 const MEASURED_COLOR = 0xa8a8c0;
+const SNAP_COLOR = 0x4aba7a;
 
 interface BoxHandle {
   lines: THREE.LineSegments;
@@ -71,16 +72,32 @@ function applyBounds(handle: BoxHandle | null, bounds: BBox | null) {
   handle.lines.visible = true;
 }
 
+function createSnapMarker(engine: ThreeEngine): BoxHandle {
+  const material = new THREE.LineBasicMaterial({ color: SNAP_COLOR, depthTest: false, transparent: true, opacity: 1 });
+  const size = 2;
+  const lines = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints([
+    new THREE.Vector3(-size, 0, 0), new THREE.Vector3(size, 0, 0),
+    new THREE.Vector3(0, -size, 0), new THREE.Vector3(0, size, 0),
+    new THREE.Vector3(0, 0, -size), new THREE.Vector3(0, 0, size),
+  ]), material);
+  lines.renderOrder = 1000;
+  lines.visible = false;
+  engine.scene.add(lines);
+  return { lines, material };
+}
+
 export function SelectionOverlay({ engine }: { engine: ThreeEngine | null }) {
   const tree = useModelerStore((s) => s.tree);
   const selectedId = useModelerStore((s) => s.selectedNodeId);
   const selectedIds = useModelerStore((s) => s.selectedNodeIds);
   const hoveredId = useViewportStore((s) => s.hoveredNodeId);
   const showDimensions = useViewportStore((s) => s.showDimensions);
+  const snapIndicator = useViewportStore((s) => s.snapIndicator);
 
   const selectedRefs = useRef<BoxHandle[]>([]);
   const hoverRef = useRef<BoxHandle | null>(null);
   const measuredRef = useRef<BoxHandle | null>(null);
+  const snapRef = useRef<BoxHandle | null>(null);
 
   const selectedBounds = useMemo(() => selectedIds.map((id) => nodeWorldBounds(tree, id)).filter((bounds): bounds is BBox => bounds !== null), [tree, selectedIds]);
   // Suppressed when it would land on top of the selection box: two coincident
@@ -99,6 +116,7 @@ export function SelectionOverlay({ engine }: { engine: ThreeEngine | null }) {
     if (!engine) return;
     hoverRef.current = createBox(engine, HOVER_COLOR, 0.4, 997);
     measuredRef.current = createBox(engine, MEASURED_COLOR, 0.5, 996);
+    snapRef.current = createSnapMarker(engine);
     return () => {
       for (const ref of [hoverRef, measuredRef]) {
         const handle = ref.current;
@@ -112,6 +130,12 @@ export function SelectionOverlay({ engine }: { engine: ThreeEngine | null }) {
         engine.scene.remove(handle.lines);
         handle.lines.geometry.dispose();
         handle.material.dispose();
+      }
+      if (snapRef.current) {
+        engine.scene.remove(snapRef.current.lines);
+        snapRef.current.lines.geometry.dispose();
+        snapRef.current.material.dispose();
+        snapRef.current = null;
       }
       selectedRefs.current = [];
     };
@@ -129,8 +153,12 @@ export function SelectionOverlay({ engine }: { engine: ThreeEngine | null }) {
     selectedBounds.forEach((bounds, index) => applyBounds(selectedRefs.current[index], bounds));
     applyBounds(hoverRef.current, hoverBounds);
     applyBounds(measuredRef.current, measuredBounds);
+    if (snapRef.current) {
+      snapRef.current.lines.visible = !!snapIndicator;
+      if (snapIndicator) snapRef.current.lines.position.fromArray(snapIndicator.position);
+    }
     engine.invalidate();
-  }, [engine, selectedBounds, hoverBounds, measuredBounds]);
+  }, [engine, selectedBounds, hoverBounds, measuredBounds, snapIndicator]);
 
   return null;
 }

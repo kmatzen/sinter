@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 import type { SDFNodeUI } from '../types/operations';
-import { applyWorldSelectionDelta, selectionPivot } from './GizmoController';
+import { applyWorldSelectionDelta, selectionPivot, snapTranslationToObjects } from './GizmoController';
 
 describe('multi-selection gizmo transforms', () => {
   it('resolves object, primary bounds, selection, and custom pivots explicitly', () => {
@@ -20,6 +20,27 @@ describe('multi-selection gizmo transforms', () => {
     expect(selectionPivot(tree, ['a', 'b'], 'a', 'bounds-center', [9, 8, 7]).toArray()).toEqual([0, 0, 0]);
     expect(selectionPivot(tree, ['a', 'b'], 'a', 'selection-center', [9, 8, 7]).toArray()).toEqual([5.5, 0, 0]);
     expect(selectionPivot(tree, ['a', 'b'], 'a', 'custom', [9, 8, 7]).toArray()).toEqual([9, 8, 7]);
+  });
+
+  it('snaps to unselected bounds by projected pixel distance', () => {
+    const tree: SDFNodeUI = {
+      id: 'root', kind: 'union', label: 'Union', params: {}, enabled: true,
+      children: [
+        { id: 'a', kind: 'box', label: 'A', params: { width: 2, height: 2, depth: 2 }, enabled: true, children: [] },
+        { id: 'tb', kind: 'translate', label: 'B position', params: { x: 10, y: 0, z: 0 }, enabled: true, children: [
+          { id: 'b', kind: 'box', label: 'B', params: { width: 2, height: 2, depth: 2 }, enabled: true, children: [] },
+        ] },
+      ],
+    };
+    const camera = new THREE.OrthographicCamera(-50, 50, 50, -50, 0.1, 1000);
+    camera.position.set(0, 0, 100);
+    camera.lookAt(0, 0, 0);
+    camera.updateProjectionMatrix();
+    camera.updateMatrixWorld(true);
+    const near = snapTranslationToObjects(tree, ['a'], new THREE.Vector3(8.9, 0, 0), camera, { width: 1000, height: 1000 });
+    expect(near?.position.toArray()).toEqual([9, 0, 0]);
+    expect(near?.label).toContain('min X');
+    expect(snapTranslationToObjects(tree, ['a'], new THREE.Vector3(7, 0, 0), camera, { width: 1000, height: 1000 })).toBeNull();
   });
 
   it('applies one world delta in each selected node local space', () => {

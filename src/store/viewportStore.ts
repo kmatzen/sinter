@@ -6,6 +6,7 @@ import { normalizeUnitPreferences, type DisplayUnit, type UnitPreferences } from
 const GIZMO_SPACE_KEY = 'sinter_gizmo_space';
 const GIZMO_PIVOT_KEY = 'sinter_gizmo_pivot';
 const CUSTOM_PIVOT_KEY = 'sinter_custom_pivot';
+const OBJECT_SNAP_KEY = 'sinter_object_snap';
 const MEASUREMENT_UNIT_KEY = 'sinter_measurement_unit';
 const MEASUREMENT_PRECISION_KEY = 'sinter_measurement_precision';
 
@@ -67,6 +68,10 @@ interface ViewportState {
   snapSize: number; // mm for translate, degrees for rotate, factor for scale
   toggleSnap: () => void;
   setSnapSize: (size: number) => void;
+  objectSnapEnabled: boolean;
+  toggleObjectSnap: () => void;
+  snapIndicator: { position: [number, number, number]; label: string } | null;
+  setSnapIndicator: (indicator: ViewportState['snapIndicator']) => void;
 
   // Clipping plane
   clipEnabled: boolean;
@@ -171,6 +176,14 @@ export const useViewportStore = create<ViewportState>((set) => ({
   snapSize: 5,
   toggleSnap: () => set((s) => ({ snapEnabled: !s.snapEnabled })),
   setSnapSize: (size) => set({ snapSize: size }),
+  objectSnapEnabled: (() => { try { return localStorage.getItem(OBJECT_SNAP_KEY) === 'true'; } catch { return false; } })(),
+  toggleObjectSnap: () => set((state) => {
+    const objectSnapEnabled = !state.objectSnapEnabled;
+    try { localStorage.setItem(OBJECT_SNAP_KEY, String(objectSnapEnabled)); } catch { /* preference persistence is best effort */ }
+    return { objectSnapEnabled, snapIndicator: null };
+  }),
+  snapIndicator: null,
+  setSnapIndicator: (snapIndicator) => set({ snapIndicator }),
   clipEnabled: false,
   clipAxis: 'y',
   clipFlip: false,

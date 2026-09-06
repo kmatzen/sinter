@@ -170,6 +170,67 @@ export function selectionPivot(
   );
 }
 
+interface ObjectSnapResult {
+  position: THREE.Vector3;
+  label: string;
+}
+
+/** Find per-axis object/bounds targets within a screen-space tolerance. */
+export function snapTranslationToObjects(
+  tree: SDFNodeUI,
+  selectedIds: string[],
+  input: THREE.Vector3,
+  camera: THREE.Camera,
+  viewport: { width: number; height: number },
+  tolerance = 12,
+): ObjectSnapResult | null {
+  const roots = selectedRoots(tree, selectedIds);
+  const related = (node: SDFNodeUI) => roots.some((id) => {
+    const root = findNode(tree, id)!;
+    return node.id === id || !!findNode(root, node.id) || !!findNode(node, id);
+  });
+  const targets: { axis: 0 | 1 | 2; value: number; label: string }[] = [];
+  for (const axis of [0, 1, 2] as const) targets.push({ axis, value: 0, label: `world origin ${'XYZ'[axis]}` });
+  const visit = (node: SDFNodeUI) => {
+    if (!related(node) && node.enabled && node.kind !== '_empty') {
+      const origin = new THREE.Vector3().setFromMatrixPosition(getFullMatrix(tree, node.id));
+      const bounds = nodeWorldBounds(tree, node.id);
+      for (const axis of [0, 1, 2] as const) {
+        targets.push({ axis, value: origin.getComponent(axis), label: `${node.label || node.kind} origin ${'XYZ'[axis]}` });
+        if (bounds) {
+          targets.push({ axis, value: bounds.min[axis], label: `${node.label || node.kind} min ${'XYZ'[axis]}` });
+          targets.push({ axis, value: (bounds.min[axis] + bounds.max[axis]) / 2, label: `${node.label || node.kind} center ${'XYZ'[axis]}` });
+          targets.push({ axis, value: bounds.max[axis], label: `${node.label || node.kind} max ${'XYZ'[axis]}` });
+        }
+      }
+    }
+    node.children.forEach(visit);
+  };
+  visit(tree);
+  const screen = (point: THREE.Vector3) => {
+    const projected = point.clone().project(camera);
+    return new THREE.Vector2((projected.x + 1) * viewport.width / 2, (1 - projected.y) * viewport.height / 2);
+  };
+  const result = input.clone();
+  const labels: string[] = [];
+  for (const axis of [0, 1, 2] as const) {
+    if (targets.some((target) => target.axis === axis && Math.abs(target.value - result.getComponent(axis)) < 1e-10)) continue;
+    const currentScreen = screen(result);
+    let best: { target: typeof targets[number]; distance: number } | null = null;
+    for (const target of targets) {
+      if (target.axis !== axis) continue;
+      const candidate = result.clone().setComponent(axis, target.value);
+      const distance = currentScreen.distanceTo(screen(candidate));
+      if (distance >= 0.25 && distance <= tolerance && (!best || distance < best.distance - 1e-6)) best = { target, distance };
+    }
+    if (best && Math.abs(result.getComponent(axis) - best.target.value) > 1e-10) {
+      result.setComponent(axis, best.target.value);
+      labels.push(best.target.label);
+    }
+  }
+  return labels.length ? { position: result, label: labels.join(', ') } : null;
+}
+
 export class GizmoController {
   private engine: ThreeEngine;
   private controls: any;
@@ -219,9 +280,9 @@ export class GizmoController {
       if (e.value) {
         useModelerStore.getState().beginHistoryTransaction();
         const { tree, selectedNodeIds } = useModelerStore.getState();
-        const { gizmoPivot } = useViewportStore.getState();
+        const { gizmoPivot, objectSnapEnabled } = useViewportStore.getState();
         const roots = tree ? selectedRoots(tree, selectedNodeIds) : [];
-        if (tree && roots.length && (roots.length > 1 || gizmoPivot !== 'object-origin')) {
+        if (tree && roots.length && (roots.length > 1 || gizmoPivot !== 'object-origin' || objectSnapEnabled)) {
           this.transformObj.updateMatrixWorld(true);
           this.groupDrag = {
             tree,
@@ -234,6 +295,7 @@ export class GizmoController {
       } else {
         useModelerStore.getState().commitHistoryTransaction();
         this.groupDrag = null;
+        useViewportStore.getState().setSnapIndicator(null);
         useViewportStore.getState().setDragging(false);
       }
     });
@@ -263,7 +325,7 @@ export class GizmoController {
     const selectedId = useModelerStore.getState().selectedNodeId;
     const selectedIds = useModelerStore.getState().selectedNodeIds;
     const gizmoMode = useViewportStore.getState().gizmoMode;
-    const { gizmoPivot, customPivot } = useViewportStore.getState();
+    const { gizmoPivot, customPivot, objectSnapEnabled } = useViewportStore.getState();
 
     const selectedNode = tree && selectedId ? findNode(tree, selectedId) : null;
     const isLocked = selectedIds.some((id) => useTreeUiStore.getState().lockedNodeIds.has(id));
@@ -302,7 +364,7 @@ export class GizmoController {
     this.transformObj.quaternion.identity();
     this.transformObj.scale.set(1, 1, 1);
 
-    if (selectedIds.length > 1 || gizmoPivot !== 'object-origin') {
+    if (selectedIds.length > 1 || gizmoPivot !== 'object-origin' || objectSnapEnabled) {
       this.transformObj.position.copy(selectionPivot(tree, selectedIds, selectedId, gizmoPivot, customPivot));
       if (vs.gizmoSpace === 'local') {
         const world = getFullMatrix(tree, selectedId);
@@ -335,6 +397,22 @@ export class GizmoController {
   private handleObjectChange() {
     if (this.groupDrag) {
       this.transformObj.updateMatrixWorld(true);
+      const viewport = useViewportStore.getState();
+      if (viewport.objectSnapEnabled && !this.shiftHeld && viewport.gizmoMode === 'translate') {
+        const rect = this.engine.renderer.domElement.getBoundingClientRect();
+        const snapped = snapTranslationToObjects(
+          this.groupDrag.tree,
+          this.groupDrag.roots,
+          new THREE.Vector3().setFromMatrixPosition(this.transformObj.matrixWorld),
+          this.engine.camera,
+          { width: rect.width, height: rect.height },
+        );
+        if (snapped) {
+          this.transformObj.position.copy(snapped.position);
+          this.transformObj.updateMatrixWorld(true);
+          viewport.setSnapIndicator({ position: snapped.position.toArray(), label: snapped.label });
+        } else viewport.setSnapIndicator(null);
+      } else viewport.setSnapIndicator(null);
       const delta = this.transformObj.matrixWorld.clone().multiply(this.groupDrag.startMatrix.clone().invert());
       if (delta.elements.every((value, index) => Math.abs(value - new THREE.Matrix4().elements[index]) < 1e-10)) return;
       this.suppressSync = true;

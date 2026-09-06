@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ThreeEngine } from '../../engine/ThreeEngine';
 import { useViewportStore } from '../../store/viewportStore';
@@ -6,7 +6,7 @@ import { ViewportToolbar } from './ViewportToolbar';
 
 describe('ViewportToolbar camera controls', () => {
   beforeEach(() => {
-    useViewportStore.setState({ clipEnabled: false, measurementMode: false, showDimensions: false, projection: 'perspective', namedViews: [], gizmoPivot: 'selection-center', customPivot: [0, 0, 0] });
+    useViewportStore.setState({ clipEnabled: false, measurementMode: false, showDimensions: false, projection: 'perspective', namedViews: [], gizmoPivot: 'selection-center', customPivot: [0, 0, 0], objectSnapEnabled: false, snapIndicator: null });
   });
 
   it('saves, recalls, and removes named project views from the compact control', () => {
@@ -54,6 +54,14 @@ describe('ViewportToolbar camera controls', () => {
     fireEvent.change(pivot, { target: { value: 'custom' } });
     fireEvent.change(screen.getByRole('spinbutton', { name: 'Custom pivot X' }), { target: { value: '12.5' } });
     expect(useViewportStore.getState()).toMatchObject({ gizmoPivot: 'custom', customPivot: [12.5, 0, 0] });
+  });
+
+  it('offers object snapping and announces the active target', () => {
+    render(<ViewportToolbar engine={null} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Snap to objects, bounds, and world origin' }));
+    expect(useViewportStore.getState().objectSnapEnabled).toBe(true);
+    act(() => useViewportStore.getState().setSnapIndicator({ position: [1, 2, 3], label: 'Bracket max X' }));
+    expect(screen.getByRole('status')).toHaveTextContent('Snapped to Bracket max X');
   });
 
   it('exposes frame-all and frame-selection commands', () => {
