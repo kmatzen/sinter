@@ -1,9 +1,27 @@
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 import type { SDFNodeUI } from '../types/operations';
-import { applyWorldSelectionDelta } from './GizmoController';
+import { applyWorldSelectionDelta, selectionPivot } from './GizmoController';
 
 describe('multi-selection gizmo transforms', () => {
+  it('resolves object, primary bounds, selection, and custom pivots explicitly', () => {
+    const tree: SDFNodeUI = {
+      id: 'root', kind: 'union', label: 'Union', params: {}, enabled: true,
+      children: [
+        { id: 'ta', kind: 'translate', label: 'A position', params: { x: 0, y: 0, z: 0 }, enabled: true, children: [
+          { id: 'a', kind: 'box', label: 'A', params: { width: 2, height: 2, depth: 2 }, enabled: true, children: [] },
+        ] },
+        { id: 'tb', kind: 'translate', label: 'B position', params: { x: 10, y: 0, z: 0 }, enabled: true, children: [
+          { id: 'b', kind: 'box', label: 'B', params: { width: 4, height: 2, depth: 2 }, enabled: true, children: [] },
+        ] },
+      ],
+    };
+    expect(selectionPivot(tree, ['a', 'b'], 'a', 'object-origin', [9, 8, 7]).toArray()).toEqual([0, 0, 0]);
+    expect(selectionPivot(tree, ['a', 'b'], 'a', 'bounds-center', [9, 8, 7]).toArray()).toEqual([0, 0, 0]);
+    expect(selectionPivot(tree, ['a', 'b'], 'a', 'selection-center', [9, 8, 7]).toArray()).toEqual([5.5, 0, 0]);
+    expect(selectionPivot(tree, ['a', 'b'], 'a', 'custom', [9, 8, 7]).toArray()).toEqual([9, 8, 7]);
+  });
+
   it('applies one world delta in each selected node local space', () => {
     const tree: SDFNodeUI = {
       id: 'root', kind: 'union', label: 'Union', params: {}, enabled: true,
@@ -31,7 +49,7 @@ describe('multi-selection gizmo transforms', () => {
     expect(localMove).toMatchObject({ id: 'bt', kind: 'translate' });
     expect(localMove.params.x).toBeCloseTo(0);
     expect(localMove.params.y).toBeCloseTo(-10);
-    expect(localMove.children[0].children[0].children[0].id).toBe('b');
+    expect(localMove.children[0].id).toBe('b');
   });
 
   it('rotates separate nodes around the same explicit pivot without losing their ids', () => {

@@ -8,6 +8,7 @@ import { useViewportStore } from '../store/viewportStore';
 import type { SDFNodeUI } from '../types/operations';
 import { v4 as uuidv4 } from 'uuid';
 import { nodeWorldBounds } from './nodeBounds';
+import type { GizmoPivotMode } from '../store/viewportStore';
 
 function findNode(tree: SDFNodeUI, id: string): SDFNodeUI | null {
   if (tree.id === id) return tree;
@@ -114,18 +115,20 @@ function transformNode(
   const scale = new THREE.Vector3();
   localDelta.decompose(position, rotation, scale);
   const euler = new THREE.Euler().setFromQuaternion(rotation, 'XYZ');
-  const scaled: SDFNodeUI = {
+  let result = node;
+  if (Math.abs(scale.x - 1) + Math.abs(scale.y - 1) + Math.abs(scale.z - 1) > 1e-10) result = {
     id: ids[2], kind: 'scale', label: 'Group Scale', enabled: true,
-    params: { x: scale.x, y: scale.y, z: scale.z }, children: [node],
+    params: { x: scale.x, y: scale.y, z: scale.z }, children: [result],
   };
-  const rotated: SDFNodeUI = {
+  if (Math.abs(euler.x) + Math.abs(euler.y) + Math.abs(euler.z) > 1e-10) result = {
     id: ids[1], kind: 'rotate', label: 'Group Rotate', enabled: true,
-    params: { x: euler.x / DEG, y: euler.y / DEG, z: euler.z / DEG }, children: [scaled],
+    params: { x: euler.x / DEG, y: euler.y / DEG, z: euler.z / DEG }, children: [result],
   };
-  return {
+  if (position.lengthSq() > 1e-20) result = {
     id: ids[0], kind: 'translate', label: 'Group Move', enabled: true,
-    params: { x: position.x, y: position.y, z: position.z }, children: [rotated],
+    params: { x: position.x, y: position.y, z: position.z }, children: [result],
   };
+  return result;
 }
 
 /** Apply one world-space affine delta to independent selected subtrees. */
@@ -144,6 +147,27 @@ export function applyWorldSelectionDelta(
     replacements.set(id, transformNode(node, localDelta, wrapperIds.get(id)!));
   }
   return replaceNodes(tree, replacements);
+}
+
+export function selectionPivot(
+  tree: SDFNodeUI,
+  selectedIds: string[],
+  primaryId: string,
+  mode: GizmoPivotMode,
+  custom: [number, number, number],
+): THREE.Vector3 {
+  if (mode === 'custom') return new THREE.Vector3(...custom);
+  if (mode === 'object-origin') {
+    return new THREE.Vector3().setFromMatrixPosition(getFullMatrix(tree, primaryId));
+  }
+  const ids = mode === 'bounds-center' ? [primaryId] : selectedRoots(tree, selectedIds);
+  const bounds = ids.map((id) => nodeWorldBounds(tree, id)).filter((box): box is Exclude<typeof box, null> => box !== null);
+  if (!bounds.length) return new THREE.Vector3().setFromMatrixPosition(getFullMatrix(tree, primaryId));
+  return new THREE.Vector3(
+    (Math.min(...bounds.map((box) => box.min[0])) + Math.max(...bounds.map((box) => box.max[0]))) / 2,
+    (Math.min(...bounds.map((box) => box.min[1])) + Math.max(...bounds.map((box) => box.max[1]))) / 2,
+    (Math.min(...bounds.map((box) => box.min[2])) + Math.max(...bounds.map((box) => box.max[2]))) / 2,
+  );
 }
 
 export class GizmoController {
@@ -195,8 +219,9 @@ export class GizmoController {
       if (e.value) {
         useModelerStore.getState().beginHistoryTransaction();
         const { tree, selectedNodeIds } = useModelerStore.getState();
+        const { gizmoPivot } = useViewportStore.getState();
         const roots = tree ? selectedRoots(tree, selectedNodeIds) : [];
-        if (tree && roots.length > 1) {
+        if (tree && roots.length && (roots.length > 1 || gizmoPivot !== 'object-origin')) {
           this.transformObj.updateMatrixWorld(true);
           this.groupDrag = {
             tree,
@@ -238,6 +263,7 @@ export class GizmoController {
     const selectedId = useModelerStore.getState().selectedNodeId;
     const selectedIds = useModelerStore.getState().selectedNodeIds;
     const gizmoMode = useViewportStore.getState().gizmoMode;
+    const { gizmoPivot, customPivot } = useViewportStore.getState();
 
     const selectedNode = tree && selectedId ? findNode(tree, selectedId) : null;
     const isLocked = selectedIds.some((id) => useTreeUiStore.getState().lockedNodeIds.has(id));
@@ -276,18 +302,12 @@ export class GizmoController {
     this.transformObj.quaternion.identity();
     this.transformObj.scale.set(1, 1, 1);
 
-    if (selectedIds.length > 1) {
-      const bounds = selectedRoots(tree, selectedIds)
-        .map((id) => nodeWorldBounds(tree, id))
-        .filter((box): box is Exclude<typeof box, null> => box !== null);
-      if (!bounds.length) return;
-      const min = [0, 1, 2].map((axis) => Math.min(...bounds.map((box) => box.min[axis])));
-      const max = [0, 1, 2].map((axis) => Math.max(...bounds.map((box) => box.max[axis])));
-      this.transformObj.position.set(
-        (min[0] + max[0]) / 2,
-        (min[1] + max[1]) / 2,
-        (min[2] + max[2]) / 2,
-      );
+    if (selectedIds.length > 1 || gizmoPivot !== 'object-origin') {
+      this.transformObj.position.copy(selectionPivot(tree, selectedIds, selectedId, gizmoPivot, customPivot));
+      if (vs.gizmoSpace === 'local') {
+        const world = getFullMatrix(tree, selectedId);
+        world.decompose(new THREE.Vector3(), this.transformObj.quaternion, new THREE.Vector3());
+      }
       this.ancestorGroup.updateMatrixWorld(true);
       return;
     }
@@ -316,6 +336,7 @@ export class GizmoController {
     if (this.groupDrag) {
       this.transformObj.updateMatrixWorld(true);
       const delta = this.transformObj.matrixWorld.clone().multiply(this.groupDrag.startMatrix.clone().invert());
+      if (delta.elements.every((value, index) => Math.abs(value - new THREE.Matrix4().elements[index]) < 1e-10)) return;
       this.suppressSync = true;
       useModelerStore.getState().setTree(applyWorldSelectionDelta(
         this.groupDrag.tree,

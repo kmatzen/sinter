@@ -121,6 +121,10 @@ export function ViewportToolbar({ engine }: { engine: ThreeEngine | null }) {
   const setGizmoMode = useViewportStore((s) => s.setGizmoMode);
   const gizmoSpace = useViewportStore((s) => s.gizmoSpace);
   const toggleGizmoSpace = useViewportStore((s) => s.toggleGizmoSpace);
+  const gizmoPivot = useViewportStore((s) => s.gizmoPivot);
+  const setGizmoPivot = useViewportStore((s) => s.setGizmoPivot);
+  const customPivot = useViewportStore((s) => s.customPivot);
+  const setCustomPivot = useViewportStore((s) => s.setCustomPivot);
   const snapEnabled = useViewportStore((s) => s.snapEnabled);
   const toggleSnap = useViewportStore((s) => s.toggleSnap);
   const snapSize = useViewportStore((s) => s.snapSize);
@@ -163,6 +167,40 @@ export function ViewportToolbar({ engine }: { engine: ThreeEngine | null }) {
           <SmallBtn active={gizmoSpace === 'local'} onClick={toggleGizmoSpace} title={`Transform space: ${gizmoSpace}. Switch to ${gizmoSpace === 'world' ? 'local' : 'world'}`}>
             {gizmoSpace === 'world' ? 'W' : 'L'}
           </SmallBtn>
+        </BtnGroup>
+
+        <BtnGroup>
+          <select
+            value={gizmoPivot}
+            aria-label="Transform pivot"
+            title="Transform pivot"
+            onChange={(event) => setGizmoPivot(event.target.value as typeof gizmoPivot)}
+            className="h-7 tap-h max-w-28 rounded bg-transparent px-1 text-[10px]"
+            style={{ color: 'var(--text-muted)' }}
+          >
+            <option value="object-origin">Object origin</option>
+            <option value="bounds-center">Primary bounds</option>
+            <option value="selection-center">Selection center</option>
+            <option value="custom">Custom pivot</option>
+          </select>
+          {gizmoPivot === 'custom' && (['x', 'y', 'z'] as const).map((axis, index) => (
+            <label key={axis} className="flex items-center text-[9px] uppercase" style={{ color: 'var(--text-muted)' }}>
+              {axis}
+              <input
+                type="number"
+                aria-label={`Custom pivot ${axis.toUpperCase()}`}
+                value={customPivot[index]}
+                step="any"
+                onChange={(event) => {
+                  const next = [...customPivot] as [number, number, number];
+                  next[index] = Number(event.target.value);
+                  setCustomPivot(next);
+                }}
+                className="ml-0.5 h-7 w-14 tap-h rounded px-1 text-[10px]"
+                style={{ background: 'transparent', color: 'var(--text-secondary)', border: '1px solid var(--border-subtle)' }}
+              />
+            </label>
+          ))}
         </BtnGroup>
 
         <BtnGroup>
