@@ -4,6 +4,9 @@ import { shortcutHelpCommands, TOGGLE_SHORTCUT_HELP_EVENT } from '../../commands
 
 const POINTER_SHORTCUTS = [
   ['Click', 'Select the shape under the pointer'],
+  ['Ctrl/⌘+Click', 'Add or remove a shape from the selection'],
+  ['Shift+Click', 'Select a range in the node tree'],
+  ['+ in tree', 'Add or remove a shape on touch screens'],
   ['Alt+Click', 'Select the operation above that shape'],
   ['Shift (hold)', 'Disable snap while dragging'],
 ];

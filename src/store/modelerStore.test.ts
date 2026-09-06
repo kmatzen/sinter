@@ -10,6 +10,7 @@ function reset() {
   useViewportStore.setState({ namedViews: [] });
   useModelerStore.setState({
     tree: null,
+    selectedNodeIds: [],
     selectedNodeId: null,
     mesh: null,
     sdfDisplay: null,
@@ -1040,6 +1041,94 @@ describe('Modeler editing scenarios', () => {
       expect(isTreeValid(getState().tree)).toBe(true);
       expect(useViewportStore.getState().namedViews).toEqual([savedView]);
     });
+  });
+});
+
+describe('ordered multi-selection', () => {
+  beforeEach(reset);
+
+  const document = (): SDFNodeUI => ({
+    id: 'root', kind: 'union', label: 'Union', params: {}, enabled: true,
+    children: [
+      { id: 'a', kind: 'box', label: 'A', params: { width: 1, height: 1, depth: 1 }, children: [], enabled: true },
+      { id: 'b', kind: 'sphere', label: 'B', params: { radius: 1 }, children: [], enabled: true },
+    ],
+  });
+
+  it('toggles nodes while tracking an explicit primary selection', () => {
+    getState().resetDocument(document());
+    getState().selectNode('a');
+    getState().selectNode('b', 'toggle');
+    expect(getState()).toMatchObject({ selectedNodeIds: ['a', 'b'], selectedNodeId: 'b' });
+    getState().selectNode('b', 'toggle');
+    expect(getState()).toMatchObject({ selectedNodeIds: ['a'], selectedNodeId: 'a' });
+  });
+
+  it('selects a deterministic preorder range and removes deleted ids safely', () => {
+    getState().resetDocument(document());
+    getState().selectNode('root');
+    getState().selectNode('b', 'range');
+    expect(getState().selectedNodeIds).toEqual(['root', 'a', 'b']);
+    getState().removeNode('a');
+    expect(getState().selectedNodeIds).toEqual(['root', 'b']);
+    expect(getState().selectedNodeId).toBe('b');
+  });
+
+  it('deletes and restores a multi-selection in one undo step', () => {
+    getState().resetDocument(document());
+    getState().selectNode('a');
+    getState().selectNode('b', 'toggle');
+    getState().removeSelected();
+    expect(getState().tree?.children.map((node) => node.kind)).toEqual([
+      '_empty',
+      '_empty',
+    ]);
+    expect(JSON.stringify(getState().tree)).not.toContain('"id":"a"');
+    expect(JSON.stringify(getState().tree)).not.toContain('"id":"b"');
+    expect(getState().history).toHaveLength(2);
+    getState().undo();
+    expect(getState().tree?.children.map((node) => node.id)).toEqual(['a', 'b']);
+  });
+
+  it('toggles every selected root atomically', () => {
+    getState().resetDocument(document());
+    getState().selectNode('a');
+    getState().selectNode('b', 'toggle');
+    getState().toggleSelected();
+    expect(getState().tree?.children.map((node) => node.enabled)).toEqual([false, false]);
+    expect(getState().history).toHaveLength(2);
+    getState().undo();
+    expect(getState().tree?.children.map((node) => node.enabled)).toEqual([true, true]);
+  });
+
+  it('duplicates all selected roots as one history entry and selects the copies', () => {
+    getState().resetDocument(document());
+    getState().selectNode('a');
+    getState().selectNode('b', 'toggle');
+    getState().duplicateSelected();
+    expect(getState().history).toHaveLength(2);
+    expect(getState().selectedNodeIds).toHaveLength(2);
+    expect(getState().selectedNodeIds).not.toContain('a');
+    expect(getState().selectedNodeIds).not.toContain('b');
+    getState().undo();
+    expect(getState().tree?.children.map((node) => node.id)).toEqual(['a', 'b']);
+  });
+
+  it('replaces selected sibling operands with a union in one history entry', () => {
+    const subtract = document();
+    subtract.kind = 'subtract';
+    subtract.label = 'Subtract';
+    getState().resetDocument(subtract);
+    getState().selectNode('a');
+    getState().selectNode('b', 'toggle');
+    getState().unionSelected();
+
+    expect(getState().tree?.kind).toBe('union');
+    expect(getState().tree?.children.map((node) => node.id)).toEqual(['a', 'b']);
+    expect(getState().selectedNodeIds).toEqual([getState().tree?.id]);
+    expect(getState().history).toHaveLength(2);
+    getState().undo();
+    expect(getState().tree?.kind).toBe('subtract');
   });
 });
 

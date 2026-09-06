@@ -74,14 +74,15 @@ function applyBounds(handle: BoxHandle | null, bounds: BBox | null) {
 export function SelectionOverlay({ engine }: { engine: ThreeEngine | null }) {
   const tree = useModelerStore((s) => s.tree);
   const selectedId = useModelerStore((s) => s.selectedNodeId);
+  const selectedIds = useModelerStore((s) => s.selectedNodeIds);
   const hoveredId = useViewportStore((s) => s.hoveredNodeId);
   const showDimensions = useViewportStore((s) => s.showDimensions);
 
-  const selectedRef = useRef<BoxHandle | null>(null);
+  const selectedRefs = useRef<BoxHandle[]>([]);
   const hoverRef = useRef<BoxHandle | null>(null);
   const measuredRef = useRef<BoxHandle | null>(null);
 
-  const selectedBounds = useMemo(() => nodeWorldBounds(tree, selectedId), [tree, selectedId]);
+  const selectedBounds = useMemo(() => selectedIds.map((id) => nodeWorldBounds(tree, id)).filter((bounds): bounds is BBox => bounds !== null), [tree, selectedIds]);
   // Suppressed when it would land on top of the selection box: two coincident
   // outlines in different colours z-fight into a shimmer, and the information
   // ("this is what you would select") is already conveyed by the selection.
@@ -96,11 +97,10 @@ export function SelectionOverlay({ engine }: { engine: ThreeEngine | null }) {
 
   useEffect(() => {
     if (!engine) return;
-    selectedRef.current = createBox(engine, SELECTED_COLOR, 0.95, 999);
     hoverRef.current = createBox(engine, HOVER_COLOR, 0.4, 997);
     measuredRef.current = createBox(engine, MEASURED_COLOR, 0.5, 996);
     return () => {
-      for (const ref of [selectedRef, hoverRef, measuredRef]) {
+      for (const ref of [hoverRef, measuredRef]) {
         const handle = ref.current;
         if (!handle) continue;
         engine.scene.remove(handle.lines);
@@ -108,12 +108,25 @@ export function SelectionOverlay({ engine }: { engine: ThreeEngine | null }) {
         handle.material.dispose();
         ref.current = null;
       }
+      for (const handle of selectedRefs.current) {
+        engine.scene.remove(handle.lines);
+        handle.lines.geometry.dispose();
+        handle.material.dispose();
+      }
+      selectedRefs.current = [];
     };
   }, [engine]);
 
   useEffect(() => {
     if (!engine) return;
-    applyBounds(selectedRef.current, selectedBounds);
+    while (selectedRefs.current.length < selectedBounds.length) selectedRefs.current.push(createBox(engine, SELECTED_COLOR, 0.95, 999));
+    while (selectedRefs.current.length > selectedBounds.length) {
+      const handle = selectedRefs.current.pop()!;
+      engine.scene.remove(handle.lines);
+      handle.lines.geometry.dispose();
+      handle.material.dispose();
+    }
+    selectedBounds.forEach((bounds, index) => applyBounds(selectedRefs.current[index], bounds));
     applyBounds(hoverRef.current, hoverBounds);
     applyBounds(measuredRef.current, measuredBounds);
     engine.invalidate();

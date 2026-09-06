@@ -13,6 +13,8 @@ describe('ShortcutOverlay touch entry point', () => {
     fireEvent.click(screen.getByRole('button', { name: /open keyboard shortcuts and accessibility help/i }));
     expect(screen.getByRole('dialog', { name: 'Keyboard Shortcuts' })).toBeInTheDocument();
     expect(screen.getByText(/keyboard and screen-reader alternative/i)).toBeInTheDocument();
+    expect(screen.getByText('Add or remove a shape from the selection')).toBeInTheDocument();
+    expect(screen.getByText('Add or remove a shape on touch screens')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /close keyboard shortcuts/i }));
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
