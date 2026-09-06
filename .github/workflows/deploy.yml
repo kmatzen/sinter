@@ -92,7 +92,9 @@ jobs:
           # Wrangler reads the project name + the static asset directory from
           # `wrangler.toml`. Pages Functions in `functions/` are picked up
           # automatically.
-          command: pages deploy dist --project-name=sinter
+          # Tag checkouts are detached, which Wrangler otherwise identifies as
+          # branch "head" and publishes as a preview instead of production.
+          command: pages deploy dist --project-name=sinter --branch=main
       - name: Verify production security headers
         run: |
           set -euo pipefail
