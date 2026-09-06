@@ -8,6 +8,7 @@ import { SelectionBreadcrumb } from './SelectionBreadcrumb';
 import { useModelerStore } from '../../store/modelerStore';
 import { setEngineRef } from '../../engine/engineRef';
 import { ModelErrorNotice } from './ModelErrorNotice';
+import { MeasurementOverlay } from './MeasurementOverlay';
 
 export function Viewport() {
   const evaluating = useModelerStore((s) => s.evaluating);
@@ -57,6 +58,7 @@ export function Viewport() {
       <SelectionOverlay engine={engine} />
       <DimensionLabels engine={engine} />
       <SelectionBreadcrumb />
+      <MeasurementOverlay />
       <ViewportToolbar engine={engine} />
       <ShortcutOverlay />
 

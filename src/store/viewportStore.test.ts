@@ -9,7 +9,46 @@ beforeEach(() => {
     removeItem: (key: string) => void values.delete(key),
     clear: () => values.clear(),
   });
-  useViewportStore.setState({ hoveredNodeId: null, hoverSource: null, gizmoSpace: 'world' });
+  useViewportStore.setState({
+    hoveredNodeId: null, hoverSource: null, gizmoSpace: 'world', measurementMode: false,
+    measurementPoints: [], pinnedMeasurements: [], measurementUnit: 'mm', measurementPrecision: 2,
+  });
+});
+
+describe('measurements', () => {
+  const anchor = (nodeId: string, x: number) => ({ nodeId, normalized: [x, 0, 0] as [number, number, number], fallback: [x, 0, 0] as [number, number, number] });
+
+  it('keeps at most three points, supports point undo, and pins a snapshot', () => {
+    const store = useViewportStore.getState();
+    store.addMeasurementPoint(anchor('a', 0));
+    store.addMeasurementPoint(anchor('a', 1));
+    store.addMeasurementPoint(anchor('a', 2));
+    store.addMeasurementPoint(anchor('a', 3));
+    expect(useViewportStore.getState().measurementPoints.map((item) => item.fallback[0])).toEqual([1, 2, 3]);
+
+    useViewportStore.getState().removeMeasurementPoint();
+    expect(useViewportStore.getState().measurementPoints).toHaveLength(2);
+    useViewportStore.getState().pinMeasurement();
+    expect(useViewportStore.getState().measurementPoints).toEqual([]);
+    expect(useViewportStore.getState().pinnedMeasurements[0].anchors).toHaveLength(2);
+  });
+
+  it('allows a single primitive point to be pinned and persists display preferences', () => {
+    useViewportStore.getState().addMeasurementPoint(anchor('cylinder', 0.5));
+    useViewportStore.getState().pinMeasurement();
+    expect(useViewportStore.getState().pinnedMeasurements).toHaveLength(1);
+
+    useViewportStore.getState().setMeasurementUnit('in');
+    useViewportStore.getState().setMeasurementPrecision(9);
+    expect(localStorage.getItem('sinter_measurement_unit')).toBe('in');
+    expect(localStorage.getItem('sinter_measurement_precision')).toBe('6');
+  });
+
+  it('uses two decimals when no saved precision exists', async () => {
+    vi.resetModules();
+    const fresh = await import('./viewportStore');
+    expect(fresh.useViewportStore.getState().measurementPrecision).toBe(2);
+  });
 });
 
 describe('gizmo space', () => {

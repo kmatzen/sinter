@@ -1,6 +1,6 @@
 import { useViewportStore } from '../../store/viewportStore';
 import { triggerDownload } from '../../utils/download';
-import { Move, RotateCcw, Magnet, Camera, Ruler, Scissors, Scaling } from 'lucide-react';
+import { Move, RotateCcw, Magnet, Camera, Ruler, Scissors, Scaling, Crosshair } from 'lucide-react';
 import type { ThreeEngine } from '../../engine/ThreeEngine';
 import type { ReactNode } from 'react';
 
@@ -79,6 +79,8 @@ export function ViewportToolbar({ engine }: { engine: ThreeEngine | null }) {
   const setSnapSize = useViewportStore((s) => s.setSnapSize);
   const showDimensions = useViewportStore((s) => s.showDimensions);
   const toggleDimensions = useViewportStore((s) => s.toggleDimensions);
+  const measurementMode = useViewportStore((s) => s.measurementMode);
+  const toggleMeasurementMode = useViewportStore((s) => s.toggleMeasurementMode);
 
   return (
     <>
@@ -124,6 +126,9 @@ export function ViewportToolbar({ engine }: { engine: ThreeEngine | null }) {
 
         <VpBtn active={showDimensions} onClick={toggleDimensions} title="Dimensions">
           <Ruler size={ICON} />
+        </VpBtn>
+        <VpBtn active={measurementMode} onClick={toggleMeasurementMode} title="Measure surfaces">
+          <Crosshair size={ICON} />
         </VpBtn>
       </div>
 

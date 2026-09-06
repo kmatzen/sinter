@@ -7,6 +7,10 @@ import { OutlinePass } from './OutlinePass';
 import { GizmoController } from './GizmoController';
 import { attributePath } from './sdfPicking';
 import type { Vec3 } from '../worker/sdf/types';
+import { makeAnchor } from '../types/measurement';
+import { nodeWorldBounds } from './nodeBounds';
+
+interface PickResult { path: string[]; point?: Vec3 }
 
 export class ThreeEngine {
   renderer: THREE.WebGLRenderer;
@@ -259,7 +263,7 @@ export class ThreeEngine {
    * hitch. Hover will not — forcing a full sphere-march per pointer move to
    * refresh a *preview* is the wrong trade, so it declines to guess instead.
    */
-  private async pickPathAt(clientX: number, clientY: number, allowRender: boolean): Promise<string[] | null> {
+  private async pickPathAt(clientX: number, clientY: number, allowRender: boolean): Promise<PickResult | null> {
     const rect = this.renderer.domElement.getBoundingClientRect();
     if (rect.width === 0 || rect.height === 0) return null;
     const ndcX = ((clientX - rect.left) / rect.width) * 2 - 1;
@@ -281,7 +285,7 @@ export class ThreeEngine {
     if (this.disposed) return null;
 
     // depth ≈ 1 means far plane = no hit
-    if (depth >= 1.0 - 1e-6 || !tree) return [];
+    if (depth >= 1.0 - 1e-6 || !tree) return { path: [] };
 
     // Unproject depth to world position
     const zNdc = depth * 2 - 1;
@@ -292,7 +296,7 @@ export class ThreeEngine {
     worldPos.divideScalar(worldPos.w);
 
     const hitPoint: Vec3 = [worldPos.x, worldPos.y, worldPos.z];
-    return attributePath(tree, hitPoint);
+    return { path: attributePath(tree, hitPoint), point: hitPoint };
   }
 
   private onPointerDown = (e: PointerEvent) => {
@@ -312,18 +316,31 @@ export class ThreeEngine {
 
     const seq = ++this.pickSeq;
     this.clickPending = true;
-    let path: string[] | null;
+    let picked: PickResult | null;
     try {
-      path = await this.pickPathAt(e.clientX, e.clientY, true);
+      picked = await this.pickPathAt(e.clientX, e.clientY, true);
     } finally {
       this.clickPending = false;
     }
-    if (path === null || seq !== this.pickSeq || this.disposed) return;
+    if (picked === null || seq !== this.pickSeq || this.disposed) return;
 
     const store = useModelerStore.getState();
+    const path = picked.path;
     if (path.length === 0) {
       store.selectNode(null);
       useViewportStore.getState().setHoveredNode(null);
+      return;
+    }
+
+    const viewport = useViewportStore.getState();
+    if (viewport.measurementMode && picked.point) {
+      const bounds = store.tree ? nodeWorldBounds(store.tree, store.tree.id) : null;
+      viewport.addMeasurementPoint(makeAnchor(
+        picked.point,
+        path[path.length - 1],
+        bounds?.min,
+        bounds?.max,
+      ));
       return;
     }
 
@@ -363,15 +380,15 @@ export class ThreeEngine {
     this.hoverPending = true;
     const { clientX, clientY } = e;
     this.pickPathAt(clientX, clientY, false)
-      .then((path) => {
+      .then((picked) => {
         if (seq !== this.hoverSeq || this.disposed) return;
         // null means "could not answer this time" (no fresh frame). Leaving the
         // previous highlight alone beats flickering it off and back on while
         // the model re-renders.
-        if (path === null) return;
-        const id = path.length > 0 ? path[path.length - 1] : null;
+        if (picked === null) return;
+        const id = picked.path.length > 0 ? picked.path[picked.path.length - 1] : null;
         useViewportStore.getState().setHoveredNode(id, 'viewport');
-        this.renderer.domElement.style.cursor = id ? 'pointer' : '';
+        this.renderer.domElement.style.cursor = id ? (useViewportStore.getState().measurementMode ? 'crosshair' : 'pointer') : '';
       })
       .finally(() => {
         this.hoverPending = false;
