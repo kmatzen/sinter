@@ -55,6 +55,10 @@ function authIdentity(): string {
   return `${getCurrentProvider() ?? 'none'}:${user?.id ?? user?.email ?? 'none'}`;
 }
 
+function cloudConversationKey(provider: ProviderName, externalId: string): string {
+  return `cloud:${accountKey(provider)}:${externalId}`;
+}
+
 type CloudEditNotice = { provider: ProviderName; account: string; externalId: string; revision: string };
 const editChannel = typeof window === 'undefined' || typeof window.BroadcastChannel === 'undefined'
   ? null : new window.BroadcastChannel('sinter-cloud-edits-v1');
@@ -147,6 +151,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       // it must never attach its identity or clean state to a different tree.
       if (get().generation !== generation || authIdentity() !== identity) return false;
 
+      const wasNew = !projectId;
       set({
         provider: activeProvider,
         projectId: externalId,
@@ -155,6 +160,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         revision: savedRevision,
         saveConflict: false,
       });
+      if (wasNew) useChatStore.getState().bindConversation(cloudConversationKey(activeProvider, externalId));
       announceEdit(activeProvider, externalId, savedRevision);
       return true;
     } catch (err: unknown) {
@@ -192,6 +198,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   },
 
   loadProject: async (provider, externalId, name) => {
+    useChatStore.getState().stopGeneration();
     const generation = ++nextGeneration;
     set({ generation, saving: false, saveError: null, saveConflict: false });
     const identity = authIdentity();
@@ -213,7 +220,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     if (get().generation !== generation || authIdentity() !== identity) return;
 
     useModelerStore.getState().resetDocument(body.tree, name || 'Untitled');
-    useChatStore.getState().clearMessages();
+    useChatStore.getState().switchConversation(cloudConversationKey(provider, externalId));
 
     set({
       provider,
@@ -229,7 +236,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   createProject: () => {
     const generation = ++nextGeneration;
     useModelerStore.getState().resetDocument(null, 'Untitled');
-    useChatStore.getState().clearMessages();
+    useChatStore.getState().switchConversation(`draft:${crypto.randomUUID()}`);
     set({
       projectId: null,
       provider: null,
@@ -248,7 +255,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     const generation = ++nextGeneration;
     const modeler = useModelerStore.getState();
     modeler.resetDocument(decodeTree(tree, { legacy: true, repairMissingIds: true }), name || 'Untitled');
-    useChatStore.getState().clearMessages();
+    useChatStore.getState().switchConversation('browser:default');
     set({
       projectId: null,
       provider: null,

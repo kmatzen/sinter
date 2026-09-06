@@ -27,6 +27,10 @@ const captureMultiView = vi.fn();
 
 vi.mock('../llm/llmService', () => ({
   streamLLMMessage: (...args: unknown[]) => streamLLMMessage(...args),
+  maxTokensFor: () => 4096,
+  budgetMessages: (messages: unknown[]) => ({
+    messages, approximateTokens: 100, imageCount: 0, trimmedMessages: 0,
+  }),
 }));
 
 vi.mock('../engine/engineRef', () => ({
@@ -77,9 +81,13 @@ describe('chatStore.sendMessage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     captureMultiView.mockReturnValue(null);
-    useChatStore.setState({ messages: [], isLoading: false, pendingProposal: null, proposalError: null, apiKey: 'k', provider: 'anthropic' });
-    useModelerStore.getState().resetDocument(null, 'Untitled');
     vi.stubGlobal('localStorage', makeStorageStub());
+    useChatStore.getState().switchConversation(`test:${crypto.randomUUID()}`);
+    useChatStore.setState({
+      messages: [], isLoading: false, pendingProposal: null, proposalError: null,
+      requestEstimate: null, attachViewport: true, apiKey: 'k', provider: 'anthropic',
+    });
+    useModelerStore.getState().resetDocument(null, 'Untitled');
   });
 
   afterEach(() => {
@@ -167,6 +175,49 @@ describe('chatStore.sendMessage', () => {
     // Each token was visible before the next arrived, which is what makes the
     // reply appear progressively rather than in one jump at the end.
     expect(seen).toEqual(['Here', 'Here you', 'Here you go']);
+  });
+
+  it('switches projects without carrying the previous transcript', () => {
+    const projectA = useChatStore.getState().conversationKey;
+    useChatStore.setState({ messages: [{ role: 'user', content: 'project A secret' }] });
+    useChatStore.getState().switchConversation('project:b');
+    expect(messages()).toEqual([]);
+    useChatStore.setState({ messages: [{ role: 'user', content: 'project B' }] });
+    useChatStore.getState().switchConversation(projectA);
+    expect(messages()).toEqual([{ role: 'user', content: 'project A secret' }]);
+  });
+
+  it('stops a stream on project switch and ignores its late tokens', async () => {
+    streamLLMMessage.mockImplementation((_req: { signal: AbortSignal }, onToken: (text: string) => void) =>
+      new Promise((_resolve, reject) => {
+        _req.signal.addEventListener('abort', () => {
+          onToken('late token');
+          reject(new DOMException('Aborted', 'AbortError'));
+        });
+      }));
+    const pending = useChatStore.getState().sendMessage('project A request');
+    await vi.waitFor(() => expect(useChatStore.getState().isLoading).toBe(true));
+
+    useChatStore.getState().switchConversation('project:b');
+    await pending;
+
+    expect(messages()).toEqual([]);
+    expect(useChatStore.getState().isLoading).toBe(false);
+  });
+
+  it('stops generation and leaves the request retryable', async () => {
+    streamLLMMessage.mockImplementationOnce((req: { signal: AbortSignal }) =>
+      new Promise((_resolve, reject) => req.signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')))));
+    const pending = useChatStore.getState().sendMessage('try this');
+    await vi.waitFor(() => expect(useChatStore.getState().isLoading).toBe(true));
+    useChatStore.getState().stopGeneration();
+    await pending;
+    expect(lastMessage().content).toMatch(/stopped/i);
+    expect(lastMessage().parseFailed).toBe(true);
+
+    respondWith([replaceWith('sphere', { radius: 3 })]);
+    await useChatStore.getState().retryLast();
+    expect(useChatStore.getState().pendingProposal?.tree?.kind).toBe('sphere');
   });
 
   /**
@@ -270,6 +321,15 @@ describe('chatStore.sendMessage', () => {
       const sent = streamLLMMessage.mock.calls[0][0] as { messages: { images?: string[] }[] };
       expect(sent.messages[sent.messages.length - 1].images).toBeUndefined();
     });
+
+    it('lets the user disable viewport attachments for a request', async () => {
+      useModelerStore.setState({ tree: { id: 'b', kind: 'box', label: 'Box', params: { width: 1, height: 1, depth: 1 }, children: [], enabled: true } });
+      useChatStore.setState({ attachViewport: false });
+      respondWith([replaceWith('sphere', { radius: 2 })]);
+      await useChatStore.getState().sendMessage('no images');
+      expect(captureMultiView).not.toHaveBeenCalled();
+      expect(useChatStore.getState().requestEstimate?.imageCount).toBe(0);
+    });
   });
 
   /**
@@ -287,6 +347,8 @@ describe('chatStore.sendMessage', () => {
     const saved = localStorage.getItem('sinter_chat_messages')!;
     expect(saved).toBeTruthy();
     expect(saved).not.toContain('base64');
-    expect(JSON.parse(saved)).toHaveLength(2);
+    const persisted = JSON.parse(saved);
+    expect(persisted.version).toBe(2);
+    expect(persisted.conversations[useChatStore.getState().conversationKey]).toHaveLength(2);
   });
 });

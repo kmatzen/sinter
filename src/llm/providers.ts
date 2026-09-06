@@ -35,6 +35,8 @@ export interface ProviderDef {
   catalogHasCapabilities: boolean;
   /** Shown under the credential control in settings. */
   credentialHint: string;
+  /** Conservative advertised context used to bound client-side requests. */
+  contextTokens: number;
 }
 
 export const PROVIDERS: Record<ProviderId, ProviderDef> = {
@@ -48,6 +50,7 @@ export const PROVIDERS: Record<ProviderId, ProviderDef> = {
     modelsPath: '/v1/models',
     catalogHasCapabilities: false,
     credentialHint: 'Create a key at console.anthropic.com. Stored in your browser only.',
+    contextTokens: 128_000,
   },
   openai: {
     id: 'openai',
@@ -59,6 +62,7 @@ export const PROVIDERS: Record<ProviderId, ProviderDef> = {
     modelsPath: '/v1/models',
     catalogHasCapabilities: false,
     credentialHint: 'Create a key at platform.openai.com. Stored in your browser only.',
+    contextTokens: 128_000,
   },
   openrouter: {
     id: 'openrouter',
@@ -73,6 +77,7 @@ export const PROVIDERS: Record<ProviderId, ProviderDef> = {
     catalogHasCapabilities: true,
     credentialHint:
       'Connect once and OpenRouter bills your own account directly. Sinter never sees your payment details and never proxies your requests.',
+    contextTokens: 128_000,
   },
 };
 

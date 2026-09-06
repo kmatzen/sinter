@@ -13,6 +13,8 @@ describe('AI model proposal preview', () => {
       isLoading: false,
       messages: [{ role: 'assistant', content: 'I prepared the change.' }],
       proposalError: null,
+      attachViewport: true,
+      requestEstimate: { approximateTokens: 1_250, imageCount: 4, trimmedMessages: 2 },
       pendingProposal: {
         tree: null,
         baseHash: 'null',
@@ -28,6 +30,10 @@ describe('AI model proposal preview', () => {
     expect(screen.getByText('Review proposed model changes')).toBeInTheDocument();
     expect(screen.getByText('Update Box')).toBeInTheDocument();
     expect(screen.getByText('2 affected nodes')).toBeInTheDocument();
+    expect(screen.getByText(/1,250 tokens · 4 images/)).toBeInTheDocument();
+    const attachment = screen.getByRole('checkbox', { name: 'Attach viewport images' });
+    fireEvent.click(attachment);
+    expect(useChatStore.getState().attachViewport).toBe(false);
     fireEvent.click(screen.getByRole('button', { name: 'Discard' }));
     expect(useChatStore.getState().pendingProposal).toBeNull();
   });

@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { streamLLMMessage } from '../llm/llmService';
+import { budgetMessages, maxTokensFor, streamLLMMessage } from '../llm/llmService';
 import { buildSystemPrompt } from '../llm/systemPrompt';
 import { parseResponse, type Modification, type ParsedResponse } from '../llm/parseResponse';
 import { useModelerStore } from './modelerStore';
@@ -50,6 +50,9 @@ interface ChatState {
   isLoading: boolean;
   pendingProposal: ModelProposal | null;
   proposalError: string | null;
+  conversationKey: string;
+  attachViewport: boolean;
+  requestEstimate: { approximateTokens: number; imageCount: number; trimmedMessages: number } | null;
 
   /** Active provider's settings, mirrored flat for convenience. */
   apiKey: string;
@@ -67,10 +70,18 @@ interface ChatState {
   clearMessages: () => void;
   applyProposal: () => void;
   discardProposal: () => void;
+  switchConversation: (key: string) => void;
+  bindConversation: (key: string) => void;
+  setAttachViewport: (enabled: boolean) => void;
+  stopGeneration: () => void;
 }
 
 const SETTINGS_KEY = 'sinter_llm_settings';
 const MESSAGES_KEY = 'sinter_chat_messages';
+const DEFAULT_CONVERSATION = 'session';
+let activeConversationKey = DEFAULT_CONVERSATION;
+let requestSequence = 0;
+let activeRequest: { id: number; key: string; controller: AbortController } | null = null;
 
 function treeHash(tree: SDFNodeUI | null): string {
   return JSON.stringify(tree);
@@ -172,19 +183,36 @@ function applyModification(
   throw new Error('The response contains an unsupported change');
 }
 
-function loadMessages(): ChatMessage[] {
+function loadMessages(key = activeConversationKey): ChatMessage[] {
   try {
     const raw = localStorage.getItem(MESSAGES_KEY);
-    if (raw) return JSON.parse(raw);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    // v1 was one global array. Keep it only in the initial session rather
+    // than silently attaching it to the first cloud project opened.
+    if (Array.isArray(parsed)) return key === DEFAULT_CONVERSATION ? parsed : [];
+    if (parsed?.version === 2 && parsed.conversations && Array.isArray(parsed.conversations[key])) {
+      return parsed.conversations[key];
+    }
   } catch { /* */ }
   return [];
 }
 
-function saveMessages(messages: ChatMessage[]) {
+function saveMessages(messages: ChatMessage[], key = activeConversationKey) {
   try {
     // Strip images to keep localStorage small
     const stripped = messages.map(m => m.images ? { ...m, images: undefined } : m);
-    localStorage.setItem(MESSAGES_KEY, JSON.stringify(stripped));
+    const raw = localStorage.getItem(MESSAGES_KEY);
+    let conversations: Record<string, ChatMessage[]> = {};
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed?.version === 2 && parsed.conversations) conversations = parsed.conversations;
+      else if (Array.isArray(parsed)) conversations[DEFAULT_CONVERSATION] = parsed;
+    }
+    localStorage.setItem(MESSAGES_KEY, JSON.stringify({
+      version: 2,
+      conversations: { ...conversations, [key]: stripped },
+    }));
   } catch { /* */ }
 }
 
@@ -275,6 +303,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
   isLoading: false,
   pendingProposal: null,
   proposalError: null,
+  conversationKey: DEFAULT_CONVERSATION,
+  attachViewport: true,
+  requestEstimate: null,
 
   apiKey: initialActive.apiKey,
   apiEndpoint: initialActive.apiEndpoint,
@@ -286,6 +317,31 @@ export const useChatStore = create<ChatState>((set, get) => ({
   toggleOpen: () => set((s) => ({ isOpen: !s.isOpen })),
   clearMessages: () => { set({ messages: [], pendingProposal: null, proposalError: null }); saveMessages([]); },
   discardProposal: () => set({ pendingProposal: null, proposalError: null }),
+  setAttachViewport: (enabled) => set({ attachViewport: enabled }),
+  stopGeneration: () => {
+    activeRequest?.controller.abort();
+  },
+  switchConversation: (key) => {
+    if (!key || key === get().conversationKey) return;
+    activeRequest?.controller.abort();
+    requestSequence++;
+    saveMessages(get().messages, get().conversationKey);
+    activeConversationKey = key;
+    set({
+      conversationKey: key,
+      messages: loadMessages(key),
+      isLoading: false,
+      pendingProposal: null,
+      proposalError: null,
+      requestEstimate: null,
+    });
+  },
+  bindConversation: (key) => {
+    if (!key || key === get().conversationKey) return;
+    saveMessages(get().messages, key);
+    activeConversationKey = key;
+    set({ conversationKey: key });
+  },
   applyProposal: () => {
     const proposal = get().pendingProposal;
     if (!proposal) return;
@@ -350,9 +406,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
       return;
     }
 
+    const conversationKey = state.conversationKey;
+    const requestId = ++requestSequence;
+    const controller = new AbortController();
+    activeRequest?.controller.abort();
+    activeRequest = { id: requestId, key: conversationKey, controller };
+    const isCurrent = () => activeRequest?.id === requestId && get().conversationKey === conversationKey;
+
     // Capture viewport renders to give Claude visual context
     const engine = getEngineRef();
-    const capture = engine && useModelerStore.getState().tree
+    const capture = state.attachViewport && engine && useModelerStore.getState().tree
       ? engine.captureMultiView(256)
       : null;
 
@@ -374,18 +437,33 @@ export const useChatStore = create<ChatState>((set, get) => ({
     try {
       const currentTree = useModelerStore.getState().tree;
       const systemPrompt = buildSystemPrompt(currentTree);
-      const messages = get().messages.slice(0, -1); // exclude the empty placeholder
+      const unbudgeted = get().messages.slice(0, -1); // exclude the empty placeholder
+      const providerDef = getProvider(state.provider);
+      const estimate = budgetMessages(
+        unbudgeted, systemPrompt, providerDef.contextTokens,
+        maxTokensFor({
+          systemPrompt, messages: unbudgeted, apiKey: state.apiKey, apiEndpoint: state.apiEndpoint,
+          model: state.model, provider: state.provider, supportsThinking: state.supportsThinking,
+        }, state.model || providerDef.defaultModel),
+      );
+      if (isCurrent()) set({ requestEstimate: {
+        approximateTokens: estimate.approximateTokens,
+        imageCount: estimate.imageCount,
+        trimmedMessages: estimate.trimmedMessages,
+      } });
       const response = await streamLLMMessage(
         {
           systemPrompt,
-          messages,
+          messages: estimate.messages,
           apiKey: state.apiKey,
           apiEndpoint: state.apiEndpoint,
           model: state.model,
           provider: state.provider,
           supportsThinking: state.supportsThinking,
+          signal: controller.signal,
         },
         (token) => {
+          if (!isCurrent()) return;
           // Append each token to the last (assistant) message
           set((s) => {
             const msgs = s.messages.slice();
@@ -395,6 +473,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
           });
         },
       );
+
+      if (!isCurrent()) return;
 
       // Ensure the final message content matches the full response
       const parsed = parseResponse(response);
@@ -421,18 +501,22 @@ export const useChatStore = create<ChatState>((set, get) => ({
         }
       }
     } catch (err: any) {
-      const msg = `Error: ${err.message}`;
+      if (!isCurrent()) return;
+      const stopped = err?.name === 'AbortError';
+      const msg = stopped ? 'Generation stopped. You can retry this request.' : `Error: ${err.message}`;
       set((s) => {
         const msgs = s.messages.slice();
         const last = msgs[msgs.length - 1];
         if (last.role === 'assistant' && !last.content) {
-          msgs[msgs.length - 1] = { role: 'assistant', content: msg };
+          msgs[msgs.length - 1] = { role: 'assistant', content: msg, parseFailed: stopped || undefined };
         } else {
           msgs.push({ role: 'assistant', content: msg });
         }
         saveMessages(msgs);
         return { messages: msgs, isLoading: false };
       });
+    } finally {
+      if (activeRequest?.id === requestId) activeRequest = null;
     }
   },
 

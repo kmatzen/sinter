@@ -13,6 +13,10 @@ export function ChatDrawer() {
   const proposalError = useChatStore((s) => s.proposalError);
   const applyProposal = useChatStore((s) => s.applyProposal);
   const discardProposal = useChatStore((s) => s.discardProposal);
+  const attachViewport = useChatStore((s) => s.attachViewport);
+  const setAttachViewport = useChatStore((s) => s.setAttachViewport);
+  const requestEstimate = useChatStore((s) => s.requestEstimate);
+  const stopGeneration = useChatStore((s) => s.stopGeneration);
 
   const toggleOpen = useChatStore((s) => s.toggleOpen);
 
@@ -145,6 +149,17 @@ export function ChatDrawer() {
           ['--safe-pad-y' as any]: '0.75rem',
         }}
       >
+        <div className="mb-2 flex items-center justify-between gap-2 text-[11px]" style={{ color: 'var(--text-muted)' }}>
+          <label className="flex items-center gap-1.5 cursor-pointer">
+            <input type="checkbox" checked={attachViewport} onChange={(event) => setAttachViewport(event.target.checked)} />
+            Attach viewport images
+          </label>
+          {requestEstimate && (
+            <span title={requestEstimate.trimmedMessages ? `${requestEstimate.trimmedMessages} older messages omitted` : undefined}>
+              ~{requestEstimate.approximateTokens.toLocaleString()} tokens · {requestEstimate.imageCount} image{requestEstimate.imageCount === 1 ? '' : 's'}
+            </span>
+          )}
+        </div>
         <div className="flex gap-2">
           <input
             value={input}
@@ -156,16 +171,25 @@ export function ChatDrawer() {
             className="flex-1 rounded px-3 py-2 text-sm tap-h focus:outline-none disabled:opacity-50"
             style={{ background: 'var(--bg-surface)', color: 'var(--text-primary)', border: '1px solid var(--border-default)' }}
           />
-          <button
-            onClick={handleSend}
-            disabled={isLoading || !input.trim()}
-            title="Send"
-            aria-label="Send message"
-            className="px-3 py-2 rounded flex items-center justify-center tap disabled:opacity-40"
-            style={{ background: 'var(--accent)', color: 'var(--bg-deep)' }}
-          >
-            <Send size={16} />
-          </button>
+          {isLoading ? (
+            <button
+              onClick={stopGeneration}
+              title="Stop generation"
+              className="px-3 py-2 rounded flex items-center justify-center tap"
+              style={{ background: 'var(--accent-red)', color: '#fff' }}
+            >Stop</button>
+          ) : (
+            <button
+              onClick={handleSend}
+              disabled={!input.trim()}
+              title="Send"
+              aria-label="Send message"
+              className="px-3 py-2 rounded flex items-center justify-center tap disabled:opacity-40"
+              style={{ background: 'var(--accent)', color: 'var(--bg-deep)' }}
+            >
+              <Send size={16} />
+            </button>
+          )}
         </div>
       </div>
     </div>
