@@ -47,8 +47,36 @@ function readPersisted(): PersistedAuth | null {
   try {
     const raw = localStorage.getItem(AUTH_KEY);
     if (!raw) return null;
-    return JSON.parse(raw) as PersistedAuth;
+    const value: unknown = JSON.parse(raw);
+    if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('invalid auth envelope');
+    const auth = value as Record<string, unknown>;
+    if (auth.provider !== 'google' && auth.provider !== 'github') throw new Error('invalid auth provider');
+    if (typeof auth.accessToken !== 'string' || !auth.accessToken.trim() || auth.accessToken.length > 64 * 1024) {
+      throw new Error('invalid access token');
+    }
+    if (auth.refreshToken !== null && (typeof auth.refreshToken !== 'string' || !auth.refreshToken.trim() || auth.refreshToken.length > 64 * 1024)) {
+      throw new Error('invalid refresh token');
+    }
+    if (typeof auth.expiresAt !== 'number' || !Number.isFinite(auth.expiresAt) || auth.expiresAt < 0) {
+      throw new Error('invalid token expiry');
+    }
+    if (!auth.user || typeof auth.user !== 'object' || Array.isArray(auth.user)) throw new Error('invalid auth user');
+    const user = auth.user as Record<string, unknown>;
+    const boundedString = (field: string, max: number, required = false) => {
+      const item = user[field];
+      return typeof item === 'string' && item.length <= max && (!required || !!item.trim());
+    };
+    if (!boundedString('id', 512, true) || !boundedString('email', 2_048) ||
+        !boundedString('name', 2_048, true) || !boundedString('avatar_url', 16_384) ||
+        user.provider !== auth.provider) {
+      throw new Error('invalid auth user');
+    }
+    return auth as unknown as PersistedAuth;
   } catch {
+    // Corrupt or stale structural data must not keep hydrating a phantom
+    // signed-in state on every launch. Storage itself can be unavailable, so
+    // clearing remains best effort.
+    try { localStorage.removeItem(AUTH_KEY); } catch { /* unavailable storage */ }
     return null;
   }
 }

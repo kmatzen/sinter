@@ -63,13 +63,16 @@ const readStored = () => {
 };
 
 let useAuthStore: typeof import('./authStore').useAuthStore;
+let getCurrentProvider: typeof import('./authStore').getCurrentProvider;
 
 beforeEach(async () => {
   vi.resetModules();
   refreshGoogleToken.mockReset();
   vi.stubGlobal('localStorage', makeStorageStub());
   localStorage.setItem(AUTH_KEY, JSON.stringify(expiringAuth()));
-  useAuthStore = (await import('./authStore')).useAuthStore;
+  const authModule = await import('./authStore');
+  useAuthStore = authModule.useAuthStore;
+  getCurrentProvider = authModule.getCurrentProvider;
 });
 
 afterEach(() => vi.unstubAllGlobals());
@@ -158,5 +161,41 @@ describe('getAccessToken single-flight refresh', () => {
     localStorage.setItem(AUTH_KEY, JSON.stringify({ ...expiringAuth('fresh'), expiresAt: Date.now() + 3_600_000 }));
     await expect(useAuthStore.getState().getAccessToken()).resolves.toBe('fresh');
     expect(refreshGoogleToken).not.toHaveBeenCalled();
+  });
+});
+
+describe('persisted authentication decoding', () => {
+  it.each([
+    ['unknown provider', { ...expiringAuth(), provider: 'dropbox', user: { ...expiringAuth().user, provider: 'dropbox' } }],
+    ['missing access token', { ...expiringAuth(), accessToken: undefined }],
+    ['non-string access token', { ...expiringAuth(), accessToken: 42 }],
+    ['empty access token', { ...expiringAuth(), accessToken: '   ' }],
+    ['non-string refresh token', { ...expiringAuth(), refreshToken: 42 }],
+    ['empty refresh token', { ...expiringAuth(), refreshToken: '' }],
+    ['invalid expiry', { ...expiringAuth(), expiresAt: 'tomorrow' }],
+    ['negative expiry', { ...expiringAuth(), expiresAt: -1 }],
+    ['missing user', { ...expiringAuth(), user: undefined }],
+    ['empty user id', { ...expiringAuth(), user: { ...expiringAuth().user, id: '' } }],
+    ['mismatched user provider', { ...expiringAuth(), user: { ...expiringAuth().user, provider: 'github' } }],
+  ])('clears %s instead of restoring a phantom session', async (_label, record) => {
+    localStorage.setItem(AUTH_KEY, JSON.stringify(record));
+
+    await useAuthStore.getState().checkAuth();
+
+    expect(useAuthStore.getState()).toMatchObject({ user: null, loading: false, checked: true });
+    expect(localStorage.getItem(AUTH_KEY)).toBeNull();
+    expect(getCurrentProvider()).toBeNull();
+    await expect(useAuthStore.getState().getAccessToken()).rejects.toThrow('Not signed in');
+  });
+
+  it.each([
+    ['google', expiringAuth()],
+    ['github', { ...expiringAuth('github-token'), provider: 'github', refreshToken: null, expiresAt: 0,
+      user: { ...expiringAuth().user, provider: 'github' } }],
+  ])('restores a valid %s session', async (provider, record) => {
+    localStorage.setItem(AUTH_KEY, JSON.stringify(record));
+    await useAuthStore.getState().checkAuth();
+    expect(useAuthStore.getState().user?.provider).toBe(provider);
+    expect(getCurrentProvider()).toBe(provider);
   });
 });
