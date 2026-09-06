@@ -10,6 +10,7 @@ function reset() {
   useViewportStore.setState({ namedViews: [] });
   useModelerStore.setState({
     tree: null,
+    selectedNodeIds: [],
     selectedNodeId: null,
     mesh: null,
     sdfDisplay: null,
@@ -1040,6 +1041,37 @@ describe('Modeler editing scenarios', () => {
       expect(isTreeValid(getState().tree)).toBe(true);
       expect(useViewportStore.getState().namedViews).toEqual([savedView]);
     });
+  });
+});
+
+describe('ordered multi-selection', () => {
+  beforeEach(reset);
+
+  const document = (): SDFNodeUI => ({
+    id: 'root', kind: 'union', label: 'Union', params: {}, enabled: true,
+    children: [
+      { id: 'a', kind: 'box', label: 'A', params: { width: 1, height: 1, depth: 1 }, children: [], enabled: true },
+      { id: 'b', kind: 'sphere', label: 'B', params: { radius: 1 }, children: [], enabled: true },
+    ],
+  });
+
+  it('toggles nodes while tracking an explicit primary selection', () => {
+    getState().resetDocument(document());
+    getState().selectNode('a');
+    getState().selectNode('b', 'toggle');
+    expect(getState()).toMatchObject({ selectedNodeIds: ['a', 'b'], selectedNodeId: 'b' });
+    getState().selectNode('b', 'toggle');
+    expect(getState()).toMatchObject({ selectedNodeIds: ['a'], selectedNodeId: 'a' });
+  });
+
+  it('selects a deterministic preorder range and removes deleted ids safely', () => {
+    getState().resetDocument(document());
+    getState().selectNode('root');
+    getState().selectNode('b', 'range');
+    expect(getState().selectedNodeIds).toEqual(['root', 'a', 'b']);
+    getState().removeNode('a');
+    expect(getState().selectedNodeIds).toEqual(['root', 'b']);
+    expect(getState().selectedNodeId).toBe('b');
   });
 });
 

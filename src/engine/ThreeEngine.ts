@@ -373,7 +373,7 @@ export class ThreeEngine {
     const index = e.altKey ? Math.max(0, path.length - 2) : path.length - 1;
     const locked = useTreeUiStore.getState().lockedNodeIds;
     const selectable = path.slice(0, index + 1).reverse().find((id) => !locked.has(id));
-    if (selectable) store.selectNode(selectable);
+    if (selectable) store.selectNode(selectable, e.metaKey || e.ctrlKey ? 'toggle' : e.shiftKey ? 'range' : 'replace');
 
     // A finger has no hover state to leave behind, and `pointerleave` is not
     // guaranteed after a touch ends — so without this the last tapped node

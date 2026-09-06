@@ -31,6 +31,7 @@ export function TreeNode({ node, depth, isLast = true, incompleteIds: incomplete
   // Only subscribe to tree at the root level (when incompleteIdsProp is not provided)
   const tree = useModelerStore((s) => incompleteIdsProp ? null : s.tree);
   const selectedId = useModelerStore((s) => s.selectedNodeId);
+  const selectedIds = useModelerStore((s) => s.selectedNodeIds);
   const expandedNodes = useModelerStore((s) => s.expandedNodes);
   const selectNode = useModelerStore((s) => s.selectNode);
   const toggleExpanded = useModelerStore((s) => s.toggleExpanded);
@@ -68,7 +69,8 @@ export function TreeNode({ node, depth, isLast = true, incompleteIds: incomplete
   const isMoveTarget = !!movingNodeId && !isMoving;
 
   const rowRef = useRef<HTMLDivElement>(null);
-  const isSelected = selectedId === node.id;
+  const isSelected = selectedIds.includes(node.id);
+  const isPrimary = selectedId === node.id;
   const expected = expectedChildren(node.kind);
   const hasChildren = node.children.length > 0 || expected > 0;
   const isExpanded = forceExpanded || expandedNodes.has(node.id) || isIncomplete;
@@ -132,7 +134,7 @@ export function TreeNode({ node, depth, isLast = true, incompleteIds: incomplete
       <div
         ref={rowRef}
         role="treeitem"
-        tabIndex={isSelected || (!selectedId && depth === 0) ? 0 : -1}
+        tabIndex={isPrimary || (!selectedId && depth === 0) ? 0 : -1}
         aria-selected={isSelected}
         aria-expanded={hasChildren ? isExpanded : undefined}
         aria-label={`${accessibleLabel}${isIncomplete ? ', incomplete' : ''}${node.enabled ? '' : ', disabled'}${isLocked ? ', locked' : ''}${isHidden ? ', hidden in viewport' : ''}${isolatedNodeId === node.id ? ', isolated' : ''}`}
@@ -151,7 +153,7 @@ export function TreeNode({ node, depth, isLast = true, incompleteIds: incomplete
             : isIncomplete ? '2px solid rgba(212,90,90,0.5)' : '2px solid transparent',
           opacity: node.enabled && !isHidden ? 1 : 0.35,
         }}
-        onClick={() => {
+        onClick={(event) => {
           // While a move is in flight the whole row is a destination, so a tap
           // places the node instead of changing the selection. Tapping the node
           // being moved is the cancel.
@@ -160,7 +162,7 @@ export function TreeNode({ node, depth, isLast = true, incompleteIds: incomplete
             cancelMove();
             return;
           }
-          if (!isLocked) selectNode(node.id);
+          if (!isLocked) selectNode(node.id, event.metaKey || event.ctrlKey ? 'toggle' : event.shiftKey ? 'range' : 'replace');
         }}
         onKeyDown={(event) => {
           if (event.target !== event.currentTarget) return;
@@ -169,7 +171,7 @@ export function TreeNode({ node, depth, isLast = true, incompleteIds: incomplete
             if (movingNodeId) {
               if (movingNodeId !== node.id) moveNode(movingNodeId, node.id);
               cancelMove();
-            } else if (!isLocked) selectNode(node.id);
+            } else if (!isLocked) selectNode(node.id, event.metaKey || event.ctrlKey ? 'toggle' : event.shiftKey ? 'range' : 'replace');
           } else if (event.key === 'ArrowRight' && hasChildren && !isExpanded) {
             event.preventDefault(); toggleExpanded(node.id);
           } else if (event.key === 'ArrowLeft' && hasChildren && isExpanded) {

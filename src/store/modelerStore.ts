@@ -21,6 +21,8 @@ export interface SDFDisplayData {
 
 interface ModelerState {
   tree: SDFNodeUI | null;
+  /** Ordered selection, with selectedNodeId as the explicit primary selection. */
+  selectedNodeIds: string[];
   selectedNodeId: string | null;
   mesh: TriangulatedMesh | null;
   sdfDisplay: SDFDisplayData | null;
@@ -42,6 +44,7 @@ interface ModelerState {
   historyIndex: number;
   historyTransaction: {
     tree: SDFNodeUI | null;
+    selectedNodeIds: string[];
     selectedNodeId: string | null;
     expandedNodes: Set<string>;
     namedParameters: NamedParameter[];
@@ -50,7 +53,7 @@ interface ModelerState {
   // Actions
   setTree: (tree: SDFNodeUI | null) => void;
   resetDocument: (tree: SDFNodeUI | null, projectName?: string, namedParameters?: NamedParameter[]) => void;
-  selectNode: (id: string | null) => void;
+  selectNode: (id: string | null, mode?: 'replace' | 'toggle' | 'range') => void;
   updateNodeParams: (id: string, params: Record<string, number>) => void;
   setNodeExpression: (id: string, key: string, expression: string | null) => void;
   setNamedParameters: (parameters: NamedParameter[]) => void;
@@ -118,9 +121,29 @@ function cloneParameters(parameters: NamedParameter[]): NamedParameter[] {
  * restore a tree in which the selected node no longer exists; leaving the id
  * dangling makes every `findNode` consumer silently no-op.
  */
-function surviving(tree: SDFNodeUI | null, selectedNodeId: string | null): string | null {
-  if (!tree || !selectedNodeId) return null;
-  return findNode(tree, selectedNodeId) ? selectedNodeId : null;
+function survivingSelection(tree: SDFNodeUI | null, ids: string[]): string[] {
+  if (!tree) return [];
+  const seen = new Set<string>();
+  return ids.filter((id) => !seen.has(id) && !!findNode(tree, id) && !!seen.add(id));
+}
+
+function treeOrder(tree: SDFNodeUI | null): string[] {
+  const ids: string[] = [];
+  const visit = (node: SDFNodeUI) => { ids.push(node.id); node.children.forEach(visit); };
+  if (tree) visit(tree);
+  return ids;
+}
+
+function selectionPatch(state: ModelerState, tree: SDFNodeUI | null, extra: Partial<ModelerState>) {
+  const primarySpecified = 'selectedNodeId' in extra;
+  const idsSpecified = 'selectedNodeIds' in extra;
+  const requestedPrimary = primarySpecified ? extra.selectedNodeId ?? null : state.selectedNodeId;
+  const requestedIds = idsSpecified ? extra.selectedNodeIds ?? []
+    : primarySpecified ? (requestedPrimary ? [requestedPrimary] : []) : state.selectedNodeIds;
+  const selectedNodeIds = survivingSelection(tree, requestedIds);
+  const selectedNodeId = requestedPrimary && selectedNodeIds.includes(requestedPrimary)
+    ? requestedPrimary : selectedNodeIds[selectedNodeIds.length - 1] ?? null;
+  return { selectedNodeId, selectedNodeIds };
 }
 
 /**
@@ -143,8 +166,7 @@ function commit(
   extra: Partial<ModelerState> = {},
 ): Partial<ModelerState> {
   if (state.historyTransaction) {
-    const wanted = 'selectedNodeId' in extra ? extra.selectedNodeId ?? null : state.selectedNodeId;
-    return { ...extra, selectedNodeId: surviving(tree, wanted), tree };
+    return { ...extra, ...selectionPatch(state, tree, extra), tree };
   }
   let history = state.history.slice(0, state.historyIndex + 1);
   let parameterHistory = (state.parameterHistory ?? [state.namedParameters ?? []]).slice(0, state.historyIndex + 1);
@@ -163,10 +185,9 @@ function commit(
   // id *was* the selected one (#120). A selected id that points at nothing
   // makes addNodeFromData bail at `if (!targetNode) return` -- so the palette
   // stops responding, with no visible reason why.
-  const wanted = 'selectedNodeId' in extra ? extra.selectedNodeId ?? null : state.selectedNodeId;
   return {
     ...extra,
-    selectedNodeId: surviving(tree, wanted),
+    ...selectionPatch(state, tree, extra),
     tree,
     history,
     parameterHistory,
@@ -297,6 +318,7 @@ function findParentOf(tree: SDFNodeUI, id: string): SDFNodeUI | null {
 
 export const useModelerStore = create<ModelerState>()((set, get) => ({
   tree: null,
+  selectedNodeIds: [],
   selectedNodeId: null,
   mesh: null,
   sdfDisplay: null,
@@ -330,6 +352,7 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
     set({
       tree: snapshot,
       projectName,
+      selectedNodeIds: [],
       selectedNodeId: null,
       expandedNodes: new Set<string>(),
       namedParameters,
@@ -348,7 +371,22 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
     });
   },
 
-  selectNode: (id) => {
+  selectNode: (id, mode = 'replace') => {
+    const state = get();
+    let selectedNodeIds: string[];
+    if (!id) selectedNodeIds = [];
+    else if (mode === 'toggle') {
+      selectedNodeIds = state.selectedNodeIds.includes(id)
+        ? state.selectedNodeIds.filter((selected) => selected !== id)
+        : [...state.selectedNodeIds, id];
+    } else if (mode === 'range' && state.selectedNodeId) {
+      const order = treeOrder(state.tree);
+      const start = order.indexOf(state.selectedNodeId);
+      const end = order.indexOf(id);
+      selectedNodeIds = start >= 0 && end >= 0
+        ? order.slice(Math.min(start, end), Math.max(start, end) + 1) : [id];
+    } else selectedNodeIds = [id];
+    const primary = id && selectedNodeIds.includes(id) ? id : selectedNodeIds[selectedNodeIds.length - 1] ?? null;
     if (id) {
       // Auto-expand ancestors so the selected node is visible in the tree
       const { tree, expandedNodes } = get();
@@ -367,12 +405,12 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
         };
         expand(tree);
         if (changed) {
-          set({ selectedNodeId: id, expandedNodes: next });
+          set({ selectedNodeId: primary, selectedNodeIds, expandedNodes: next });
           return;
         }
       }
     }
-    set({ selectedNodeId: id });
+    set({ selectedNodeId: primary, selectedNodeIds });
   },
 
   updateNodeParams: (id, params) => {
@@ -869,6 +907,7 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
     set({
       historyTransaction: {
         tree: state.tree,
+        selectedNodeIds: state.selectedNodeIds,
         selectedNodeId: state.selectedNodeId,
         expandedNodes: new Set(state.expandedNodes),
         namedParameters: state.namedParameters,
@@ -893,6 +932,7 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
     if (!transaction) return;
     set({
       tree: transaction.tree,
+      selectedNodeIds: transaction.selectedNodeIds,
       selectedNodeId: transaction.selectedNodeId,
       expandedNodes: new Set(transaction.expandedNodes),
       namedParameters: transaction.namedParameters,
@@ -905,7 +945,8 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
     if (historyIndex > 0) {
       const newIndex = historyIndex - 1;
       const restored = history[newIndex];
-      set({ tree: restored, namedParameters: parameterHistory[newIndex] ?? [], historyIndex: newIndex, selectedNodeId: surviving(restored, get().selectedNodeId) });
+      const selection = selectionPatch(get(), restored, {});
+      set({ tree: restored, namedParameters: parameterHistory[newIndex] ?? [], historyIndex: newIndex, ...selection });
     }
   },
 
@@ -914,7 +955,8 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
     if (historyIndex < history.length - 1) {
       const newIndex = historyIndex + 1;
       const restored = history[newIndex];
-      set({ tree: restored, namedParameters: parameterHistory[newIndex] ?? [], historyIndex: newIndex, selectedNodeId: surviving(restored, get().selectedNodeId) });
+      const selection = selectionPatch(get(), restored, {});
+      set({ tree: restored, namedParameters: parameterHistory[newIndex] ?? [], historyIndex: newIndex, ...selection });
     }
   },
 
