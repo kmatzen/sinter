@@ -6,6 +6,8 @@ import { useModelerStore } from '../store/modelerStore';
 import { useTreeUiStore } from '../store/treeUiStore';
 import { useViewportStore } from '../store/viewportStore';
 import type { SDFNodeUI } from '../types/operations';
+import { v4 as uuidv4 } from 'uuid';
+import { nodeWorldBounds } from './nodeBounds';
 
 function findNode(tree: SDFNodeUI, id: string): SDFNodeUI | null {
   if (tree.id === id) return tree;
@@ -89,6 +91,61 @@ function getFullMatrix(tree: SDFNodeUI, id: string): THREE.Matrix4 {
   return mat;
 }
 
+function selectedRoots(tree: SDFNodeUI, ids: string[]): string[] {
+  const selected = new Set(ids.filter((id) => !!findNode(tree, id)));
+  return ids.filter((id, index) => selected.has(id)
+    && ids.indexOf(id) === index
+    && !ids.some((ancestor) => ancestor !== id && selected.has(ancestor) && !!findNode(findNode(tree, ancestor)!, id)));
+}
+
+function replaceNodes(tree: SDFNodeUI, replacements: Map<string, SDFNodeUI>): SDFNodeUI {
+  const replacement = replacements.get(tree.id);
+  if (replacement) return replacement;
+  return { ...tree, children: tree.children.map((child) => replaceNodes(child, replacements)) };
+}
+
+function transformNode(
+  node: SDFNodeUI,
+  localDelta: THREE.Matrix4,
+  ids: [string, string, string],
+): SDFNodeUI {
+  const position = new THREE.Vector3();
+  const rotation = new THREE.Quaternion();
+  const scale = new THREE.Vector3();
+  localDelta.decompose(position, rotation, scale);
+  const euler = new THREE.Euler().setFromQuaternion(rotation, 'XYZ');
+  const scaled: SDFNodeUI = {
+    id: ids[2], kind: 'scale', label: 'Group Scale', enabled: true,
+    params: { x: scale.x, y: scale.y, z: scale.z }, children: [node],
+  };
+  const rotated: SDFNodeUI = {
+    id: ids[1], kind: 'rotate', label: 'Group Rotate', enabled: true,
+    params: { x: euler.x / DEG, y: euler.y / DEG, z: euler.z / DEG }, children: [scaled],
+  };
+  return {
+    id: ids[0], kind: 'translate', label: 'Group Move', enabled: true,
+    params: { x: position.x, y: position.y, z: position.z }, children: [rotated],
+  };
+}
+
+/** Apply one world-space affine delta to independent selected subtrees. */
+export function applyWorldSelectionDelta(
+  tree: SDFNodeUI,
+  rootIds: string[],
+  worldDelta: THREE.Matrix4,
+  wrapperIds: Map<string, [string, string, string]>,
+): SDFNodeUI {
+  const replacements = new Map<string, SDFNodeUI>();
+  for (const id of rootIds) {
+    const node = findNode(tree, id);
+    if (!node) continue;
+    const ancestor = getAncestorMatrix(tree, id);
+    const localDelta = ancestor.clone().invert().multiply(worldDelta).multiply(ancestor);
+    replacements.set(id, transformNode(node, localDelta, wrapperIds.get(id)!));
+  }
+  return replaceNodes(tree, replacements);
+}
+
 export class GizmoController {
   private engine: ThreeEngine;
   private controls: any;
@@ -100,6 +157,12 @@ export class GizmoController {
   private shiftHeld = false;
   private lastGizmoMode = 'none';
   private lastGizmoSpace: 'world' | 'local';
+  private groupDrag: {
+    tree: SDFNodeUI;
+    roots: string[];
+    startMatrix: THREE.Matrix4;
+    wrapperIds: Map<string, [string, string, string]>;
+  } | null = null;
 
   constructor(engine: ThreeEngine) {
     this.engine = engine;
@@ -131,9 +194,21 @@ export class GizmoController {
       engine.controls.enabled = !e.value;
       if (e.value) {
         useModelerStore.getState().beginHistoryTransaction();
+        const { tree, selectedNodeIds } = useModelerStore.getState();
+        const roots = tree ? selectedRoots(tree, selectedNodeIds) : [];
+        if (tree && roots.length > 1) {
+          this.transformObj.updateMatrixWorld(true);
+          this.groupDrag = {
+            tree,
+            roots,
+            startMatrix: this.transformObj.matrixWorld.clone(),
+            wrapperIds: new Map(roots.map((id) => [id, [uuidv4(), uuidv4(), uuidv4()]])),
+          };
+        }
         useViewportStore.getState().setDragging(true);
       } else {
         useModelerStore.getState().commitHistoryTransaction();
+        this.groupDrag = null;
         useViewportStore.getState().setDragging(false);
       }
     });
@@ -161,10 +236,11 @@ export class GizmoController {
 
     const tree = useModelerStore.getState().tree;
     const selectedId = useModelerStore.getState().selectedNodeId;
+    const selectedIds = useModelerStore.getState().selectedNodeIds;
     const gizmoMode = useViewportStore.getState().gizmoMode;
 
     const selectedNode = tree && selectedId ? findNode(tree, selectedId) : null;
-    const isLocked = !!selectedId && useTreeUiStore.getState().lockedNodeIds.has(selectedId);
+    const isLocked = selectedIds.some((id) => useTreeUiStore.getState().lockedNodeIds.has(id));
     const isVisible = !!selectedNode && !isLocked && gizmoMode !== 'none';
 
     this.controls.visible = isVisible;
@@ -200,6 +276,22 @@ export class GizmoController {
     this.transformObj.quaternion.identity();
     this.transformObj.scale.set(1, 1, 1);
 
+    if (selectedIds.length > 1) {
+      const bounds = selectedRoots(tree, selectedIds)
+        .map((id) => nodeWorldBounds(tree, id))
+        .filter((box): box is Exclude<typeof box, null> => box !== null);
+      if (!bounds.length) return;
+      const min = [0, 1, 2].map((axis) => Math.min(...bounds.map((box) => box.min[axis])));
+      const max = [0, 1, 2].map((axis) => Math.max(...bounds.map((box) => box.max[axis])));
+      this.transformObj.position.set(
+        (min[0] + max[0]) / 2,
+        (min[1] + max[1]) / 2,
+        (min[2] + max[2]) / 2,
+      );
+      this.ancestorGroup.updateMatrixWorld(true);
+      return;
+    }
+
     if (transformNode) {
       const ancestorMat = getAncestorMatrix(tree, transformNode.id);
       this.ancestorGroup.applyMatrix4(ancestorMat);
@@ -221,6 +313,19 @@ export class GizmoController {
   }
 
   private handleObjectChange() {
+    if (this.groupDrag) {
+      this.transformObj.updateMatrixWorld(true);
+      const delta = this.transformObj.matrixWorld.clone().multiply(this.groupDrag.startMatrix.clone().invert());
+      this.suppressSync = true;
+      useModelerStore.getState().setTree(applyWorldSelectionDelta(
+        this.groupDrag.tree,
+        this.groupDrag.roots,
+        delta,
+        this.groupDrag.wrapperIds,
+      ));
+      requestAnimationFrame(() => { this.suppressSync = false; });
+      return;
+    }
     const tree = useModelerStore.getState().tree;
     const selectedId = useModelerStore.getState().selectedNodeId;
     const gizmoMode = useViewportStore.getState().gizmoMode;
