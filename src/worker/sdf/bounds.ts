@@ -1,4 +1,5 @@
 import type { SDFNode, BBox, Vec3 } from './types';
+import { SDF_PARAM_EPSILON } from './types';
 import { hasGlyphOutlines } from './types';
 
 export function computeBounds(node: SDFNode): BBox {
@@ -36,7 +37,7 @@ export function computeBounds(node: SDFNode): BBox {
       return mergeBounds(
         computeBounds(node.a),
         computeBounds(node.b),
-        node.k > 0 ? (node.k / 4) * Math.max(fieldScale(node.a), fieldScale(node.b)) : 0,
+        node.k > SDF_PARAM_EPSILON ? (node.k / 4) * Math.max(fieldScale(node.a), fieldScale(node.b)) : 0,
       );
     case 'subtract':
       return expandBounds(computeBounds(node.a), node.k);

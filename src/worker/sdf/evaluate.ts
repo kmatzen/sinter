@@ -1,5 +1,5 @@
 import type { SDFNode, Vec3 } from './types';
-import { hasGlyphOutlines } from './types';
+import { hasGlyphOutlines, SDF_PARAM_EPSILON } from './types';
 import { sampleMeshField } from './meshField';
 import { linearWindow, circularWindow } from './patternWindow';
 import { fieldScale, MODIFIER_DISTANCE_SAFETY } from './bounds';
@@ -141,7 +141,7 @@ export function evalAt(node: SDFNode, px: number, py: number, pz: number): numbe
     case 'union': {
       const a = evalAt(node.a, px, py, pz);
       const b = evalAt(node.b, px, py, pz);
-      if (node.k > 0) {
+      if (node.k > SDF_PARAM_EPSILON) {
         const h = Math.max(0, Math.min(1, 0.5 + 0.5 * (b - a) / node.k));
         return b + (a - b) * h - node.k * h * (1 - h);
       }
@@ -150,7 +150,7 @@ export function evalAt(node: SDFNode, px: number, py: number, pz: number): numbe
     case 'subtract': {
       const a = evalAt(node.a, px, py, pz);
       const b = evalAt(node.b, px, py, pz);
-      if (node.k > 0) {
+      if (node.k > SDF_PARAM_EPSILON) {
         const h = Math.max(0, Math.min(1, 0.5 - 0.5 * (a + b) / node.k));
         return a + (-b - a) * h + node.k * h * (1 - h);
       }
@@ -159,7 +159,7 @@ export function evalAt(node: SDFNode, px: number, py: number, pz: number): numbe
     case 'intersect': {
       const a = evalAt(node.a, px, py, pz);
       const b = evalAt(node.b, px, py, pz);
-      if (node.k > 0) {
+      if (node.k > SDF_PARAM_EPSILON) {
         const h = Math.max(0, Math.min(1, 0.5 - 0.5 * (b - a) / node.k));
         return b + (a - b) * h + node.k * h * (1 - h);
       }
@@ -169,11 +169,11 @@ export function evalAt(node: SDFNode, px: number, py: number, pz: number): numbe
       return (Math.abs(localDistance(node.child, px, py, pz)) - node.thickness / 2) /
         (cachedFieldScale(node.child) * MODIFIER_DISTANCE_SAFETY);
     case 'offset':
-      if (node.distance === 0) return evalAt(node.child, px, py, pz);
+      if (Math.abs(node.distance) <= SDF_PARAM_EPSILON) return evalAt(node.child, px, py, pz);
       return (localDistance(node.child, px, py, pz) - node.distance) /
         (cachedFieldScale(node.child) * MODIFIER_DISTANCE_SAFETY);
     case 'round':
-      if (node.radius === 0) return evalAt(node.child, px, py, pz);
+      if (node.radius <= SDF_PARAM_EPSILON) return evalAt(node.child, px, py, pz);
       return (localDistance(node.child, px, py, pz) - node.radius) /
         (cachedFieldScale(node.child) * MODIFIER_DISTANCE_SAFETY);
     case 'transform': {

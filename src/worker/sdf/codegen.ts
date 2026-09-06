@@ -1,5 +1,5 @@
 import type { SDFNode } from './types';
-import { hasGlyphOutlines } from './types';
+import { hasGlyphOutlines, SDF_PARAM_EPSILON } from './types';
 import { linearWindow, circularWindow } from './patternWindow';
 import { fieldScale, MODIFIER_DISTANCE_SAFETY } from './bounds';
 
@@ -447,7 +447,7 @@ function emitNode(node: SDFNode, pVar: string, lines: string[]): string {
       const hasBBox = emitBBoxEarlyOut(node, pVar, result, lines);
       const a = emitNode(node.a, pVar, lines);
       const b = emitNode(node.b, pVar, lines);
-      if (node.k > 0) {
+      if (node.k > SDF_PARAM_EPSILON) {
         lines.push(`float h_${result} = clamp(0.5 + 0.5 * (${b} - ${a}) / ${up(node.k)}, 0.0, 1.0);`);
         lines.push(`${hasBBox ? '' : 'float '}${result} = mix(${b}, ${a}, h_${result}) - ${up(node.k)} * h_${result} * (1.0 - h_${result});`);
       } else {
@@ -460,7 +460,7 @@ function emitNode(node: SDFNode, pVar: string, lines: string[]): string {
       const hasBBox = emitBBoxEarlyOut(node, pVar, result, lines);
       const a = emitNode(node.a, pVar, lines);
       const b = emitNode(node.b, pVar, lines);
-      if (node.k > 0) {
+      if (node.k > SDF_PARAM_EPSILON) {
         lines.push(`float h_${result} = clamp(0.5 - 0.5 * (${a} + ${b}) / ${up(node.k)}, 0.0, 1.0);`);
         lines.push(`${hasBBox ? '' : 'float '}${result} = mix(${a}, -${b}, h_${result}) + ${up(node.k)} * h_${result} * (1.0 - h_${result});`);
       } else {
@@ -473,7 +473,7 @@ function emitNode(node: SDFNode, pVar: string, lines: string[]): string {
       const hasBBox = emitBBoxEarlyOut(node, pVar, result, lines);
       const a = emitNode(node.a, pVar, lines);
       const b = emitNode(node.b, pVar, lines);
-      if (node.k > 0) {
+      if (node.k > SDF_PARAM_EPSILON) {
         lines.push(`float h_${result} = clamp(0.5 - 0.5 * (${b} - ${a}) / ${up(node.k)}, 0.0, 1.0);`);
         lines.push(`${hasBBox ? '' : 'float '}${result} = mix(${b}, ${a}, h_${result}) + ${up(node.k)} * h_${result} * (1.0 - h_${result});`);
       } else {
@@ -488,13 +488,13 @@ function emitNode(node: SDFNode, pVar: string, lines: string[]): string {
       return result;
     }
     case 'offset': {
-      if (node.distance === 0) return emitNode(node.child, pVar, lines);
+      if (Math.abs(node.distance) <= SDF_PARAM_EPSILON) return emitNode(node.child, pVar, lines);
       const child = emitDistanceFunction(node.child);
       lines.push(`float ${result} = (${child}(${pVar}) - ${up(node.distance)}) / ${up(fieldScale(node.child) * MODIFIER_DISTANCE_SAFETY)};`);
       return result;
     }
     case 'round': {
-      if (node.radius === 0) return emitNode(node.child, pVar, lines);
+      if (node.radius <= SDF_PARAM_EPSILON) return emitNode(node.child, pVar, lines);
       const child = emitDistanceFunction(node.child);
       lines.push(`float ${result} = (${child}(${pVar}) - ${up(node.radius)}) / ${up(fieldScale(node.child) * MODIFIER_DISTANCE_SAFETY)};`);
       return result;

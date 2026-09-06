@@ -1,5 +1,8 @@
 export type Vec3 = [number, number, number];
 
+/** Values below this are identity/sharp at the engine's spatial precision. */
+export const SDF_PARAM_EPSILON = 1e-9;
+
 export type SDFNode =
   | { kind: 'box'; size: Vec3; warn?: boolean }
   | { kind: 'sphere'; radius: number; warn?: boolean }

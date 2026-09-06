@@ -1,5 +1,6 @@
 import { sampleMeshField } from './meshField';
 import type { SDFNode, BBox, Vec3 } from './types';
+import { SDF_PARAM_EPSILON } from './types';
 import { fieldScale, MODIFIER_DISTANCE_SAFETY } from './bounds';
 
 /**
@@ -170,27 +171,27 @@ export function evaluateInterval(node: SDFNode, box: BBox): Interval {
     case 'union': {
       const a = evaluateInterval(node.a, box), b = evaluateInterval(node.b, box);
       // smin <= min(a, b), and never more than k/4 below it.
-      if (node.k > 0) return I(Math.min(a.lo, b.lo) - node.k / 4, Math.min(a.hi, b.hi));
+      if (node.k > SDF_PARAM_EPSILON) return I(Math.min(a.lo, b.lo) - node.k / 4, Math.min(a.hi, b.hi));
       return minI(a, b);
     }
     case 'subtract': {
       const a = evaluateInterval(node.a, box), b = neg(evaluateInterval(node.b, box));
       // smax >= max(a, -b), and never more than k/4 above it.
-      if (node.k > 0) return I(Math.max(a.lo, b.lo), Math.max(a.hi, b.hi) + node.k / 4);
+      if (node.k > SDF_PARAM_EPSILON) return I(Math.max(a.lo, b.lo), Math.max(a.hi, b.hi) + node.k / 4);
       return maxI(a, b);
     }
     case 'intersect': {
       const a = evaluateInterval(node.a, box), b = evaluateInterval(node.b, box);
-      if (node.k > 0) return I(Math.max(a.lo, b.lo), Math.max(a.hi, b.hi) + node.k / 4);
+      if (node.k > SDF_PARAM_EPSILON) return I(Math.max(a.lo, b.lo), Math.max(a.hi, b.hi) + node.k / 4);
       return maxI(a, b);
     }
     case 'shell':
       return mulK(addK(absI(distanceI(node.child, box)), -node.thickness / 2), 1 / (fieldScale(node.child) * MODIFIER_DISTANCE_SAFETY));
     case 'offset':
-      if (node.distance === 0) return evaluateInterval(node.child, box);
+      if (Math.abs(node.distance) <= SDF_PARAM_EPSILON) return evaluateInterval(node.child, box);
       return mulK(addK(distanceI(node.child, box), -node.distance), 1 / (fieldScale(node.child) * MODIFIER_DISTANCE_SAFETY));
     case 'round':
-      if (node.radius === 0) return evaluateInterval(node.child, box);
+      if (node.radius <= SDF_PARAM_EPSILON) return evaluateInterval(node.child, box);
       return mulK(addK(distanceI(node.child, box), -node.radius), 1 / (fieldScale(node.child) * MODIFIER_DISTANCE_SAFETY));
     case 'transform': {
       if (!isFinite(node.sx) || !isFinite(node.sy) || !isFinite(node.sz) ||
