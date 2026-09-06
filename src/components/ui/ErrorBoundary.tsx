@@ -5,6 +5,7 @@ import { buildDiagnosticReport, buildRecoveryFile } from './recovery';
 
 interface Props {
   children: ReactNode;
+  reload?: () => void;
 }
 
 interface State {
@@ -43,6 +44,12 @@ export class ErrorBoundary extends Component<Props, State> {
   };
 
   private retry = () => {
+    const message = `${this.state.error?.name ?? ''} ${this.state.error?.message ?? ''}`;
+    if (/ChunkLoadError|dynamically imported module|Loading chunk|Failed to fetch/i.test(message)) {
+      window.history.replaceState({}, '', '/app');
+      (this.props.reload ?? (() => window.location.reload()))();
+      return;
+    }
     this.setState({ hasError: false, error: null, componentStack: '', recoveryStatus: null, diagnosticsVisible: false });
   };
 

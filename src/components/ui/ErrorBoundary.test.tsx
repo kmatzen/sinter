@@ -10,6 +10,10 @@ function Crash(): never {
   throw new Error('render failed with secret project content');
 }
 
+function StaleChunk(): never {
+  throw new TypeError('Failed to fetch dynamically imported module: /assets/ModelerApp-old.js');
+}
+
 describe('ErrorBoundary', () => {
   const suppressExpectedRenderError = (event: ErrorEvent) => event.preventDefault();
 
@@ -48,5 +52,14 @@ describe('ErrorBoundary', () => {
     expect(report).toContain('"appVersion"');
     expect(report).not.toContain('secret project content');
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('reloads the current editor route when a stale lazy chunk fails', () => {
+    const reload = vi.fn();
+    window.history.replaceState({}, '', '/');
+    render(<ErrorBoundary reload={reload}><StaleChunk /></ErrorBoundary>);
+    fireEvent.click(screen.getByRole('button', { name: 'Retry editor' }));
+    expect(window.location.pathname).toBe('/app');
+    expect(reload).toHaveBeenCalledOnce();
   });
 });

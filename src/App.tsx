@@ -146,7 +146,12 @@ function App() {
   } else if (route.kind === 'shared') {
     content = <Suspense fallback={<RouteFallback />}><SharedViewer onOpenEditor={() => setRoute({ kind: 'app' })} /></Suspense>;
   } else if (showLanding) {
-    content = <LandingPage onLaunch={() => { localStorage.setItem('sinter_launched', '1'); setShowLanding(false); setRoute({ kind: 'app' }); }} />;
+    content = <LandingPage onLaunch={() => {
+      localStorage.setItem('sinter_launched', '1');
+      window.history.replaceState({}, '', '/app');
+      setShowLanding(false);
+      setRoute({ kind: 'app' });
+    }} />;
   } else if (!localStorage.getItem('sinter_launched') && (loading || !checked)) {
     content = (
       <div className="h-full flex items-center justify-center bg-zinc-900">
