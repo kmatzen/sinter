@@ -119,7 +119,7 @@ export function ProjectList({ onClose, onLoaded, onImport }: Props) {
       const raw = await readLocalBackupJSON();
       if (raw) {
         const data = decodeProjectDocument(JSON.parse(raw));
-        loadLocalDocument(data.projectName || 'Untitled', data.tree, data.parameters, data.views, data.measurements);
+        loadLocalDocument(data.projectName || 'Untitled', data.tree, data.parameters, data.views, data.measurements, data.units);
       }
     } catch (error) {
       showToast(error instanceof Error ? error.message : 'Local backup could not be opened');

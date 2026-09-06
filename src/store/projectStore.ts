@@ -11,6 +11,7 @@ import type { NamedParameter, SDFNodeUI } from '../types/operations';
 import type { NamedProjectView } from '../types/view';
 import { useViewportStore } from './viewportStore';
 import type { PinnedMeasurement } from '../types/measurement';
+import { DEFAULT_UNIT_PREFERENCES, type UnitPreferences } from '../types/units';
 
 const MAX_CHECKPOINTS = 10;
 export type LiveCheckpoint = ProjectCheckpoint & { tree: SDFNodeUI | null };
@@ -38,7 +39,7 @@ interface ProjectState {
   setProjectId: (id: string | null, provider?: ProviderName | null) => void;
   save: () => Promise<boolean>;
   loadProject: (provider: ProviderName, externalId: string, name: string) => Promise<void>;
-  loadLocalDocument: (name: string, tree: unknown, parameters?: NamedParameter[], views?: NamedProjectView[], measurements?: PinnedMeasurement[]) => void;
+  loadLocalDocument: (name: string, tree: unknown, parameters?: NamedParameter[], views?: NamedProjectView[], measurements?: PinnedMeasurement[], units?: UnitPreferences) => void;
   createProject: () => void;
   toggleShare: () => Promise<void>;
   clearSaveError: () => void;
@@ -50,10 +51,17 @@ interface ProjectState {
   deleteCheckpoint: (id: string) => Promise<boolean>;
 }
 
+function currentUnits(): UnitPreferences {
+  const viewport = useViewportStore.getState();
+  return { displayUnit: viewport.measurementUnit, decimalPrecision: viewport.measurementPrecision,
+    fractionalDenominator: viewport.measurementFractionalDenominator };
+}
+
 function bodyHash(): string {
   const { tree, projectName, namedParameters } = useModelerStore.getState();
   const viewport = useViewportStore.getState();
-  return JSON.stringify({ tree, projectName, namedParameters, views: viewport.namedViews, measurements: viewport.pinnedMeasurements });
+  return JSON.stringify({ tree, projectName, namedParameters, views: viewport.namedViews,
+    measurements: viewport.pinnedMeasurements, units: currentUnits() });
 }
 
 function sameTree(a: SDFNodeUI | null, b: SDFNodeUI | null): boolean {
@@ -65,11 +73,12 @@ function appendCheckpoint(checkpoints: LiveCheckpoint[], checkpoint: LiveCheckpo
 }
 
 function checkpoint(name: string, tree: SDFNodeUI | null, parameters: NamedParameter[], views: NamedProjectView[], measurements: PinnedMeasurement[]): LiveCheckpoint {
-  return { id: crypto.randomUUID(), name, createdAt: new Date().toISOString(), tree, parameters, views, measurements };
+  return { id: crypto.randomUUID(), name, createdAt: new Date().toISOString(), tree, parameters, views, measurements,
+    units: currentUnits() };
 }
 
-function projectBody(tree: SDFNodeUI | null, thumbnail: string | null, checkpoints: LiveCheckpoint[], parameters: NamedParameter[], views: NamedProjectView[], measurements: PinnedMeasurement[]): ProjectFileBody {
-  return { version: 2, thumbnail, tree, checkpoints, parameters, views, measurements };
+function projectBody(tree: SDFNodeUI | null, thumbnail: string | null, checkpoints: LiveCheckpoint[], parameters: NamedParameter[], views: NamedProjectView[], measurements: PinnedMeasurement[], units = currentUnits()): ProjectFileBody {
+  return { version: 2, thumbnail, tree, checkpoints, parameters, views, measurements, units };
 }
 
 let nextGeneration = 1;
@@ -287,6 +296,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     useModelerStore.getState().resetDocument(body.tree, name || 'Untitled', body.parameters);
     useViewportStore.getState().setNamedViews(body.views);
     useViewportStore.getState().setPinnedMeasurements(body.measurements);
+    useViewportStore.getState().setUnitPreferences(body.units);
     useViewportStore.getState().resetMeasurementSession();
     useChatStore.getState().switchConversation(cloudConversationKey(provider, externalId));
 
@@ -312,6 +322,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     useModelerStore.getState().resetDocument(null, 'Untitled');
     useViewportStore.getState().setNamedViews([]);
     useViewportStore.getState().setPinnedMeasurements([]);
+    useViewportStore.getState().setUnitPreferences(DEFAULT_UNIT_PREFERENCES);
     useViewportStore.getState().resetMeasurementSession();
     useChatStore.getState().switchConversation(`draft:${crypto.randomUUID()}`);
     set({
@@ -334,12 +345,13 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     });
   },
 
-  loadLocalDocument: (name, tree, parameters = [], views = [], measurements = []) => {
+  loadLocalDocument: (name, tree, parameters = [], views = [], measurements = [], units = DEFAULT_UNIT_PREFERENCES) => {
     const generation = ++nextGeneration;
     const modeler = useModelerStore.getState();
     modeler.resetDocument(decodeTree(tree, { legacy: true, repairMissingIds: true }), name || 'Untitled', parameters);
     useViewportStore.getState().setNamedViews(views);
     useViewportStore.getState().setPinnedMeasurements(measurements);
+    useViewportStore.getState().setUnitPreferences(units);
     useViewportStore.getState().resetMeasurementSession();
     useChatStore.getState().switchConversation('browser:default');
     set({
@@ -418,11 +430,13 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       // those files instead of inventing an empty historical state.
       const targetViews = target.views ?? currentViews;
       const targetMeasurements = target.measurements ?? currentMeasurements;
-      const result = await getStorageProvider(provider).update(accessToken, projectId, projectBody(target.tree, null, nextCheckpoints, targetParameters, targetViews, targetMeasurements), revision);
+      const targetUnits = target.units ?? currentUnits();
+      const result = await getStorageProvider(provider).update(accessToken, projectId, projectBody(target.tree, null, nextCheckpoints, targetParameters, targetViews, targetMeasurements, targetUnits), revision);
       if (get().generation !== generation || authIdentity() !== identity) return false;
       modeler.resetDocument(target.tree, modeler.projectName, targetParameters);
       useViewportStore.getState().setNamedViews(targetViews);
       useViewportStore.getState().setPinnedMeasurements(targetMeasurements);
+      useViewportStore.getState().setUnitPreferences(targetUnits);
       useViewportStore.getState().resetMeasurementSession();
       set({
         checkpoints: nextCheckpoints, lastSavedTree: target.tree, lastSavedThumbnail: null, lastSavedParameters: targetParameters, lastSavedViews: targetViews, lastSavedMeasurements: targetMeasurements, revision: result?.revision ?? revision,
