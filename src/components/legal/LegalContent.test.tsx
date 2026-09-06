@@ -24,5 +24,8 @@ describe('canonical legal copy', () => {
     expect(screen.getByText(/Browser data remains until/i)).toBeInTheDocument();
     expect(screen.getByText(/clear all Sinter site data/i)).toBeInTheDocument();
     expect(screen.getByText(/GitHub’s.*permission is broader/i)).toBeInTheDocument();
+    expect(screen.getByText(/localStorage for your connected-provider profile/i)).toBeInTheDocument();
+    expect(screen.getByText(/IndexedDB for project backups/i)).toBeInTheDocument();
+    expect(screen.queryByText(/consent choice, and a local project backup/i)).not.toBeInTheDocument();
   });
 });
