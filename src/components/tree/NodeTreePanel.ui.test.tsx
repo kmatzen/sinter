@@ -94,9 +94,14 @@ describe('node naming and search workflow', () => {
     expect(useModelerStore.getState().selectedNodeIds).toEqual(['body', 'moved']);
     expect(screen.getByLabelText('Multiple selection actions')).toHaveTextContent('2 selected');
     expect(screen.getByRole('button', { name: 'Union' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Align' })).toBeInTheDocument();
     const historyLength = useModelerStore.getState().history.length;
-    fireEvent.click(screen.getByRole('button', { name: 'Enable/disable' }));
-    expect(useModelerStore.getState().tree?.children.map((node) => node.enabled)).toEqual([false, false]);
+    fireEvent.click(screen.getByRole('button', { name: 'Align' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Align X min' }));
     expect(useModelerStore.getState().history).toHaveLength(historyLength + 1);
+    fireEvent.click(screen.getByRole('button', { name: 'Enable/disable' }));
+    expect(useModelerStore.getState().tree?.children[0].enabled).toBe(false);
+    expect(useModelerStore.getState().tree?.children[1].children[0].enabled).toBe(false);
+    expect(useModelerStore.getState().history).toHaveLength(historyLength + 2);
   });
 });

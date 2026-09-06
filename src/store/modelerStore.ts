@@ -8,6 +8,8 @@ import { decodeProjectDocument, decodeTree } from '../types/documentDecoder';
 import { FormulaError, parameterUnitFor, resolveTreeFormulas } from '../types/formulas';
 import { useViewportStore } from './viewportStore';
 import { useTreeUiStore } from './treeUiStore';
+import * as THREE from 'three';
+import { nodeWorldBounds } from '../engine/nodeBounds';
 
 export interface SDFDisplayData {
   glsl: string;
@@ -69,6 +71,8 @@ interface ModelerState {
   toggleNode: (id: string) => void;
   toggleSelected: () => void;
   unionSelected: () => void;
+  alignSelected: (axis: 'x' | 'y' | 'z', anchor: 'min' | 'center' | 'max') => void;
+  distributeSelected: (axis: 'x' | 'y' | 'z') => void;
   toggleExpanded: (id: string) => void;
   expandAll: () => void;
   collapseAll: () => void;
@@ -326,6 +330,48 @@ function findParentOf(tree: SDFNodeUI, id: string): SDFNodeUI | null {
     if (found) return found;
   }
   return null;
+}
+
+function ancestorTransform(tree: SDFNodeUI, id: string): THREE.Matrix4 {
+  const path: SDFNodeUI[] = [];
+  const visit = (node: SDFNodeUI): boolean => {
+    if (node.id === id) return true;
+    path.push(node);
+    for (const child of node.children) if (visit(child)) return true;
+    path.pop();
+    return false;
+  };
+  visit(tree);
+  const matrix = new THREE.Matrix4();
+  for (const node of path) {
+    if (node.kind === 'translate') matrix.multiply(new THREE.Matrix4().makeTranslation(node.params.x || 0, node.params.y || 0, node.params.z || 0));
+    else if (node.kind === 'rotate') matrix.multiply(new THREE.Matrix4().makeRotationFromEuler(new THREE.Euler(
+      (node.params.x || 0) * Math.PI / 180,
+      (node.params.y || 0) * Math.PI / 180,
+      (node.params.z || 0) * Math.PI / 180,
+    )));
+    else if (node.kind === 'scale') matrix.multiply(new THREE.Matrix4().makeScale(node.params.x || 1, node.params.y || 1, node.params.z || 1));
+  }
+  return matrix;
+}
+
+function translateRootsInWorld(tree: SDFNodeUI, deltas: Map<string, THREE.Vector3>): SDFNodeUI {
+  const visit = (node: SDFNodeUI): SDFNodeUI => {
+    const worldDelta = deltas.get(node.id);
+    if (worldDelta) {
+      const inverse = ancestorTransform(tree, node.id).invert();
+      const origin = new THREE.Vector3(0, 0, 0).applyMatrix4(inverse);
+      const local = worldDelta.clone().applyMatrix4(inverse).sub(origin);
+      const wrapper = createNode('translate', [node]);
+      return {
+        ...wrapper,
+        label: 'Precision Move',
+        params: { x: local.x, y: local.y, z: local.z },
+      };
+    }
+    return { ...node, children: node.children.map(visit) };
+  };
+  return visit(tree);
 }
 
 export const useModelerStore = create<ModelerState>()((set, get) => ({
@@ -627,6 +673,50 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
     set(commit(get(), newTree, {
       selectedNodeIds: [union.id], selectedNodeId: union.id, expandedNodes: expanded, error: null,
     }));
+  },
+
+  alignSelected: (axis, anchor) => {
+    const { tree, selectedNodeIds } = get();
+    if (!tree) return;
+    const roots = selectedRoots(tree, selectedNodeIds);
+    const index = { x: 0, y: 1, z: 2 }[axis];
+    const items = roots.map((id) => ({ id, bounds: nodeWorldBounds(tree, id) }))
+      .filter((item): item is { id: string; bounds: NonNullable<typeof item.bounds> } => item.bounds !== null);
+    if (items.length < 2) return;
+    const globalMin = Math.min(...items.map(({ bounds }) => bounds.min[index]));
+    const globalMax = Math.max(...items.map(({ bounds }) => bounds.max[index]));
+    const target = anchor === 'min' ? globalMin : anchor === 'max' ? globalMax : (globalMin + globalMax) / 2;
+    const deltas = new Map(items.map(({ id, bounds }) => {
+      const current = anchor === 'min' ? bounds.min[index] : anchor === 'max' ? bounds.max[index] : (bounds.min[index] + bounds.max[index]) / 2;
+      const delta = new THREE.Vector3();
+      delta.setComponent(index, target - current);
+      return [id, delta] as const;
+    }).filter(([, delta]) => delta.lengthSq() > 1e-16));
+    if (!deltas.size) return;
+    set(commit(get(), translateRootsInWorld(tree, deltas), { error: null }));
+  },
+
+  distributeSelected: (axis) => {
+    const { tree, selectedNodeIds } = get();
+    if (!tree) return;
+    const roots = selectedRoots(tree, selectedNodeIds);
+    const index = { x: 0, y: 1, z: 2 }[axis];
+    const items = roots.map((id) => ({ id, bounds: nodeWorldBounds(tree, id) }))
+      .filter((item): item is { id: string; bounds: NonNullable<typeof item.bounds> } => item.bounds !== null)
+      .sort((a, b) => a.bounds.min[index] - b.bounds.min[index] || a.id.localeCompare(b.id));
+    if (items.length < 3) return;
+    const occupied = items.reduce((sum, { bounds }) => sum + bounds.max[index] - bounds.min[index], 0);
+    const gap = (items[items.length - 1].bounds.max[index] - items[0].bounds.min[index] - occupied) / (items.length - 1);
+    let cursor = items[0].bounds.min[index];
+    const deltas = new Map<string, THREE.Vector3>();
+    for (const { id, bounds } of items) {
+      const delta = new THREE.Vector3();
+      delta.setComponent(index, cursor - bounds.min[index]);
+      if (delta.lengthSq() > 1e-16) deltas.set(id, delta);
+      cursor += bounds.max[index] - bounds.min[index] + gap;
+    }
+    if (!deltas.size) return;
+    set(commit(get(), translateRootsInWorld(tree, deltas), { error: null }));
   },
 
   toggleExpanded: (id) => {
