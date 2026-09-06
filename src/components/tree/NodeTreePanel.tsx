@@ -103,7 +103,7 @@ export function NodeTreeContent({ onClose }: { onClose?: () => void } = {}) {
               onChange={(event) => setQuery(event.target.value)}
               placeholder="Find name or kind"
               aria-label="Search node tree"
-              className="min-w-0 flex-1 h-7 rounded px-2 text-[11px]"
+              className="min-w-0 flex-1 h-7 tap-h rounded px-2 text-[11px]"
               style={{ background: 'var(--bg-deep)', color: 'var(--text-primary)', border: '1px solid var(--border-default)' }}
             />
             {query && <button onClick={() => setQuery('')} aria-label="Clear node search" className="w-7 h-7 tap rounded" style={{ color: 'var(--text-muted)' }}>×</button>}
