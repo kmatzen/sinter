@@ -11,7 +11,7 @@ const SHORTCUTS = [
   ['Ctrl+C', 'Copy node'],
   ['Ctrl+V', 'Paste node'],
   ['Ctrl+D', 'Duplicate node'],
-  ['Ctrl+S', 'Save file'],
+  ['Ctrl+S', 'Save project'],
   ['Shift (hold)', 'Disable snap while dragging'],
   ['Ctrl+Z', 'Undo'],
   ['Ctrl+Shift+Z', 'Redo'],

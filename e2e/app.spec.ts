@@ -192,6 +192,18 @@ test.describe('Modeler: Node operations', () => {
     await expect(page.locator(`text=50\u00d730\u00d750`)).toBeVisible();
   });
 
+  test('Cmd+S saves through the app even while an input has focus', async ({ page }) => {
+    await addShape(page, 'Box');
+    await page.locator('input[aria-label="Project name"]').focus();
+
+    await page.keyboard.press('Meta+s');
+
+    // Signed out is intentional here: reaching the app save path produces its
+    // normal actionable error. The old JSON-download path produced no toast,
+    // and the early input guard handed the shortcut to the browser instead.
+    await expect(page.getByText('Sign in to save to cloud')).toBeVisible();
+  });
+
   test('wrap selected in modifier', async ({ page }) => {
     await addShape(page, 'Box');
     await page.locator(`text=50\u00d730\u00d750`).click();

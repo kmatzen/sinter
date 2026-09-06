@@ -127,8 +127,10 @@ export class GizmoController {
     this.controls.addEventListener('dragging-changed', (e: any) => {
       engine.controls.enabled = !e.value;
       if (e.value) {
+        useModelerStore.getState().beginHistoryTransaction();
         useViewportStore.getState().setDragging(true);
       } else {
+        useModelerStore.getState().commitHistoryTransaction();
         useViewportStore.getState().setDragging(false);
       }
     });
@@ -262,6 +264,7 @@ export class GizmoController {
   }
 
   dispose() {
+    useModelerStore.getState().cancelHistoryTransaction();
     for (const u of this.unsubs) u();
     this.engine.scene.remove(this.controls);
     this.engine.scene.remove(this.ancestorGroup);

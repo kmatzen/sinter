@@ -853,3 +853,78 @@ describe('replaceNode', () => {
     expect(useModelerStore.getState().tree!.id).toBe('root');
   });
 });
+
+describe('interactive history transactions', () => {
+  beforeEach(() => {
+    useModelerStore.setState({
+      tree: null,
+      selectedNodeId: null,
+      history: [null],
+      historyIndex: 0,
+      historyTransaction: null,
+      expandedNodes: new Set(),
+    });
+  });
+
+  it('keeps live parameter updates out of history and commits one final undo step', () => {
+    const store = useModelerStore.getState();
+    store.addPrimitive('box');
+    const id = useModelerStore.getState().tree!.id;
+    const before = useModelerStore.getState().history.length;
+
+    useModelerStore.getState().beginHistoryTransaction();
+    useModelerStore.getState().updateNodeParams(id, { width: 20 });
+    useModelerStore.getState().updateNodeParams(id, { width: 30 });
+    useModelerStore.getState().updateNodeParams(id, { width: 40 });
+
+    expect(useModelerStore.getState().tree!.params.width).toBe(40);
+    expect(useModelerStore.getState().history).toHaveLength(before);
+
+    useModelerStore.getState().commitHistoryTransaction();
+    expect(useModelerStore.getState().history).toHaveLength(before + 1);
+
+    useModelerStore.getState().undo();
+    expect(useModelerStore.getState().tree!.params.width).not.toBe(40);
+    useModelerStore.getState().redo();
+    expect(useModelerStore.getState().tree!.params.width).toBe(40);
+  });
+
+  it('does not commit a no-op interaction', () => {
+    useModelerStore.getState().addPrimitive('box');
+    const before = useModelerStore.getState().history.length;
+    useModelerStore.getState().beginHistoryTransaction();
+    useModelerStore.getState().commitHistoryTransaction();
+    expect(useModelerStore.getState().history).toHaveLength(before);
+  });
+
+  it('restores the pre-interaction tree when cancelled', () => {
+    useModelerStore.getState().addPrimitive('box');
+    const id = useModelerStore.getState().tree!.id;
+    const originalWidth = useModelerStore.getState().tree!.params.width;
+    const before = useModelerStore.getState().history.length;
+
+    useModelerStore.getState().beginHistoryTransaction();
+    useModelerStore.getState().updateNodeParams(id, { width: 99 });
+    useModelerStore.getState().cancelHistoryTransaction();
+
+    expect(useModelerStore.getState().tree!.params.width).toBe(originalWidth);
+    expect(useModelerStore.getState().history).toHaveLength(before);
+  });
+
+  it('collapses wrapping and movement into the same undo step', () => {
+    useModelerStore.getState().addPrimitive('box');
+    const before = useModelerStore.getState().history.length;
+    useModelerStore.getState().beginHistoryTransaction();
+    useModelerStore.getState().wrapSelected('translate');
+    const wrapper = useModelerStore.getState().selectedNodeId!;
+    useModelerStore.getState().updateNodeParams(wrapper, { x: 12 });
+    useModelerStore.getState().commitHistoryTransaction();
+
+    expect(useModelerStore.getState().history).toHaveLength(before + 1);
+    useModelerStore.getState().undo();
+    expect(useModelerStore.getState().tree!.kind).toBe('box');
+    useModelerStore.getState().redo();
+    expect(useModelerStore.getState().tree!.kind).toBe('translate');
+    expect(useModelerStore.getState().tree!.params.x).toBe(12);
+  });
+});
