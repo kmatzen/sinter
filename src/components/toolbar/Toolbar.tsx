@@ -630,6 +630,9 @@ function ExportPreview({ triangles, size, name, diagnostics, conformance, approx
   const surface = useRef<HTMLDivElement>(null);
   const profile = useManufacturingProfileStore();
   const outsideVolume = dimensionsOutsideBuildVolume(diagnostics.dimensions, profile);
+  const verificationLength = (value: number) => formatLength(value, {
+    displayUnit, decimalPrecision: Math.max(decimalPrecision, 4), fractionalDenominator,
+  });
   useDialogFocus(surface, onCancel);
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.5)' }} onClick={onCancel}>
@@ -642,7 +645,7 @@ function ExportPreview({ triangles, size, name, diagnostics, conformance, approx
           </div>
           {achievedTolerance !== undefined && <div className="flex justify-between text-[12px]">
             <span style={{ color: 'var(--text-muted)' }}>Surface tolerance</span>
-            <span className="font-mono" style={{ color: 'var(--text-primary)' }}>≤ {achievedTolerance.toPrecision(3)} mm</span>
+            <span className="font-mono" style={{ color: 'var(--text-primary)' }}>≤ {verificationLength(achievedTolerance)}</span>
           </div>}
           {componentCount !== undefined && componentCount > 1 && <div className="flex justify-between text-[12px]">
             <span style={{ color: 'var(--text-muted)' }}>Verified components</span>
@@ -656,22 +659,22 @@ function ExportPreview({ triangles, size, name, diagnostics, conformance, approx
           </div>
           <div className="flex justify-between text-[12px]">
             <span style={{ color: 'var(--text-muted)' }}>Maximum deviation</span>
-            <span className="font-mono" style={{ color: 'var(--text-primary)' }}>{conformance.maxDeviation.toPrecision(3)} mm</span>
+            <span className="font-mono" style={{ color: 'var(--text-primary)' }}>{verificationLength(conformance.maxDeviation)}</span>
           </div>
           <div className="flex justify-between text-[12px]">
             <span style={{ color: 'var(--text-muted)' }}>RMS deviation</span>
-            <span className="font-mono" style={{ color: 'var(--text-primary)' }}>{conformance.rmsDeviation.toPrecision(3)} mm</span>
+            <span className="font-mono" style={{ color: 'var(--text-primary)' }}>{verificationLength(conformance.rmsDeviation)}</span>
           </div>
           {conformance.status === 'inconclusive' && (
             <p role="alert" className="text-[11px] leading-relaxed rounded p-2" style={{ color: 'var(--warning, #f59e0b)', background: 'var(--bg-elevated)' }}>
-              Bidirectional sampling could not verify this export within {conformance.tolerance.toPrecision(3)} mm. Download remains available for inspection.
+              Bidirectional sampling could not verify this export within {verificationLength(conformance.tolerance)}. Download remains available for inspection.
             </p>
           )}
           <details className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>
             <summary className="cursor-pointer select-none">Geometry verification details</summary>
             <div className="mt-2 space-y-1 font-mono">
-              <p>mesh→source: max {conformance.meshToSourceMax.toPrecision(3)} mm, RMS {conformance.meshToSourceRms.toPrecision(3)} mm ({conformance.meshSamples} samples)</p>
-              <p>source→mesh: max {conformance.sourceToMeshMax.toPrecision(3)} mm, RMS {conformance.sourceToMeshRms.toPrecision(3)} mm ({conformance.sourceSamples} samples)</p>
+              <p>mesh→source: max {verificationLength(conformance.meshToSourceMax)}, RMS {verificationLength(conformance.meshToSourceRms)} ({conformance.meshSamples} samples)</p>
+              <p>source→mesh: max {verificationLength(conformance.sourceToMeshMax)}, RMS {verificationLength(conformance.sourceToMeshRms)} ({conformance.sourceSamples} samples)</p>
             </div>
           </details>
           <div className="flex justify-between text-[12px]">
@@ -707,7 +710,7 @@ function ExportPreview({ triangles, size, name, diagnostics, conformance, approx
           )}
           {outsideVolume && (
             <p role="alert" className="text-[11px] leading-relaxed rounded p-2" style={{ color: 'var(--warning, #f59e0b)', background: 'var(--bg-elevated)' }}>
-              Part exceeds the configured {profile.buildVolume.join(' × ')} mm build volume.
+              Part exceeds the configured {profile.buildVolume.map((value) => formatLength(value, { displayUnit, decimalPrecision, fractionalDenominator }, false)).join(' × ')}{displayUnit === 'ft-in' ? '' : ` ${displayUnit}`} build volume.
             </p>
           )}
           <details className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>
