@@ -25,6 +25,10 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
   const setError = useModelerStore((s) => s.setError);
   const undo = useModelerStore((s) => s.undo);
   const redo = useModelerStore((s) => s.redo);
+  const selectedNodeId = useModelerStore((s) => s.selectedNodeId);
+  const clipboard = useModelerStore((s) => s.clipboard);
+  const copySelected = useModelerStore((s) => s.copySelected);
+  const pasteToSelected = useModelerStore((s) => s.pasteToSelected);
   const toggleChat = useChatStore((s) => s.toggleOpen);
   const isChatOpen = useChatStore((s) => s.isOpen);
   const user = useAuthStore((s) => s.user);
@@ -45,6 +49,7 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
   const backupError = useLocalBackupStore((s) => s.error);
   const [showProjects, setShowProjects] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [nodeCopied, setNodeCopied] = useState(false);
   const [shareError, setShareError] = useState<string | null>(null);
   const [showImport, setShowImport] = useState(false);
   const [showImportMesh, setShowImportMesh] = useState(false);
@@ -269,6 +274,15 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
             <OverflowDivider />
             <OverflowItem label="Undo" onClick={() => { undo(); setShowOverflow(false); }} />
             <OverflowItem label="Redo" onClick={() => { redo(); setShowOverflow(false); }} />
+            <OverflowItem label={nodeCopied ? 'Node copied!' : 'Copy selected node'} disabled={!selectedNodeId} onClick={() => {
+              copySelected();
+              setNodeCopied(true);
+              setTimeout(() => setNodeCopied(false), 1200);
+            }} />
+            <OverflowItem label="Paste node" disabled={!clipboard || (!!tree && !selectedNodeId)} onClick={() => {
+              pasteToSelected();
+              setShowOverflow(false);
+            }} />
             <OverflowDivider />
             <OverflowItem label="Import STL" onClick={() => { setShowImportMesh(true); setShowOverflow(false); }} />
             {/*

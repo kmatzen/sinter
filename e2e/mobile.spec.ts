@@ -195,6 +195,25 @@ test('nothing on screen is smaller than a fingertip', async ({ page }) => {
   expect(describeTargets(await undersizedTargets(page))).toBe('');
 });
 
+test('mobile overflow exposes resolution, copy, paste, and help', async ({ page }) => {
+  await enterModeler(page);
+  await page.locator('[aria-label="Node tree"]').click();
+  await overlay(page).locator('[title="Add Box"]').click();
+  await page.locator('[aria-label="Close node tree"]').click();
+
+  await page.locator('[aria-label="More actions"]').click();
+  await expect(page.getByRole('combobox', { name: 'Export resolution' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Copy selected node' })).toBeEnabled();
+  await page.getByRole('button', { name: 'Copy selected node' }).click();
+  await expect(page.getByRole('button', { name: 'Node copied!' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Paste node' })).toBeEnabled();
+
+  // Help is a direct viewport control rather than a keyboard-only secret.
+  await page.locator('[aria-label="More actions"]').click();
+  await page.getByRole('button', { name: /keyboard shortcuts and accessibility help/i }).click();
+  await expect(page.getByRole('dialog', { name: 'Keyboard Shortcuts' })).toBeVisible();
+});
+
 test('text entry does not zoom the page', async ({ page }) => {
   await enterModeler(page);
   await page.locator('[aria-label="Node tree"]').click();
