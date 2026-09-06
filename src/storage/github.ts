@@ -44,12 +44,12 @@ async function getGistFilename(token: string | null, externalId: string): Promis
 }
 
 export const githubStorage: StorageProvider = {
-  async list(token) {
+  async list(token, signal) {
     const projects: ProjectMeta[] = [];
     let page = 1;
     // Paginate (max 100 per page). Stop when an empty page comes back.
     for (;;) {
-      const res = await fetch(`${API}/gists?per_page=100&page=${page}`, { headers: authHeaders(token) });
+      const res = await fetch(`${API}/gists?per_page=100&page=${page}`, { headers: authHeaders(token), signal });
       if (!res.ok) throw new Error(`GitHub list failed (${res.status})`);
       const gists = (await res.json()) as Array<{
         id: string;

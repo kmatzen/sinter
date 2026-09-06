@@ -2,36 +2,126 @@ import type { StorageProvider, ProjectMeta } from './types';
 
 const DRIVE_API = 'https://www.googleapis.com';
 const FOLDER_NAME = 'Sinter';
+const FOLDER_MIME = 'application/vnd.google-apps.folder';
+const FOLDER_MARKER_KEY = 'sinterFolder';
+const FOLDER_MARKER_VALUE = 'projects-v1';
+const MAX_FOLDER_CACHE_ENTRIES = 4;
 
-let cachedFolderId: string | null = null;
+// A provider token identifies the signed-in account for this in-memory cache.
+// Keeping one global id allowed an account switch to reuse another account's
+// folder until logout happened to clear it.
+const cachedFolderIds = new Map<string, string>();
+
+function cacheFolder(token: string, folderId: string): void {
+  cachedFolderIds.delete(token);
+  cachedFolderIds.set(token, folderId);
+  while (cachedFolderIds.size > MAX_FOLDER_CACHE_ENTRIES) {
+    const oldest = cachedFolderIds.keys().next().value;
+    if (oldest === undefined) break;
+    cachedFolderIds.delete(oldest);
+  }
+}
 
 function authHeaders(token: string): Record<string, string> {
   return { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
 }
 
-async function getOrCreateFolder(token: string): Promise<string> {
-  if (cachedFolderId) return cachedFolderId;
-  const q = encodeURIComponent(
-    `name='${FOLDER_NAME}' and mimeType='application/vnd.google-apps.folder' and trashed=false`,
-  );
-  const searchRes = await fetch(`${DRIVE_API}/drive/v3/files?q=${q}&fields=files(id)`, {
-    headers: { Authorization: `Bearer ${token}` },
+interface DriveFolder {
+  id: string;
+  createdTime?: string;
+}
+
+function folderOrder(a: DriveFolder, b: DriveFolder): number {
+  return (a.createdTime ?? '').localeCompare(b.createdTime ?? '') || a.id.localeCompare(b.id);
+}
+
+async function findFolders(token: string, query: string, signal?: AbortSignal): Promise<DriveFolder[]> {
+  const q = encodeURIComponent(`${query} and mimeType='${FOLDER_MIME}' and trashed=false`);
+  const folders: DriveFolder[] = [];
+  let pageToken: string | undefined;
+  do {
+    const tokenParam = pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : '';
+    const res = await fetch(
+      `${DRIVE_API}/drive/v3/files?q=${q}&fields=nextPageToken,files(id,createdTime)&orderBy=createdTime&pageSize=100${tokenParam}`,
+      { headers: { Authorization: `Bearer ${token}` }, signal },
+    );
+    if (!res.ok) throw new Error(`Drive folder search failed (${res.status})`);
+    const data = await res.json();
+    folders.push(...(data.files ?? []));
+    pageToken = data.nextPageToken;
+  } while (pageToken);
+  return folders.sort(folderOrder);
+}
+
+async function validateCachedFolder(token: string, folderId: string, signal?: AbortSignal): Promise<boolean> {
+  const res = await fetch(`${DRIVE_API}/drive/v3/files/${folderId}?fields=id,trashed`, {
+    headers: { Authorization: `Bearer ${token}` }, signal,
   });
-  if (!searchRes.ok) throw new Error(`Drive search failed (${searchRes.status})`);
-  const searchData = await searchRes.json();
-  if (searchData.files?.length > 0) {
-    cachedFolderId = searchData.files[0].id;
-    return cachedFolderId!;
+  if (res.status === 404) return false;
+  if (!res.ok) throw new Error(`Drive folder validation failed (${res.status})`);
+  const folder = await res.json();
+  return folder.id === folderId && folder.trashed !== true;
+}
+
+async function markFolder(token: string, folderId: string, signal?: AbortSignal): Promise<void> {
+  const res = await fetch(`${DRIVE_API}/drive/v3/files/${folderId}`, {
+    method: 'PATCH', headers: authHeaders(token), signal,
+    body: JSON.stringify({ appProperties: { [FOLDER_MARKER_KEY]: FOLDER_MARKER_VALUE } }),
+  });
+  if (!res.ok) throw new Error(`Drive folder adoption failed (${res.status})`);
+}
+
+async function getOrCreateFolder(token: string, signal?: AbortSignal): Promise<string> {
+  const cached = cachedFolderIds.get(token);
+  if (cached) {
+    if (await validateCachedFolder(token, cached, signal)) return cached;
+    cachedFolderIds.delete(token);
   }
-  const createRes = await fetch(`${DRIVE_API}/drive/v3/files`, {
+
+  const marked = await findFolders(
+    token,
+    `appProperties has { key='${FOLDER_MARKER_KEY}' and value='${FOLDER_MARKER_VALUE}' }`,
+    signal,
+  );
+  if (marked.length > 0) {
+    cacheFolder(token, marked[0].id);
+    return marked[0].id;
+  }
+
+  // Adopt one legacy name-only folder deterministically. This prevents a
+  // second app folder being created for existing users and makes future lookup
+  // independent of its display name.
+  const legacy = await findFolders(token, `name='${FOLDER_NAME}'`, signal);
+  if (legacy.length > 0) {
+    await markFolder(token, legacy[0].id, signal);
+    cacheFolder(token, legacy[0].id);
+    return legacy[0].id;
+  }
+
+  const createRes = await fetch(`${DRIVE_API}/drive/v3/files?fields=id,createdTime`, {
     method: 'POST',
     headers: authHeaders(token),
-    body: JSON.stringify({ name: FOLDER_NAME, mimeType: 'application/vnd.google-apps.folder' }),
+    signal,
+    body: JSON.stringify({
+      name: FOLDER_NAME,
+      mimeType: FOLDER_MIME,
+      appProperties: { [FOLDER_MARKER_KEY]: FOLDER_MARKER_VALUE },
+    }),
   });
   if (!createRes.ok) throw new Error(`Drive folder creation failed (${createRes.status})`);
-  const folder = await createRes.json();
-  cachedFolderId = folder.id;
-  return cachedFolderId!;
+  const created = await createRes.json() as DriveFolder;
+
+  // Concurrent tabs can both observe no folder and create one. Re-query and
+  // converge on the oldest marked folder; include the response as a fallback
+  // for Drive's eventually-consistent search index.
+  const afterCreate = await findFolders(
+    token,
+    `appProperties has { key='${FOLDER_MARKER_KEY}' and value='${FOLDER_MARKER_VALUE}' }`,
+    signal,
+  );
+  const canonical = [...afterCreate, created].sort(folderOrder)[0];
+  cacheFolder(token, canonical.id);
+  return canonical.id;
 }
 
 function stripJsonExt(name: string): string {
@@ -39,16 +129,24 @@ function stripJsonExt(name: string): string {
 }
 
 export const googleStorage: StorageProvider = {
-  async list(token) {
-    const folderId = await getOrCreateFolder(token);
+  async list(token, signal) {
+    const folderId = await getOrCreateFolder(token, signal);
     const q = encodeURIComponent(`'${folderId}' in parents and trashed=false`);
-    const res = await fetch(
-      `${DRIVE_API}/drive/v3/files?q=${q}&fields=files(id,name,createdTime,modifiedTime)&orderBy=modifiedTime desc&pageSize=200`,
-      { headers: { Authorization: `Bearer ${token}` } },
-    );
-    if (!res.ok) throw new Error(`Drive list failed (${res.status})`);
-    const data = await res.json();
-    return (data.files || []).map(
+    const files: Array<{ id: string; name: string; createdTime: string; modifiedTime: string }> = [];
+    let pageToken: string | undefined;
+    do {
+      const tokenParam = pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : '';
+      const res = await fetch(
+        `${DRIVE_API}/drive/v3/files?q=${q}&fields=nextPageToken,files(id,name,createdTime,modifiedTime)&orderBy=modifiedTime desc&pageSize=200${tokenParam}`,
+        { headers: { Authorization: `Bearer ${token}` }, signal },
+      );
+      if (!res.ok) throw new Error(`Drive list failed (${res.status})`);
+      const data = await res.json();
+      files.push(...(data.files ?? []));
+      pageToken = data.nextPageToken;
+    } while (pageToken);
+
+    return files.map(
       (f: { id: string; name: string; createdTime: string; modifiedTime: string }): ProjectMeta => ({
         externalId: f.id,
         name: stripJsonExt(f.name),
@@ -160,5 +258,5 @@ export const googleStorage: StorageProvider = {
 };
 
 export function clearGoogleCache() {
-  cachedFolderId = null;
+  cachedFolderIds.clear();
 }

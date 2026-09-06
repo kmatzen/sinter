@@ -57,6 +57,7 @@ export function ProjectList({ onClose, onLoaded, onImport }: Props) {
 
   useEffect(() => {
     let cancelled = false;
+    const controller = new AbortController();
     async function loadCloud() {
       const provider = getCurrentProvider();
       if (!provider) {
@@ -66,7 +67,7 @@ export function ProjectList({ onClose, onLoaded, onImport }: Props) {
       try {
         const accessToken = await useAuthStore.getState().getAccessToken();
         const storage = getStorageProvider(provider);
-        const list = await storage.list(accessToken);
+        const list = await storage.list(accessToken, controller.signal);
         if (cancelled) return;
         const withThumbs: CloudProject[] = await Promise.all(
           list.map(async (p) => ({
@@ -78,13 +79,14 @@ export function ProjectList({ onClose, onLoaded, onImport }: Props) {
         );
         if (!cancelled) setCloudProjects(withThumbs);
       } catch (err) {
+        if (controller.signal.aborted) return;
         console.error('Failed to list cloud projects:', err);
       } finally {
         if (!cancelled) setLoading(false);
       }
     }
     void loadCloud();
-    return () => { cancelled = true; };
+    return () => { cancelled = true; controller.abort(); };
   }, []);
 
   function showToast(msg: string) {

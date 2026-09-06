@@ -16,7 +16,7 @@ export interface ProjectMeta {
 }
 
 export interface StorageProvider {
-  list(token: string): Promise<ProjectMeta[]>;
+  list(token: string, signal?: AbortSignal): Promise<ProjectMeta[]>;
   read(token: string | null, externalId: string): Promise<ProjectFileBody>;
   create(token: string, name: string, body: ProjectFileBody): Promise<{ externalId: string }>;
   update(token: string, externalId: string, body: ProjectFileBody): Promise<void>;
