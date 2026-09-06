@@ -5,6 +5,7 @@ import type { ThreeEngine } from '../../engine/ThreeEngine';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import * as THREE from 'three';
 import type { StandardView } from '../../engine/cameraViews';
+import { formatLength } from '../../types/units';
 
 const BTN = 'w-7 h-7 tap rounded flex items-center justify-center transition-colors';
 const ICON = 13;
@@ -124,6 +125,9 @@ export function ViewportToolbar({ engine }: { engine: ThreeEngine | null }) {
   const toggleSnap = useViewportStore((s) => s.toggleSnap);
   const snapSize = useViewportStore((s) => s.snapSize);
   const setSnapSize = useViewportStore((s) => s.setSnapSize);
+  const displayUnit = useViewportStore((s) => s.measurementUnit);
+  const decimalPrecision = useViewportStore((s) => s.measurementPrecision);
+  const fractionalDenominator = useViewportStore((s) => s.measurementFractionalDenominator);
   const showDimensions = useViewportStore((s) => s.showDimensions);
   const toggleDimensions = useViewportStore((s) => s.toggleDimensions);
   const measurementMode = useViewportStore((s) => s.measurementMode);
@@ -168,8 +172,8 @@ export function ViewportToolbar({ engine }: { engine: ThreeEngine | null }) {
           {snapEnabled && (
             <>
               {[1, 5, 10].map((s) => (
-                <SmallBtn key={s} active={snapSize === s} onClick={() => setSnapSize(s)} title={`Snap size: ${s}mm`}>
-                  {s}
+                <SmallBtn key={s} active={snapSize === s} onClick={() => setSnapSize(s)} title={`Snap size: ${formatLength(s, { displayUnit, decimalPrecision, fractionalDenominator })}`}>
+                  {formatLength(s, { displayUnit, decimalPrecision, fractionalDenominator }, false)}
                 </SmallBtn>
               ))}
             </>

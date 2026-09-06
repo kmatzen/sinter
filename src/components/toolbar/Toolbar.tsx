@@ -18,6 +18,7 @@ import { useDialogFocus } from '../ui/useDialogFocus';
 import type { ExportConformance, ExportDiagnostics } from '../../types/geometry';
 import { dimensionsOutsideBuildVolume, useManufacturingProfileStore } from '../../store/manufacturingProfile';
 import { commandById, OPEN_COMMAND_PALETTE_EVENT, runEditorCommand, TOOLBAR_COMMAND_EVENT } from '../../commands/editorCommands';
+import { formatLength } from '../../types/units';
 
 function hasImportedMesh(node: ReturnType<typeof useModelerStore.getState>['tree']): boolean {
   return !!node && (node.kind === 'mesh' || node.children.some(hasImportedMesh));
@@ -623,6 +624,9 @@ function ExportPreview({ triangles, size, name, diagnostics, conformance, approx
   componentCount?: number;
   onDownload: () => void; onCancel: () => void;
 }) {
+  const displayUnit = useViewportStore((s) => s.measurementUnit);
+  const decimalPrecision = useViewportStore((s) => s.measurementPrecision);
+  const fractionalDenominator = useViewportStore((s) => s.measurementFractionalDenominator);
   const surface = useRef<HTMLDivElement>(null);
   const profile = useManufacturingProfileStore();
   const outsideVolume = dimensionsOutsideBuildVolume(diagnostics.dimensions, profile);
@@ -673,7 +677,7 @@ function ExportPreview({ triangles, size, name, diagnostics, conformance, approx
           <div className="flex justify-between text-[12px]">
             <span style={{ color: 'var(--text-muted)' }}>Dimensions</span>
             <span className="font-mono" style={{ color: 'var(--text-primary)' }}>
-              {diagnostics.dimensions.map((value) => value.toFixed(1)).join(' × ')} mm
+              {diagnostics.dimensions.map((value) => formatLength(value, { displayUnit, decimalPrecision, fractionalDenominator }, false)).join(' × ')}{displayUnit === 'ft-in' ? '' : ` ${displayUnit}`}
             </span>
           </div>
           <div className="flex justify-between text-[12px]">

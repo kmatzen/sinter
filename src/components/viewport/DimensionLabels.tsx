@@ -5,6 +5,7 @@ import { useViewportStore } from '../../store/viewportStore';
 import { nodeWorldBounds } from '../../engine/nodeBounds';
 import type { ThreeEngine } from '../../engine/ThreeEngine';
 import type { SDFNodeUI } from '../../types/operations';
+import { formatLength } from '../../types/units';
 
 function project(point: THREE.Vector3, camera: THREE.Camera, w: number, h: number) {
   const v = point.clone().project(camera);
@@ -85,6 +86,9 @@ export function DimensionLabels({ engine }: { engine: ThreeEngine | null }) {
   const tree = useModelerStore((s) => s.tree);
   const selectedId = useModelerStore((s) => s.selectedNodeId);
   const showDimensions = useViewportStore((s) => s.showDimensions);
+  const displayUnit = useViewportStore((s) => s.measurementUnit);
+  const decimalPrecision = useViewportStore((s) => s.measurementPrecision);
+  const fractionalDenominator = useViewportStore((s) => s.measurementFractionalDenominator);
   const svgRef = useRef<SVGSVGElement | null>(null);
   const dimGroupsRef = useRef<DimElements[]>([]);
 
@@ -132,19 +136,19 @@ export function DimensionLabels({ engine }: { engine: ThreeEngine | null }) {
         s: new THREE.Vector3(x0, y0 - oy, z1 + oz),
         e: new THREE.Vector3(x1, y0 - oy, z1 + oz),
         m: new THREE.Vector3((x0 + x1) / 2, y0 - oy, z1 + oz),
-        label: `${conservative ? '≤' : ''}${w.toFixed(1)}`,
+        label: `${conservative ? '≤' : ''}${formatLength(w, { displayUnit, decimalPrecision, fractionalDenominator })}`,
       },
       { // Y — right front edge
         s: new THREE.Vector3(x1 + ox, y0, z1 + oz),
         e: new THREE.Vector3(x1 + ox, y1, z1 + oz),
         m: new THREE.Vector3(x1 + ox, (y0 + y1) / 2, z1 + oz),
-        label: `${conservative ? '≤' : ''}${h.toFixed(1)}`,
+        label: `${conservative ? '≤' : ''}${formatLength(h, { displayUnit, decimalPrecision, fractionalDenominator })}`,
       },
       { // Z — bottom right edge
         s: new THREE.Vector3(x1 + ox, y0 - oy, z0),
         e: new THREE.Vector3(x1 + ox, y0 - oy, z1),
         m: new THREE.Vector3(x1 + ox, y0 - oy, (z0 + z1) / 2),
-        label: `${conservative ? '≤' : ''}${d.toFixed(1)}`,
+        label: `${conservative ? '≤' : ''}${formatLength(d, { displayUnit, decimalPrecision, fractionalDenominator })}`,
       },
     ];
 
@@ -189,7 +193,7 @@ export function DimensionLabels({ engine }: { engine: ThreeEngine | null }) {
       off();
       for (const dg of dimGroupsRef.current) dg.group.style.display = 'none';
     };
-  }, [engine, nodeBounds, showDimensions, conservative]);
+  }, [engine, nodeBounds, showDimensions, conservative, displayUnit, decimalPrecision, fractionalDenominator]);
 
   return (
     <svg ref={svgRef} className="absolute inset-0 w-full h-full pointer-events-none z-10" style={{ overflow: 'visible' }}>
