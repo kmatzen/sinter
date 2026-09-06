@@ -49,9 +49,9 @@ test('boot, edit, undo, save interception, import, and export', async ({ page })
   const width = page.getByRole('textbox', { name: 'Width' });
   await width.fill('42');
   await width.press('Enter');
-  await expect(width).toHaveValue('42');
+  await expect(width).toHaveValue('42.00');
   await page.getByRole('button', { name: 'Undo' }).click();
-  await expect(width).toHaveValue('50');
+  await expect(width).toHaveValue('50.00');
 
   // The editor must consume browser Save even while a text field has focus.
   await page.getByRole('textbox', { name: 'Project name' }).focus();
