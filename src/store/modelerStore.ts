@@ -68,6 +68,7 @@ interface ModelerState {
   replaceNode: (id: string, replacement: SDFNodeUI) => void;
   toggleNode: (id: string) => void;
   toggleSelected: () => void;
+  unionSelected: () => void;
   toggleExpanded: (id: string) => void;
   expandAll: () => void;
   collapseAll: () => void;
@@ -592,6 +593,40 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
       ? { ...node, enabled }
       : { ...node, children: node.children.map(visit) };
     set(commit(get(), visit(tree)));
+  },
+
+  unionSelected: () => {
+    const { tree, selectedNodeIds } = get();
+    if (!tree) return;
+    const roots = selectedRoots(tree, selectedNodeIds);
+    if (roots.length < 2) return;
+    const parent = findParentOf(tree, roots[0]);
+    if (!parent || roots.some((id) => findParentOf(tree, id)?.id !== parent.id)) {
+      set({ error: 'Select sibling nodes to combine them into a union.' });
+      return;
+    }
+    const ids = new Set(roots);
+    const operands = parent.children.filter((child) => ids.has(child.id));
+    if (operands.length < 2) return;
+    let union = createNode('union', [operands[0], operands[1]]);
+    for (const operand of operands.slice(2)) union = createNode('union', [union, operand]);
+
+    const allChildrenSelected = parent.children.every((child) => ids.has(child.id));
+    const newTree = allChildrenSelected
+      ? (tree.id === parent.id ? union : updateInTree(tree, parent.id, () => union))
+      : updateInTree(tree, parent.id, (node) => {
+          const first = node.children.findIndex((child) => ids.has(child.id));
+          return {
+            ...node,
+            children: node.children.flatMap((child, index) =>
+              index === first ? [union] : ids.has(child.id) ? [] : [child]),
+          };
+        });
+    const expanded = new Set(get().expandedNodes);
+    expanded.add(union.id);
+    set(commit(get(), newTree, {
+      selectedNodeIds: [union.id], selectedNodeId: union.id, expandedNodes: expanded, error: null,
+    }));
   },
 
   toggleExpanded: (id) => {

@@ -1113,6 +1113,23 @@ describe('ordered multi-selection', () => {
     getState().undo();
     expect(getState().tree?.children.map((node) => node.id)).toEqual(['a', 'b']);
   });
+
+  it('replaces selected sibling operands with a union in one history entry', () => {
+    const subtract = document();
+    subtract.kind = 'subtract';
+    subtract.label = 'Subtract';
+    getState().resetDocument(subtract);
+    getState().selectNode('a');
+    getState().selectNode('b', 'toggle');
+    getState().unionSelected();
+
+    expect(getState().tree?.kind).toBe('union');
+    expect(getState().tree?.children.map((node) => node.id)).toEqual(['a', 'b']);
+    expect(getState().selectedNodeIds).toEqual([getState().tree?.id]);
+    expect(getState().history).toHaveLength(2);
+    getState().undo();
+    expect(getState().tree?.kind).toBe('subtract');
+  });
 });
 
 describe('bounded structurally-shared history', () => {

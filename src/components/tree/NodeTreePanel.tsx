@@ -93,6 +93,7 @@ export function NodeTreeContent({ onClose }: { onClose?: () => void } = {}) {
   const selectedNodeIds = useModelerStore((s) => s.selectedNodeIds);
   const duplicateSelected = useModelerStore((s) => s.duplicateSelected);
   const toggleSelected = useModelerStore((s) => s.toggleSelected);
+  const unionSelected = useModelerStore((s) => s.unionSelected);
   const removeSelected = useModelerStore((s) => s.removeSelected);
   const cancelMove = useTreeUiStore((s) => s.cancelMove);
   const hiddenCount = useTreeUiStore((s) => s.hiddenNodeIds.size);
@@ -196,6 +197,7 @@ export function NodeTreeContent({ onClose }: { onClose?: () => void } = {}) {
           </span>
           <button onClick={duplicateSelected} className="tap-h rounded px-2 text-[10px]" style={{ border: '1px solid var(--border-default)' }}>Duplicate</button>
           <button onClick={toggleSelected} className="tap-h rounded px-2 text-[10px]" style={{ border: '1px solid var(--border-default)' }}>Enable/disable</button>
+          <button onClick={unionSelected} className="tap-h rounded px-2 text-[10px]" style={{ border: '1px solid var(--border-default)' }}>Union</button>
           <button onClick={removeSelected} className="tap-h rounded px-2 text-[10px]" style={{ color: 'var(--accent-red)', border: '1px solid var(--border-default)' }}>Delete</button>
         </div>
       )}
