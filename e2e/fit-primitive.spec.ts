@@ -55,6 +55,7 @@ async function enterModeler(page: Page) {
 async function importAndSelect(page: Page, buffer: Buffer) {
   await page.locator('[title="Import STL"]').first().click();
   await page.locator('input[type="file"]').setInputFiles({ name: 'part.stl', mimeType: 'model/stl', buffer });
+  await page.getByRole('button', { name: 'Import approximately' }).click();
   await page.waitForFunction(
     () => (window as any).__MODELER_STORE__?.tree?.kind === 'mesh',
     null,

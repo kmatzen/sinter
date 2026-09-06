@@ -30,13 +30,12 @@ test('landing page has no serious automated accessibility violations', async ({ 
 
 test('representative keyboard modeling workflow is accessible', async ({ page }) => {
   await enterModeler(page);
-  await page.getByRole('button', { name: 'Add Box' }).focus();
-  await page.keyboard.press('Enter');
+  await page.getByRole('button', { name: 'Add Box' }).press('Enter');
   const box = page.getByRole('treeitem', { name: /Box/ });
   await box.focus();
   await page.keyboard.press('Enter');
   await expect(box).toHaveAttribute('aria-selected', 'true');
-  await page.getByRole('spinbutton', { name: 'Width' }).fill('42');
+  await page.getByRole('textbox', { name: 'Width' }).fill('42');
   await page.keyboard.press('Enter');
   await page.getByRole('button', { name: /keyboard shortcuts and accessibility help/i }).click();
   await expect(page.getByRole('dialog', { name: 'Keyboard Shortcuts' })).toBeVisible();

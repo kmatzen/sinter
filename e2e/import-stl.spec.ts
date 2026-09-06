@@ -57,6 +57,7 @@ async function importBox(page: Page) {
   await page.locator('input[type="file"]').setInputFiles({
     name: 'part.stl', mimeType: 'model/stl', buffer: boxSTL(),
   });
+  await page.getByRole('button', { name: 'Import approximately' }).click();
 }
 
 test.describe('STL import', () => {

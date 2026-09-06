@@ -169,9 +169,9 @@ test.describe('Modeler: Node operations', () => {
   test('selecting a node shows property panel', async ({ page }) => {
     await addShape(page, 'Box');
     await page.locator(`text=50\u00d730\u00d750`).click();
-    await expect(page.locator('text=Width')).toBeVisible();
-    await expect(page.locator('text=Height')).toBeVisible();
-    await expect(page.locator('text=Depth')).toBeVisible();
+    await expect(page.getByText('Width', { exact: true })).toBeVisible();
+    await expect(page.getByText('Height', { exact: true })).toBeVisible();
+    await expect(page.getByText('Depth', { exact: true })).toBeVisible();
   });
 
   test('can modify parameters via input', async ({ page }) => {
