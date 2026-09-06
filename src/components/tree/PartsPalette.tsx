@@ -38,14 +38,14 @@ function ShapeTile({ kind, color }: { kind: string; color: string }) {
   const addNodeFromData = useModelerStore((s) => s.addNodeFromData);
   const selectedId = useModelerStore((s) => s.selectedNodeId);
   return (
-    <div
+    <button
+      type="button"
       draggable
       onDragStart={(e) => {
         e.dataTransfer.setData('application/sinter-node', simpleNodeData(kind));
         e.dataTransfer.effectAllowed = 'copy';
       }}
       onClick={() => addNodeFromData(selectedId, JSON.parse(simpleNodeData(kind)))}
-      role="button"
       aria-label={`Add ${NODE_LABELS[kind]}`}
       className="flex flex-col items-center justify-center gap-0.5 w-[56px] h-[48px] rounded cursor-grab active:cursor-grabbing select-none transition-colors"
       style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)' }}
@@ -57,7 +57,7 @@ function ShapeTile({ kind, color }: { kind: string; color: string }) {
       <span className="text-[9px] leading-none" style={{ color: 'var(--text-muted)' }}>
         {NODE_LABELS[kind]}
       </span>
-    </div>
+    </button>
   );
 }
 
@@ -66,14 +66,14 @@ function OpPill({ kind, color }: { kind: string; color: string }) {
   const addNodeFromData = useModelerStore((s) => s.addNodeFromData);
   const selectedId = useModelerStore((s) => s.selectedNodeId);
   return (
-    <div
+    <button
+      type="button"
       draggable
       onDragStart={(e) => {
         e.dataTransfer.setData('application/sinter-node', simpleNodeData(kind));
         e.dataTransfer.effectAllowed = 'copy';
       }}
       onClick={() => addNodeFromData(selectedId, JSON.parse(simpleNodeData(kind)))}
-      role="button"
       aria-label={`Add ${NODE_LABELS[kind]}`}
       className="flex items-center gap-1 px-1.5 py-1 tap-h rounded cursor-grab active:cursor-grabbing select-none transition-colors"
       style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)' }}
@@ -85,7 +85,7 @@ function OpPill({ kind, color }: { kind: string; color: string }) {
       <span className="text-[10px]" style={{ color: 'var(--text-secondary)' }}>
         {NODE_LABELS[kind]}
       </span>
-    </div>
+    </button>
   );
 }
 
@@ -100,14 +100,14 @@ function PresetCard({ name, size, desc, dragData }: { name: string; size: string
   const addNodeFromData = useModelerStore((s) => s.addNodeFromData);
   const selectedId = useModelerStore((s) => s.selectedNodeId);
   return (
-    <div
+    <button
+      type="button"
       draggable
       onDragStart={(e) => {
         e.dataTransfer.setData('application/sinter-node', dragData);
         e.dataTransfer.effectAllowed = 'copy';
       }}
       onClick={() => addNodeFromData(selectedId, JSON.parse(dragData))}
-      role="button"
       aria-label={`Add ${name} preset, ${size}: ${desc}`}
       title={`Add ${name} — ${size}: ${desc}`}
       className="flex items-start gap-1.5 px-2 py-1.5 tap-h rounded cursor-grab active:cursor-grabbing select-none transition-colors"
@@ -121,7 +121,7 @@ function PresetCard({ name, size, desc, dragData }: { name: string; size: string
         <div className="text-[9px] font-mono truncate" style={{ color: 'var(--text-muted)' }}>{size}</div>
         <div className="text-[9px] truncate" style={{ color: 'var(--text-muted)', opacity: 0.7 }}>{desc}</div>
       </div>
-    </div>
+    </button>
   );
 }
 
