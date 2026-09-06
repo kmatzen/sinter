@@ -880,6 +880,29 @@ describe('Modeler editing scenarios', () => {
       expect(getState().tree!.children[0].kind).toBe('rotate');
     });
 
+    it('retains nested non-uniform scales because collapsing changes conservative fields', () => {
+      const box: SDFNodeUI = { id: 'box', kind: 'box', label: 'Box', params: { width: 10, height: 10, depth: 10 }, children: [], enabled: true };
+      const inner: SDFNodeUI = { id: 'inner', kind: 'scale', label: 'Scale', params: { x: 4, y: 3, z: 2 }, children: [box], enabled: true };
+      const outer: SDFNodeUI = { id: 'outer', kind: 'scale', label: 'Scale', params: { x: 2, y: 3, z: 4 }, children: [inner], enabled: true };
+      const rounded: SDFNodeUI = { id: 'round', kind: 'round', label: 'Round', params: { radius: 2 }, children: [outer], enabled: true };
+      getState().resetDocument(rounded);
+      getState().simplifyTree();
+      expect(getState().tree!.children[0].kind).toBe('scale');
+      expect(getState().tree!.children[0].children[0].kind).toBe('scale');
+    });
+
+    it('preserves formula-driven identity transforms', () => {
+      const box: SDFNodeUI = { id: 'box', kind: 'box', label: 'Box', params: { width: 10, height: 10, depth: 10 }, children: [], enabled: true };
+      const move: SDFNodeUI = {
+        id: 'move', kind: 'translate', label: 'Translate', params: { x: 0, y: 0, z: 0 }, expressions: { x: 'offset' }, children: [box], enabled: true,
+      };
+      getState().resetDocument(move, 'Formula', [{ name: 'offset', expression: '0', unit: 'mm' }]);
+      getState().simplifyTree();
+      expect(getState().tree!.kind).toBe('translate');
+      getState().setNamedParameters([{ name: 'offset', expression: '5', unit: 'mm' }]);
+      expect(getState().tree!.params.x).toBe(5);
+    });
+
     it('does not promote a lone subtract cutter into positive geometry', () => {
       const cutter: SDFNodeUI = { id: 'cutter', kind: 'sphere', label: 'Sphere', params: { radius: 5 }, children: [], enabled: true };
       const root: SDFNodeUI = {

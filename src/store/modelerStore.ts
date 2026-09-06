@@ -754,19 +754,19 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
       const simplified = { ...node, children };
 
       // Remove identity transforms
-      if (simplified.kind === 'translate') {
+      if (simplified.kind === 'translate' && !simplified.expressions) {
         const p = simplified.params;
         if ((p.x || 0) === 0 && (p.y || 0) === 0 && (p.z || 0) === 0) {
           return children[0] || null;
         }
       }
-      if (simplified.kind === 'rotate') {
+      if (simplified.kind === 'rotate' && !simplified.expressions) {
         const p = simplified.params;
         if ((p.x || 0) === 0 && (p.y || 0) === 0 && (p.z || 0) === 0) {
           return children[0] || null;
         }
       }
-      if (simplified.kind === 'scale') {
+      if (simplified.kind === 'scale' && !simplified.expressions) {
         const p = simplified.params;
         if ((p.x || 1) === 1 && (p.y || 1) === 1 && (p.z || 1) === 1) {
           return children[0] || null;
@@ -787,44 +787,27 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
       }
 
       // Collapse nested transforms of the same kind
-      if (['translate', 'scale'].includes(simplified.kind) && children.length === 1 && children[0].kind === simplified.kind) {
+      if (simplified.kind === 'translate' && !simplified.expressions && children.length === 1 && children[0].kind === 'translate' && !children[0].expressions) {
         const inner = children[0];
-        if (simplified.kind === 'translate') {
-          return {
-            ...simplified,
-            params: {
-              x: (simplified.params.x || 0) + (inner.params.x || 0),
-              y: (simplified.params.y || 0) + (inner.params.y || 0),
-              z: (simplified.params.z || 0) + (inner.params.z || 0),
-            },
-            children: inner.children,
-          };
-        }
-        if (simplified.kind === 'scale') {
-          return {
-            ...simplified,
-            params: {
-              x: (simplified.params.x ?? 1) * (inner.params.x ?? 1),
-              y: (simplified.params.y ?? 1) * (inner.params.y ?? 1),
-              z: (simplified.params.z ?? 1) * (inner.params.z ?? 1),
-            },
-            children: inner.children,
-          };
-        }
+        return {
+          ...simplified,
+          params: {
+            x: (simplified.params.x || 0) + (inner.params.x || 0),
+            y: (simplified.params.y || 0) + (inner.params.y || 0),
+            z: (simplified.params.z || 0) + (inner.params.z || 0),
+          },
+          children: inner.children,
+        };
       }
 
       return simplified;
     }
 
-    // Run iteratively until stable (removing identity transforms may
-    // expose adjacent same-kind transforms for collapsing)
-    let result: SDFNodeUI | null = tree;
-    for (let i = 0; i < 10; i++) {
-      if (!result) break;
-      const next = simplify(result);
-      if (JSON.stringify(next) === JSON.stringify(result)) break;
-      result = next;
-    }
+    // The bottom-up walk reaches a fixed point in one pass: simplifying a
+    // child happens before its parent considers a merge. An arbitrary pass
+    // limit can leave sufficiently deep trees half-normalized and makes
+    // termination a guess rather than a property of the algorithm.
+    const result = simplify(tree);
 
     set(commit(get(), result, { selectedNodeId: null }));
   },
