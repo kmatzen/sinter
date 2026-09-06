@@ -185,6 +185,22 @@ describe('evaluateSDF', () => {
       // Point at 5.5 (between box edge 5 and box+round 6) should be inside
       expect(evaluateSDF(round, [5.5, 0, 0])).toBeLessThan(0);
     });
+
+    it('does not let a no-op round create a ghost shell surface at a medial axis', () => {
+      const shell: SDFNode = {
+        kind: 'shell',
+        child: {
+          kind: 'round', radius: 0,
+          child: { kind: 'box', size: [7.116280228763259, 6.658793345024441, 2] },
+        },
+        thickness: 2.8208677948129877,
+      };
+      // Shrunk from the clearance property. The old fieldScale(round) said a
+      // disabled round still needed 2x gradient correction. At this near-tie
+      // between all three box faces, that inflated the child distance to
+      // exactly half the shell thickness and invented a zero surface.
+      expect(evaluateSDF(shell, [2.5581459176676775, -2.3290874556538985, 0.000690781800709292])).toBeLessThan(0);
+    });
   });
 
   describe('transforms', () => {

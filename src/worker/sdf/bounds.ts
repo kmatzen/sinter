@@ -260,9 +260,13 @@ export function fieldScale(node: SDFNode): number {
     case 'subtract':
     case 'intersect':
       return Math.max(fieldScale(node.a), fieldScale(node.b));
-    case 'shell':
     case 'offset':
+      if (Math.abs(node.distance) <= SDF_PARAM_EPSILON) return fieldScale(node.child);
+      return fieldScale(node.child) * MODIFIER_DISTANCE_SAFETY;
     case 'round':
+      if (node.radius <= SDF_PARAM_EPSILON) return fieldScale(node.child);
+      return fieldScale(node.child) * MODIFIER_DISTANCE_SAFETY;
+    case 'shell':
       return fieldScale(node.child) * MODIFIER_DISTANCE_SAFETY;
     case 'mirror':
     case 'linearPattern':
