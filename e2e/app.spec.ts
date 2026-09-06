@@ -107,6 +107,16 @@ test.describe('Landing Page', () => {
       await continueBtn.click();
     }
     await expect(page.locator('[data-testid="modeler-app"]')).toBeVisible({ timeout: 15000 });
+    await expect(page).toHaveURL(/\/app$/);
+  });
+
+  test('fresh storage consent enters the editor on its recoverable route', async ({ page }) => {
+    await page.evaluate(() => localStorage.clear());
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await page.getByRole('button', { name: /Start Modeling/ }).first().click();
+    await page.getByRole('button', { name: 'Accept & continue' }).click();
+    await expect(page).toHaveURL(/\/app$/);
+    await expect(page.locator('[data-testid="modeler-app"]')).toBeVisible({ timeout: 15000 });
   });
 });
 
