@@ -21,6 +21,8 @@ import { simplifyMesh } from './sdf/simplify';
 import { CLUSTER_ERROR_VOXELS, SIMPLIFY_ERROR_VOXELS, PROJECT_TOLERANCE_VOXELS } from './sdf/budgets';
 import { analyzeMesh, removeDegenerateTriangles, projectVerticesToSurface } from './sdf/meshRepair';
 import { validateModelingEnvelope } from './sdf/modelingEnvelope';
+import { partitionExportComponents } from './sdf/exportComponents';
+import type { MeshResult } from './sdf/marchingCubes';
 
 self.postMessage({ type: 'ready' });
 
@@ -84,35 +86,41 @@ function evaluateAndMeshWithProgress(tree: SDFNodeUI | null, resolution: number,
   if (!root) return null;
   validateModelingEnvelope(root);
 
-  const bbox = prepareBBox(root);
-  const voxel = Math.max(
-    (bbox.max[0] - bbox.min[0]) / resolution,
-    (bbox.max[1] - bbox.min[1]) / resolution,
-    (bbox.max[2] - bbox.min[2]) / resolution,
-  );
-
-  // Grid evaluation with progress (0-60%)
-  progress('Evaluating SDF grid', 0);
-  const { grid, active } = evaluateCPUWithProgress(root, bbox, resolution, (pct) => {
-    progress('Evaluating SDF grid', pct);
-  });
-
-  // Dual contouring, with octree vertex clustering (60-80%)
-  progress('Generating mesh', 60);
-  const raw = dualContour(grid, resolution, bbox, root, (pct) => {
-    progress('Generating mesh', 60 + pct * 0.2);
-  }, active, voxel * CLUSTER_ERROR_VOXELS);
-  if (raw.indices.length === 0) return null;
-
-  // Simplification (80-92%)
-  progress('Simplifying mesh', 80);
-  const simplified = simplifyMesh(removeDegenerateTriangles(raw), { maxError: voxel * SIMPLIFY_ERROR_VOXELS }, (pct) => {
-    progress('Simplifying mesh', 80 + pct * 0.12);
-  });
-
-  // Surface snap (92-95%)
-  progress('Refining surface', 92);
-  return projectVerticesToSurface(simplified, root, voxel * PROJECT_TOLERANCE_VOXELS);
+  const components = partitionExportComponents(root);
+  const meshes: MeshResult[] = [];
+  const report = (index: number, stage: string, localPercent: number) =>
+    progress(components.length > 1 ? `${stage} (${index + 1}/${components.length})` : stage,
+      ((index + localPercent / 95) / components.length) * 95);
+  for (let index = 0; index < components.length; index++) {
+    const component = components[index];
+    const bbox = prepareBBox(component);
+    const voxel = Math.max(
+      (bbox.max[0] - bbox.min[0]) / resolution,
+      (bbox.max[1] - bbox.min[1]) / resolution,
+      (bbox.max[2] - bbox.min[2]) / resolution,
+    );
+    report(index, 'Evaluating SDF grid', 0);
+    const { grid, active } = evaluateCPUWithProgress(component, bbox, resolution, (pct) => report(index, 'Evaluating SDF grid', pct));
+    report(index, 'Generating mesh', 60);
+    const raw = dualContour(grid, resolution, bbox, component, (pct) => report(index, 'Generating mesh', 60 + pct * 0.2), active, voxel * CLUSTER_ERROR_VOXELS);
+    if (raw.indices.length === 0) throw new Error(`Export could not resolve component ${index + 1} of ${components.length} at ${voxel.toPrecision(4)} mm per voxel; increase export quality or enlarge the feature`);
+    report(index, 'Simplifying mesh', 80);
+    const simplified = simplifyMesh(removeDegenerateTriangles(raw), { maxError: voxel * SIMPLIFY_ERROR_VOXELS }, (pct) => report(index, 'Simplifying mesh', 80 + pct * 0.12));
+    report(index, 'Refining surface', 92);
+    meshes.push(projectVerticesToSurface(simplified, component, voxel * PROJECT_TOLERANCE_VOXELS));
+  }
+  if (meshes.length === 1) return meshes[0];
+  const positionCount = meshes.reduce((sum, mesh) => sum + mesh.positions.length, 0);
+  const normalCount = meshes.reduce((sum, mesh) => sum + mesh.normals.length, 0);
+  const indexCount = meshes.reduce((sum, mesh) => sum + mesh.indices.length, 0);
+  const positions = new Float32Array(positionCount), normals = new Float32Array(normalCount), indices = new Uint32Array(indexCount);
+  let positionOffset = 0, normalOffset = 0, indexOffset = 0, vertexOffset = 0;
+  for (const mesh of meshes) {
+    positions.set(mesh.positions, positionOffset); normals.set(mesh.normals, normalOffset);
+    for (let i = 0; i < mesh.indices.length; i++) indices[indexOffset + i] = mesh.indices[i] + vertexOffset;
+    positionOffset += mesh.positions.length; normalOffset += mesh.normals.length; indexOffset += mesh.indices.length; vertexOffset += mesh.positions.length / 3;
+  }
+  return { positions, normals, indices };
 }
 
 /**
