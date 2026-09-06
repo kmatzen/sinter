@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import * as THREE from 'three';
 import { SdfMesh, shaderCapacityError } from './SdfMesh';
 import { useModelerStore, type SDFDisplayData } from '../store/modelerStore';
+import { useViewportStore } from '../store/viewportStore';
 import type { ThreeEngine } from './ThreeEngine';
 
 /**
@@ -48,6 +49,24 @@ function constrainedEngine(uniformVectors: number, textureUnits: number) {
     scene: new THREE.Scene(),
     renderer: { getContext: () => context },
   } as unknown as ThreeEngine;
+}
+
+function renderableEngine() {
+  const engine = constrainedEngine(1_024, 16) as unknown as {
+    scene: THREE.Scene;
+    camera: THREE.PerspectiveCamera;
+    renderer: {
+      getContext: () => unknown;
+      getSize: (target: THREE.Vector2) => THREE.Vector2;
+      getPixelRatio: () => number;
+    };
+  };
+  engine.camera = new THREE.PerspectiveCamera(50, 1, 0.1, 10_000);
+  engine.camera.position.set(0, 0, 10);
+  engine.camera.updateMatrixWorld();
+  engine.renderer.getSize = (target) => target.set(800, 600);
+  engine.renderer.getPixelRatio = () => 1;
+  return engine as unknown as ThreeEngine;
 }
 
 /** The material/geometry/textures SdfMesh is currently holding. */
@@ -163,6 +182,22 @@ describe('shader capacity preflight', () => {
     expect(currentResources(sdfMesh).material).toBeNull();
     expect(useModelerStore.getState().sdfDisplay).toBeNull();
     expect(useModelerStore.getState().error).toMatch(/this GPU supports 64/i);
+  });
+});
+
+describe('viewport clipping uniforms', () => {
+  it('uses the same active clipping plane for rendering and depth picking', () => {
+    useViewportStore.setState({ clipEnabled: true, clipAxis: 'z', clipPosition: 2.5, clipFlip: true });
+    useModelerStore.setState({ sdfDisplay: display('float sdf(vec3 p){return 1.0;}') });
+    const sdfMesh = new SdfMesh(renderableEngine());
+
+    sdfMesh.update();
+
+    const material = currentResources(sdfMesh).material!;
+    expect(material.uniforms.u_clipEnabled.value).toBe(1);
+    expect(material.uniforms.u_clipAxis.value).toBe(2);
+    expect(material.uniforms.u_clipPos.value).toBe(2.5);
+    expect(material.uniforms.u_clipFlip.value).toBe(1);
   });
 });
 
