@@ -79,6 +79,18 @@ describe('Google Drive storage', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it('uses the loaded revision for conditional updates and reports conflicts', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(json({ id: 'project', appProperties: { sinterProject: 'document-v1' } }))
+      .mockResolvedValueOnce(json({}, 412));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(googleStorage.update(
+      'token', 'project', { version: 1, thumbnail: null, tree: null }, 'revision-1',
+    )).rejects.toThrow(/changed elsewhere/);
+    expect((fetchMock.mock.calls[1][1]?.headers as Record<string, string>)['If-Match']).toBe('revision-1');
+  });
+
   it('adopts the oldest legacy folder and marks it as app-owned', async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(json({ files: [] }))

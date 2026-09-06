@@ -8,6 +8,18 @@ export interface ProjectFileBody {
   tree: unknown;
 }
 
+export interface ProjectReadResult extends ProjectFileBody {
+  /** Opaque provider revision used for optimistic concurrency. */
+  revision: string;
+}
+
+export class StorageConflictError extends Error {
+  constructor() {
+    super('This cloud project changed elsewhere. Reload it or save your work as a copy.');
+    this.name = 'StorageConflictError';
+  }
+}
+
 export interface ProjectMeta {
   externalId: string;
   name: string;
@@ -17,10 +29,10 @@ export interface ProjectMeta {
 
 export interface StorageProvider {
   list(token: string, signal?: AbortSignal): Promise<ProjectMeta[]>;
-  read(token: string | null, externalId: string): Promise<ProjectFileBody>;
-  create(token: string, name: string, body: ProjectFileBody): Promise<{ externalId: string }>;
-  update(token: string, externalId: string, body: ProjectFileBody): Promise<void>;
-  rename(token: string, externalId: string, name: string): Promise<void>;
+  read(token: string | null, externalId: string): Promise<ProjectReadResult>;
+  create(token: string, name: string, body: ProjectFileBody): Promise<{ externalId: string; revision: string }>;
+  update(token: string, externalId: string, body: ProjectFileBody, expectedRevision: string): Promise<{ revision: string }>;
+  rename(token: string, externalId: string, name: string, expectedRevision: string): Promise<{ revision: string }>;
   delete(token: string, externalId: string): Promise<void>;
   /** Toggle public read access. Gists are always URL-accessible so this is a no-op there. */
   setPublic(token: string, externalId: string, isPublic: boolean): Promise<void>;

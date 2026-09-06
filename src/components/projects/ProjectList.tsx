@@ -2,9 +2,8 @@ import { useState, useEffect } from 'react';
 import { triggerDownload } from '../../utils/download';
 import { useModalStore } from '../../store/modalStore';
 import { useAuthStore, getCurrentProvider } from '../../store/authStore';
-import { useProjectStore, deleteCloudProject, requestDocumentReplacement } from '../../store/projectStore';
+import { useProjectStore, deleteCloudProject, loadThumbnail, requestDocumentReplacement } from '../../store/projectStore';
 import { getStorageProvider, type ProviderName, type ProjectMeta } from '../../storage';
-import { getThumbnail } from '../../storage/thumbnailCache';
 import { deleteLocalBackup, readLocalBackupJSON, useLocalBackupStore, writeLocalBackupJSON } from '../../store/localPersist';
 import { moveCloudProjectToLocal } from '../../storage/projectTransfer';
 import { decodeProjectDocument } from '../../types/documentDecoder';
@@ -75,7 +74,7 @@ export function ProjectList({ onClose, onLoaded, onImport }: Props) {
             ...p,
             source: 'cloud' as const,
             provider,
-            thumbnail: await getThumbnail(p.externalId),
+            thumbnail: await loadThumbnail(provider, p.externalId),
           })),
         );
         if (!cancelled) setCloudProjects(withThumbs);
@@ -88,7 +87,7 @@ export function ProjectList({ onClose, onLoaded, onImport }: Props) {
     }
     void loadCloud();
     return () => { cancelled = true; controller.abort(); };
-  }, []);
+  }, [user?.id]);
 
   useEffect(() => {
     let cancelled = false;

@@ -30,7 +30,11 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
   const save = useProjectStore((s) => s.save);
   const saving = useProjectStore((s) => s.saving);
   const saveError = useProjectStore((s) => s.saveError);
+  const saveConflict = useProjectStore((s) => s.saveConflict);
   const clearSaveError = useProjectStore((s) => s.clearSaveError);
+  const reloadRemote = useProjectStore((s) => s.reloadRemote);
+  const saveAsCopy = useProjectStore((s) => s.saveAsCopy);
+  const overwriteRemote = useProjectStore((s) => s.overwriteRemote);
   const shareUrl = useProjectStore((s) => s.shareUrl);
   const toggleShare = useProjectStore((s) => s.toggleShare);
   const projectId = useProjectStore((s) => s.projectId);
@@ -393,6 +397,11 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
       <div className="absolute top-12 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 px-4 py-2 rounded-lg shadow-lg text-sm"
            style={{ background: 'var(--accent-red)', color: '#fff' }}>
         <span>{saveError}</span>
+        {saveConflict && <>
+          <button className="underline whitespace-nowrap" onClick={() => void reloadRemote()}>Reload cloud</button>
+          <button className="underline whitespace-nowrap" onClick={() => void saveAsCopy()}>Save as copy</button>
+          <button className="underline whitespace-nowrap" onClick={() => void overwriteRemote()}>Overwrite</button>
+        </>}
         <button onClick={clearSaveError} className="ml-2 opacity-70 hover:opacity-100">&times;</button>
       </div>
     )}

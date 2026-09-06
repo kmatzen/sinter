@@ -1,4 +1,4 @@
-import type { StorageProvider, ProjectMeta, ProjectFileBody } from './types';
+import { StorageConflictError, type StorageProvider, type ProjectMeta, type ProjectFileBody } from './types';
 import { decodeProjectFileBody, MAX_PROJECT_JSON_CHARS } from '../types/documentDecoder';
 
 const DRIVE_API = 'https://www.googleapis.com';
@@ -51,13 +51,13 @@ function isProjectBody(value: unknown): value is ProjectFileBody {
   try { decodeProjectFileBody(value); return true; } catch { return false; }
 }
 
-async function readFileBody(token: string | null, externalId: string, signal?: AbortSignal): Promise<unknown> {
+async function readFileBody(token: string | null, externalId: string, signal?: AbortSignal): Promise<{ body: unknown; revision: string }> {
   const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
   const res = await fetch(`${DRIVE_API}/drive/v3/files/${externalId}?alt=media`, { headers, signal });
   if (!res.ok) throw new Error(`Drive read failed (${res.status})`);
   const text = await res.text();
   if (text.length > MAX_PROJECT_JSON_CHARS) throw new Error('Drive project exceeds the supported document size');
-  return JSON.parse(text);
+  return { body: JSON.parse(text), revision: res.headers.get('etag') ?? '' };
 }
 
 async function markProject(token: string, externalId: string, signal?: AbortSignal): Promise<void> {
@@ -206,7 +206,7 @@ export const googleStorage: StorageProvider = {
       if (file.mimeType !== 'application/json' || !file.name.endsWith('.json')) continue;
       let body: unknown;
       try {
-        body = await readFileBody(token, file.id, signal);
+        body = (await readFileBody(token, file.id, signal)).body;
       } catch (error) {
         if (signal?.aborted) throw error;
         // An unrelated or unreadable folder entry is not a project.
@@ -230,8 +230,8 @@ export const googleStorage: StorageProvider = {
   },
 
   async read(token, externalId) {
-    const body = await readFileBody(token, externalId);
-    return decodeProjectFileBody(body);
+    const { body, revision } = await readFileBody(token, externalId);
+    return { ...decodeProjectFileBody(body), revision };
   },
 
   async create(token, name, body) {
@@ -257,30 +257,37 @@ export const googleStorage: StorageProvider = {
     });
     if (!res.ok) throw new Error(`Drive upload failed (${res.status}): ${await res.text()}`);
     const data = await res.json();
-    return { externalId: data.id };
+    return { externalId: data.id, revision: res.headers.get('etag') ?? '' };
   },
 
-  async update(token, externalId, body) {
+  async update(token, externalId, body, expectedRevision) {
     await assertMarkedProject(token, externalId);
     const res = await fetch(
       `${DRIVE_API}/upload/drive/v3/files/${externalId}?uploadType=media`,
       {
         method: 'PATCH',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        headers: {
+          Authorization: `Bearer ${token}`, 'Content-Type': 'application/json',
+          ...(expectedRevision ? { 'If-Match': expectedRevision } : {}),
+        },
         body: JSON.stringify(body),
       },
     );
+    if (res.status === 409 || res.status === 412) throw new StorageConflictError();
     if (!res.ok) throw new Error(`Drive update failed (${res.status}): ${await res.text()}`);
+    return { revision: res.headers.get('etag') ?? expectedRevision };
   },
 
-  async rename(token, externalId, name) {
+  async rename(token, externalId, name, expectedRevision) {
     await assertMarkedProject(token, externalId);
     const res = await fetch(`${DRIVE_API}/drive/v3/files/${externalId}`, {
       method: 'PATCH',
-      headers: authHeaders(token),
+      headers: { ...authHeaders(token), ...(expectedRevision ? { 'If-Match': expectedRevision } : {}) },
       body: JSON.stringify({ name: `${name}.json` }),
     });
+    if (res.status === 409 || res.status === 412) throw new StorageConflictError();
     if (!res.ok) throw new Error(`Drive rename failed (${res.status}): ${await res.text()}`);
+    return { revision: res.headers.get('etag') ?? expectedRevision };
   },
 
   async delete(token, externalId) {

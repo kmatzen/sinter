@@ -2,7 +2,8 @@ import type { ProviderName, StorageProvider } from './types';
 import { googleStorage, clearGoogleCache } from './google';
 import { githubStorage } from './github';
 
-export type { ProviderName, StorageProvider, ProjectMeta, ProjectFileBody } from './types';
+export { StorageConflictError } from './types';
+export type { ProviderName, StorageProvider, ProjectMeta, ProjectFileBody, ProjectReadResult } from './types';
 
 export function getStorageProvider(name: ProviderName): StorageProvider {
   switch (name) {

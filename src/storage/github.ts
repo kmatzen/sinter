@@ -1,4 +1,5 @@
 import type { StorageProvider, ProjectMeta } from './types';
+import { StorageConflictError } from './types';
 import { decodeProjectFileBody, MAX_PROJECT_JSON_CHARS } from '../types/documentDecoder';
 
 const API = 'https://api.github.com';
@@ -46,14 +47,14 @@ function selectProjectFile(files: Record<string, GistFile> | undefined): { filen
   return { filename, file };
 }
 
-async function getGistProject(token: string | null, externalId: string): Promise<{ filename: string; file: GistFile }> {
+async function getGistProject(token: string | null, externalId: string): Promise<{ filename: string; file: GistFile; revision: string }> {
   const headers = token
     ? authHeaders(token)
     : { Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' };
   const res = await fetch(`${API}/gists/${externalId}`, { headers });
   if (!res.ok) throw new Error(`GitHub API error (${res.status}): ${await res.text()}`);
   const data = await res.json();
-  return selectProjectFile(data.files);
+  return { ...selectProjectFile(data.files), revision: res.headers.get('etag') ?? data.updated_at ?? '' };
 }
 
 export const githubStorage: StorageProvider = {
@@ -88,7 +89,7 @@ export const githubStorage: StorageProvider = {
   },
 
   async read(token, externalId) {
-    const { file } = await getGistProject(token, externalId);
+    const { file, revision } = await getGistProject(token, externalId);
     let content = file.content || '';
     if (file.truncated && file.raw_url) {
       const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
@@ -97,7 +98,7 @@ export const githubStorage: StorageProvider = {
       content = await rawRes.text();
     }
     if (content.length > MAX_PROJECT_JSON_CHARS) throw new Error('GitHub project exceeds the supported document size');
-    return decodeProjectFileBody(JSON.parse(content));
+    return { ...decodeProjectFileBody(JSON.parse(content)), revision };
   },
 
   async create(token, name, body) {
@@ -113,26 +114,31 @@ export const githubStorage: StorageProvider = {
     });
     if (!res.ok) throw new Error(`GitHub create failed (${res.status}): ${await res.text()}`);
     const data = await res.json();
-    return { externalId: data.id };
+    return { externalId: data.id, revision: res.headers.get('etag') ?? data.updated_at ?? '' };
   },
 
-  async update(token, externalId, body) {
-    const { filename } = await getGistProject(token, externalId);
+  async update(token, externalId, body, expectedRevision) {
+    const { filename, revision } = await getGistProject(token, externalId);
+    if (expectedRevision && revision !== expectedRevision) throw new StorageConflictError();
     const res = await fetch(`${API}/gists/${externalId}`, {
       method: 'PATCH',
-      headers: authHeaders(token),
+      headers: { ...authHeaders(token), ...(revision ? { 'If-Match': revision } : {}) },
       body: JSON.stringify({ files: { [filename]: { content: JSON.stringify(body) } } }),
     });
+    if (res.status === 409 || res.status === 412) throw new StorageConflictError();
     if (!res.ok) throw new Error(`GitHub update failed (${res.status}): ${await res.text()}`);
+    return { revision: res.headers.get('etag') ?? (await res.json()).updated_at ?? revision };
   },
 
-  async rename(token, externalId, name) {
+  async rename(token, externalId, name, expectedRevision) {
     const res = await fetch(`${API}/gists/${externalId}`, {
       method: 'PATCH',
-      headers: authHeaders(token),
+      headers: { ...authHeaders(token), ...(expectedRevision ? { 'If-Match': expectedRevision } : {}) },
       body: JSON.stringify({ description: `${DESC_PREFIX}${name}` }),
     });
+    if (res.status === 409 || res.status === 412) throw new StorageConflictError();
     if (!res.ok) throw new Error(`GitHub rename failed (${res.status}): ${await res.text()}`);
+    return { revision: res.headers.get('etag') ?? (await res.json()).updated_at ?? expectedRevision };
   },
 
   async delete(token, externalId) {

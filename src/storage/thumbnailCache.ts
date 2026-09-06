@@ -3,6 +3,12 @@
 // the user opens (or saves) a project, then persist locally.
 
 import { openBrowserDB, THUMBNAIL_STORE } from './browserDb';
+import type { ProviderName } from './types';
+
+/** Provider/account scoping prevents identical remote IDs sharing previews. */
+export function thumbnailCacheKey(provider: ProviderName, accountId: string, externalId: string): string {
+  return JSON.stringify([provider, accountId, externalId]);
+}
 
 export async function getThumbnail(externalId: string): Promise<string | null> {
   try {

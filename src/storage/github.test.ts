@@ -19,7 +19,7 @@ describe('GitHub gist storage', () => {
       'sinter-project.json': { content: JSON.stringify(project) },
     } })));
 
-    await expect(githubStorage.read('token', 'gist')).resolves.toEqual(project);
+    await expect(githubStorage.read('token', 'gist')).resolves.toEqual({ ...project, revision: '' });
   });
 
   it('updates only the Sinter file in a multi-file gist', async () => {
@@ -31,11 +31,19 @@ describe('GitHub gist storage', () => {
       .mockResolvedValueOnce(json({ id: 'gist' }));
     vi.stubGlobal('fetch', fetchMock);
 
-    await githubStorage.update('token', 'gist', project);
+    await githubStorage.update('token', 'gist', project, '');
 
     const request = JSON.parse(String(fetchMock.mock.calls[1][1]?.body));
     expect(Object.keys(request.files)).toEqual(['sinter-project.json']);
     expect(request.files['notes.txt']).toBeUndefined();
+  });
+
+  it('rejects an update when the gist revision changed remotely', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({ files: {
+      'sinter-project.json': { content: JSON.stringify(project) },
+    } }), { headers: { 'Content-Type': 'application/json', ETag: 'new-revision' } })));
+
+    await expect(githubStorage.update('token', 'gist', project, 'old-revision')).rejects.toThrow(/changed elsewhere/);
   });
 
   it('fails closed when no Sinter file exists', async () => {
@@ -52,7 +60,7 @@ describe('GitHub gist storage', () => {
       'sinter-two.json': { content: JSON.stringify(project) },
     } })));
 
-    await expect(githubStorage.update('token', 'gist', project)).rejects.toThrow('multiple');
+    await expect(githubStorage.update('token', 'gist', project, '')).rejects.toThrow('multiple');
   });
 
   it('fetches truncated content from the selected Sinter file', async () => {
@@ -64,7 +72,7 @@ describe('GitHub gist storage', () => {
       .mockResolvedValueOnce(json(project));
     vi.stubGlobal('fetch', fetchMock);
 
-    await expect(githubStorage.read('token', 'gist')).resolves.toEqual(project);
+    await expect(githubStorage.read('token', 'gist')).resolves.toEqual({ ...project, revision: '' });
     expect(fetchMock.mock.calls[1][0]).toBe('https://gist.example/raw');
   });
 });
