@@ -1,4 +1,4 @@
-import { useRef, useEffect } from 'react';
+import { useRef, useEffect, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { OutlinePass } from '../../engine/OutlinePass';
@@ -296,22 +296,32 @@ class HeroDemoEngine {
     this.controls.dispose();
     this.outlinePass.dispose();
     this.renderer.dispose();
-    this.container.removeChild(this.renderer.domElement);
+    if (this.renderer.domElement.parentNode === this.container) this.container.removeChild(this.renderer.domElement);
   }
 }
 
 export function HeroDemo() {
   const containerRef = useRef<HTMLDivElement>(null);
+  const [unavailable, setUnavailable] = useState(false);
 
   useEffect(() => {
     if (!containerRef.current) return;
-    const engine = new HeroDemoEngine(containerRef.current);
-    return () => engine.dispose();
+    let engine: HeroDemoEngine | null = null;
+    try {
+      engine = new HeroDemoEngine(containerRef.current);
+    } catch (error) {
+      // The marketing preview is optional. A missing/partial WebGL
+      // implementation must not take down the landing page or race the user
+      // entering the real editor through the global recovery boundary.
+      console.warn('Interactive landing preview unavailable:', error);
+      setUnavailable(true);
+    }
+    return () => engine?.dispose();
   }, []);
 
   return (
     <div className="w-full h-[280px] md:h-[320px] relative">
-      <div ref={containerRef} className="w-full h-full" aria-label="Interactive preview of Sinter geometry" role="img" />
+      <div ref={containerRef} className="w-full h-full" aria-label={unavailable ? 'Sinter geometry preview unavailable' : 'Interactive preview of Sinter geometry'} role="img" />
       <div className="absolute inset-0 pointer-events-none" style={{
         background: 'radial-gradient(ellipse at 50% 50%, transparent 40%, var(--bg-deep) 80%)',
       }} />

@@ -21,12 +21,14 @@ test('boot, edit, undo, save interception, import, and export', async ({ page })
   await enterModeler(page);
 
   await page.getByRole('button', { name: 'Add Box' }).click();
-  const width = page.getByRole('spinbutton', { name: 'Width' });
+  // Formula-capable numeric properties intentionally use text inputs so values
+  // such as `wall * 2` remain editable across engines.
+  const width = page.getByRole('textbox', { name: 'Width' });
   await width.fill('42');
   await width.press('Enter');
   await expect(width).toHaveValue('42');
   await page.getByRole('button', { name: 'Undo' }).click();
-  await expect(width).toHaveValue('20');
+  await expect(width).toHaveValue('50');
 
   // The editor must consume browser Save even while a text field has focus.
   await page.getByRole('textbox', { name: 'Project name' }).focus();
