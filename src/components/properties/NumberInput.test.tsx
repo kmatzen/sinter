@@ -46,6 +46,23 @@ describe('NumberInput constraints', () => {
     expect(useModelerStore.getState().tree!.params.width).toBe(10);
   });
 
+  it('commits a typed Enter edit exactly once', () => {
+    const update = (width: number) => useModelerStore.getState().updateNodeParams('box', { width });
+    render(<NumberInput label="Width" value={10} min={1} max={100} onChange={update} />);
+    const input = screen.getByLabelText('Width');
+
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: '42' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    // jsdom does not synthesize React's blur event from HTMLElement.blur().
+    fireEvent.blur(input);
+
+    expect(useModelerStore.getState().tree!.params.width).toBe(42);
+    expect(useModelerStore.getState().history).toHaveLength(2);
+    useModelerStore.getState().undo();
+    expect(useModelerStore.getState().tree!.params.width).toBe(10);
+  });
+
   it('restores the starting value when a scrub is cancelled', () => {
     const update = (width: number) => useModelerStore.getState().updateNodeParams('box', { width });
     render(<NumberInput label="Width" value={10} min={1} max={100} onChange={update} />);

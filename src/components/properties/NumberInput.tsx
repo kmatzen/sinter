@@ -216,7 +216,10 @@ export function NumberInput({ label, value, unit = 'mm', min, max, step = 1, onC
             else commit();
           }}
           onKeyDown={(e) => {
-            if (e.key === 'Enter') { commit(); inputRef.current?.blur(); }
+            // Blur owns the commit. Calling commit here as well records the
+            // same value twice before React can refresh the `value` closure,
+            // so one Undo appears to do nothing after an Enter edit.
+            if (e.key === 'Enter') { e.preventDefault(); inputRef.current?.blur(); }
             if (e.key === 'ArrowUp') { e.preventDefault(); beginContinuousEdit(); onChange(constrain(value + step)); }
             if (e.key === 'ArrowDown') { e.preventDefault(); beginContinuousEdit(); onChange(constrain(value - step)); }
           }}
