@@ -6,7 +6,7 @@ import { ViewportToolbar } from './ViewportToolbar';
 
 describe('ViewportToolbar camera controls', () => {
   beforeEach(() => {
-    useViewportStore.setState({ clipEnabled: false, measurementMode: false, showDimensions: false });
+    useViewportStore.setState({ clipEnabled: false, measurementMode: false, showDimensions: false, projection: 'perspective' });
   });
 
   it('offers every exact standard view in one compact control', () => {
@@ -28,5 +28,12 @@ describe('ViewportToolbar camera controls', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Frame selection' }));
     expect(zoomToFit).toHaveBeenCalledTimes(1);
     expect(frameSelection).toHaveBeenCalledTimes(1);
+  });
+
+  it('offers a compact perspective/orthographic toggle', () => {
+    render(<ViewportToolbar engine={null} />);
+    fireEvent.click(screen.getByRole('button', { name: /projection: perspective/i }));
+    expect(useViewportStore.getState().projection).toBe('orthographic');
+    expect(screen.getByRole('button', { name: /projection: orthographic/i })).toHaveTextContent('O');
   });
 });

@@ -24,6 +24,8 @@ function initialMeasurementPrecision(): number {
 }
 
 interface ViewportState {
+  projection: 'perspective' | 'orthographic';
+  setProjection: (projection: 'perspective' | 'orthographic') => void;
   // Gizmo
   gizmoMode: 'none' | 'translate' | 'rotate' | 'scale';
   setGizmoMode: (mode: 'none' | 'translate' | 'rotate' | 'scale') => void;
@@ -103,6 +105,8 @@ interface ViewportState {
 }
 
 export const useViewportStore = create<ViewportState>((set) => ({
+  projection: 'perspective',
+  setProjection: (projection) => set({ projection }),
   gizmoMode: 'translate',
   setGizmoMode: (mode) => set({ gizmoMode: mode }),
   gizmoSpace: initialGizmoSpace(),

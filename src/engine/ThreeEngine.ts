@@ -27,7 +27,7 @@ export class ThreeEngine {
    * draws whichever one it wants.
    */
   gizmoScene: THREE.Scene;
-  camera: THREE.PerspectiveCamera;
+  camera: THREE.PerspectiveCamera | THREE.OrthographicCamera;
   controls: OrbitControls;
   container: HTMLDivElement;
 
@@ -72,6 +72,7 @@ export class ThreeEngine {
   private settleTimer: ReturnType<typeof setTimeout> | null = null;
   private unsubscribes: (() => void)[] = [];
   private frameListeners = new Set<() => void>();
+  private projection: 'perspective' | 'orthographic' = 'perspective';
 
   constructor(container: HTMLDivElement) {
     this.container = container;
@@ -128,6 +129,8 @@ export class ThreeEngine {
     this.resizeObserver.observe(container);
 
     this.subscribe();
+    const initialProjection = useViewportStore.getState().projection;
+    if (initialProjection !== this.projection) this.setProjection(initialProjection);
 
     // Start
     this.animate();
@@ -153,7 +156,10 @@ export class ThreeEngine {
     // of them, and any of them can change a pixel.
     this.unsubscribes.push(useModelerStore.subscribe(() => this.invalidate()));
     // Clip plane, gizmo mode and space, dragging.
-    this.unsubscribes.push(useViewportStore.subscribe(() => this.invalidate()));
+    this.unsubscribes.push(useViewportStore.subscribe((state) => {
+      if (state.projection !== this.projection) this.setProjection(state.projection);
+      this.invalidate();
+    }));
   }
 
   /** Mark the frame stale. Cheap enough to call from anywhere. */
@@ -407,7 +413,14 @@ export class ThreeEngine {
     const w = this.container.clientWidth;
     const h = this.container.clientHeight;
     if (w === 0 || h === 0) return;
-    this.camera.aspect = w / h;
+    if (this.camera instanceof THREE.PerspectiveCamera) {
+      this.camera.aspect = w / h;
+    } else {
+      const halfHeight = (this.camera.top - this.camera.bottom) / 2;
+      const halfWidth = halfHeight * w / h;
+      this.camera.left = -halfWidth;
+      this.camera.right = halfWidth;
+    }
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(w, h);
     this.outlinePass.resize(w, h);
@@ -461,10 +474,11 @@ export class ThreeEngine {
     if (!bounds) return;
     const direction = this.camera.position.clone().sub(this.controls.target);
     if (direction.lengthSq() < 1e-12) direction.set(1, 0.8, 1);
-    const pose = standardViewPose(bounds, 'isometric', this.camera.fov);
+    const pose = standardViewPose(bounds, 'isometric', 50);
     const target = new THREE.Vector3(...pose.target);
     this.camera.position.copy(target).addScaledVector(direction.normalize(), pose.distance);
     this.controls.target.copy(target);
+    this.fitOrthographicFrustum(bounds);
     this.camera.lookAt(target);
     this.camera.updateMatrixWorld();
     this.controls.update();
@@ -478,12 +492,61 @@ export class ThreeEngine {
   }
 
   private applyStandardView(view: StandardView, bounds: { min: Vec3; max: Vec3 }) {
-    const pose = standardViewPose(bounds, view, this.camera.fov);
+    const pose = standardViewPose(bounds, view, 50);
     this.camera.up.set(...pose.up);
     this.camera.position.set(...pose.position);
     this.controls.target.set(...pose.target);
+    this.fitOrthographicFrustum(bounds);
     this.camera.lookAt(this.controls.target);
     this.camera.updateMatrixWorld();
+    this.controls.update();
+    this.invalidate();
+  }
+
+  private fitOrthographicFrustum(bounds: { min: Vec3; max: Vec3 }) {
+    if (!(this.camera instanceof THREE.OrthographicCamera)) return;
+    const diagonal = new THREE.Vector3(...bounds.min).distanceTo(new THREE.Vector3(...bounds.max));
+    const halfHeight = Math.max(diagonal * 0.55, 0.05);
+    const aspect = Math.max(this.container.clientWidth / Math.max(this.container.clientHeight, 1), 1e-6);
+    this.camera.left = -halfHeight * aspect;
+    this.camera.right = halfHeight * aspect;
+    this.camera.top = halfHeight;
+    this.camera.bottom = -halfHeight;
+    this.camera.zoom = 1;
+    this.camera.updateProjectionMatrix();
+  }
+
+  /** Switch projection while preserving the target and apparent vertical span. */
+  setProjection(projection: 'perspective' | 'orthographic') {
+    if (projection === this.projection) return;
+    const target = this.controls.target.clone();
+    const direction = this.camera.position.clone().sub(target);
+    const distance = Math.max(direction.length(), 0.1);
+    direction.normalize();
+    const aspect = Math.max(this.container.clientWidth / Math.max(this.container.clientHeight, 1), 1e-6);
+    let replacement: THREE.PerspectiveCamera | THREE.OrthographicCamera;
+
+    if (projection === 'orthographic') {
+      const source = this.camera as THREE.PerspectiveCamera;
+      const halfHeight = distance * Math.tan((source.fov * Math.PI) / 360) / source.zoom;
+      replacement = new THREE.OrthographicCamera(-halfHeight * aspect, halfHeight * aspect, halfHeight, -halfHeight, 0.01, 50_000);
+      replacement.position.copy(source.position);
+    } else {
+      const source = this.camera as THREE.OrthographicCamera;
+      const halfHeight = (source.top - source.bottom) / (2 * source.zoom);
+      replacement = new THREE.PerspectiveCamera(50, aspect, 0.01, 50_000);
+      const nextDistance = halfHeight / Math.tan((replacement.fov * Math.PI) / 360);
+      replacement.position.copy(target).addScaledVector(direction, nextDistance);
+    }
+    replacement.up.copy(this.camera.up);
+    replacement.quaternion.copy(this.camera.quaternion);
+    replacement.updateProjectionMatrix();
+    replacement.updateMatrixWorld();
+
+    this.camera = replacement;
+    (this.controls as unknown as { object: THREE.Camera }).object = replacement;
+    this.gizmo.setCamera(replacement);
+    this.projection = projection;
     this.controls.update();
     this.invalidate();
   }
@@ -513,7 +576,9 @@ export class ThreeEngine {
     const savedPos = this.camera.position.clone();
     const savedQuat = this.camera.quaternion.clone();
     const savedTarget = this.controls.target.clone();
-    const savedAspect = this.camera.aspect;
+    const savedProjection = this.camera instanceof THREE.PerspectiveCamera
+      ? { kind: 'perspective' as const, aspect: this.camera.aspect }
+      : { kind: 'orthographic' as const, left: this.camera.left, right: this.camera.right, top: this.camera.top, bottom: this.camera.bottom };
     const savedSize = new THREE.Vector2();
     this.renderer.getSize(savedSize);
 
@@ -526,7 +591,13 @@ export class ThreeEngine {
     // Set up small render target — resize OutlinePass to match
     this.renderer.setSize(size, size);
     this.outlinePass.resize(size, size);
-    this.camera.aspect = 1;
+    if (this.camera instanceof THREE.PerspectiveCamera) {
+      this.camera.aspect = 1;
+    } else {
+      const half = Math.max(radius * 1.2, 0.05);
+      this.camera.left = -half; this.camera.right = half;
+      this.camera.top = half; this.camera.bottom = -half;
+    }
     this.camera.updateProjectionMatrix();
 
     const views: Array<{ name: string; pos: THREE.Vector3; axes: string }> = [
@@ -566,7 +637,12 @@ export class ThreeEngine {
     this.camera.position.copy(savedPos);
     this.camera.quaternion.copy(savedQuat);
     this.controls.target.copy(savedTarget);
-    this.camera.aspect = savedAspect;
+    if (savedProjection.kind === 'perspective' && this.camera instanceof THREE.PerspectiveCamera) {
+      this.camera.aspect = savedProjection.aspect;
+    } else if (savedProjection.kind === 'orthographic' && this.camera instanceof THREE.OrthographicCamera) {
+      this.camera.left = savedProjection.left; this.camera.right = savedProjection.right;
+      this.camera.top = savedProjection.top; this.camera.bottom = savedProjection.bottom;
+    }
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(savedSize.x, savedSize.y);
     this.outlinePass.resize(savedSize.x, savedSize.y);
@@ -591,8 +667,9 @@ export class ThreeEngine {
   ) {
     // Determine which world axes map to screen horizontal/vertical
     // For perspective camera at distance, compute visible extent
-    const fovRad = (this.camera.fov * Math.PI) / 180;
-    const visibleHeight = 2 * Math.tan(fovRad / 2) * cameraDist; // world units visible vertically
+    const visibleHeight = this.camera instanceof THREE.OrthographicCamera
+      ? (this.camera.top - this.camera.bottom) / this.camera.zoom
+      : 2 * Math.tan((this.camera.fov * Math.PI) / 360) * cameraDist;
     const visibleWidth = visibleHeight; // aspect = 1
 
     const center = new THREE.Vector3().addVectors(bbMin, bbMax).multiplyScalar(0.5);

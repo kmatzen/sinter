@@ -6,7 +6,7 @@ import { nodeWorldBounds } from '../../engine/nodeBounds';
 import type { ThreeEngine } from '../../engine/ThreeEngine';
 import type { SDFNodeUI } from '../../types/operations';
 
-function project(point: THREE.Vector3, camera: THREE.PerspectiveCamera, w: number, h: number) {
+function project(point: THREE.Vector3, camera: THREE.Camera, w: number, h: number) {
   const v = point.clone().project(camera);
   return { x: (v.x * 0.5 + 0.5) * w, y: (-v.y * 0.5 + 0.5) * h, behind: v.z > 1 };
 }

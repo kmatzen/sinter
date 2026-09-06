@@ -269,6 +269,10 @@ export class GizmoController {
     this.ancestorGroup.visible = visible;
   }
 
+  setCamera(camera: THREE.Camera) {
+    this.controls.camera = camera;
+  }
+
   dispose() {
     useModelerStore.getState().cancelHistoryTransaction();
     for (const u of this.unsubs) u();

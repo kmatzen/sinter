@@ -35,6 +35,8 @@ function buildFrag(sdfFunc: string, paramCount: number, hasWarn: boolean): strin
 precision highp float;
 uniform float u_p[${paramCount}];
 uniform vec3 u_cameraPos;
+uniform vec3 u_cameraDir;
+uniform float u_orthographic;
 uniform vec3 u_lightDir;
 uniform vec3 u_bbMin;
 uniform vec3 u_bbMax;
@@ -71,7 +73,7 @@ ${sdfFunc}
  * Scaling with t keeps the offset at a fixed fraction of a pixel at any zoom.
  */
 vec3 calcNormal(vec3 p, float t) {
-  float e = max(t * u_pixelRadius * 0.35, u_stepFloor);
+  float e = max((u_orthographic > 0.5 ? 1.0 : t) * u_pixelRadius * 0.35, u_stepFloor);
   const vec2 k = vec2(1.0, -1.0);
   return normalize(
     k.xyy * sdf(p + k.xyy * e) +
@@ -84,8 +86,13 @@ vec3 calcNormal(vec3 p, float t) {
 ${SHARED_GLSL}
 
 void main() {
-  vec3 ro = u_cameraPos;
-  vec3 rd = normalize(-vViewDir);
+  vec3 rd = u_orthographic > 0.5 ? u_cameraDir : normalize(-vViewDir);
+  // With an orthographic camera every ray is parallel. The rasterized back
+  // face gives this pixel's exit point, so backing up by two box diagonals
+  // reconstructs a ray origin in front of the model without a fake pinhole.
+  vec3 ro = u_orthographic > 0.5
+    ? vWorldPos - rd * (length(u_bbMax - u_bbMin) * 2.0 + 1.0)
+    : u_cameraPos;
   vec2 tb = boxIntersect(ro, rd, u_bbMin, u_bbMax);
   float tStart = max(tb.x, 0.0);
   float tEnd = tb.y;
@@ -172,7 +179,7 @@ void main() {
   // reason, and zooming into a small feature did not tighten it. Half a pixel
   // at the current distance is the quantity that actually matters: there is
   // nothing to resolve below it, and it costs steps to try.
-  float minStep = max(tStart * u_pixelRadius * 0.5, u_stepFloor);
+  float minStep = max((u_orthographic > 0.5 ? 1.0 : tStart) * u_pixelRadius * 0.5, u_stepFloor);
 
   // Enhanced sphere tracing (Keinert et al. 2014): over-relax the marching
   // step by omega, and back off if the over-relaxed step overshot the field's
@@ -188,7 +195,7 @@ void main() {
   float stepLength = 0.0;
   for (int i = 0; i < 1024; i++) {
     p = ro + rd * t;
-    minStep = max(t * u_pixelRadius * 0.5, u_stepFloor);
+    minStep = max((u_orthographic > 0.5 ? 1.0 : t) * u_pixelRadius * 0.5, u_stepFloor);
     float radius = abs(sdf(p));
     bool sorFail = (omega > 1.0) && (radius + prevRadius < stepLength);
     if (sorFail) {
@@ -289,7 +296,7 @@ export interface ShaderCapacity {
 
 // Scalars/vectors/matrix used by buildFrag apart from the generated u_p array.
 // Samplers have their own independently queried limit.
-const FIXED_FRAGMENT_UNIFORM_COMPONENTS = 34;
+const FIXED_FRAGMENT_UNIFORM_COMPONENTS = 38;
 
 /** Return an actionable portability error before asking WebGL to link. */
 export function shaderCapacityError(
@@ -439,6 +446,8 @@ export class SdfMesh {
       uniforms: {
         u_p: { value: initialParams },
         u_cameraPos: { value: new THREE.Vector3() },
+        u_cameraDir: { value: new THREE.Vector3(0, 0, -1) },
+        u_orthographic: { value: 0 },
         u_lightDir: { value: new THREE.Vector3(0.5, 0.8, 0.4).normalize() },
         u_bbMin: { value: new THREE.Vector3(...sdf.bbMin) },
         u_bbMax: { value: new THREE.Vector3(...sdf.bbMax) },
@@ -479,6 +488,8 @@ export class SdfMesh {
     const cam = this.engine.camera;
 
     u.u_cameraPos.value.copy(cam.position);
+    cam.getWorldDirection(u.u_cameraDir.value);
+    u.u_orthographic.value = cam instanceof THREE.OrthographicCamera ? 1 : 0;
     u.u_projView.value.copy(cam.projectionMatrix).multiply(cam.matrixWorldInverse);
 
     const vs = useViewportStore.getState();
@@ -505,7 +516,9 @@ export class SdfMesh {
       const size = new THREE.Vector2();
       this.engine.renderer.getSize(size);
       const heightPx = Math.max(1, size.y * this.engine.renderer.getPixelRatio());
-      u.u_pixelRadius.value = (2 * Math.tan((cam.fov * Math.PI) / 360)) / heightPx;
+      u.u_pixelRadius.value = cam instanceof THREE.OrthographicCamera
+        ? (cam.top - cam.bottom) / cam.zoom / heightPx
+        : (2 * Math.tan((cam.fov * Math.PI) / 360)) / heightPx;
       // A ray that starts inside the bounding box has t = 0, where a purely
       // relative threshold is zero and the march would spend its whole budget
       // creeping. Tied to the model rather than to a constant so it means the

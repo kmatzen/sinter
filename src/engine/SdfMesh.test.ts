@@ -162,7 +162,7 @@ describe('shader capacity preflight', () => {
     expect(shaderCapacityError(display('', 0, { paramCount: 1_999 }), {
       maxFragmentUniformComponents: 1_024,
       maxTextureImageUnits: 16,
-    })).toMatch(/needs 2033.*supports 1024/);
+    })).toMatch(/needs 2037.*supports 1024/);
   });
 
   it('accounts for fixed uniforms and imported-field samplers', () => {

@@ -82,6 +82,8 @@ export function ViewportToolbar({ engine }: { engine: ThreeEngine | null }) {
   const toggleDimensions = useViewportStore((s) => s.toggleDimensions);
   const measurementMode = useViewportStore((s) => s.measurementMode);
   const toggleMeasurementMode = useViewportStore((s) => s.toggleMeasurementMode);
+  const projection = useViewportStore((s) => s.projection);
+  const setProjection = useViewportStore((s) => s.setProjection);
 
   return (
     <>
@@ -154,6 +156,11 @@ export function ViewportToolbar({ engine }: { engine: ThreeEngine | null }) {
           </select>
           <SmallBtn onClick={() => engine?.zoomToFit()} title="Frame all">A</SmallBtn>
           <SmallBtn onClick={() => engine?.frameSelection()} title="Frame selection">S</SmallBtn>
+          <SmallBtn
+            active={projection === 'orthographic'}
+            onClick={() => setProjection(projection === 'perspective' ? 'orthographic' : 'perspective')}
+            title={`Projection: ${projection}. Switch to ${projection === 'perspective' ? 'orthographic' : 'perspective'}`}
+          >{projection === 'perspective' ? 'P' : 'O'}</SmallBtn>
         </BtnGroup>
       </div>
 
