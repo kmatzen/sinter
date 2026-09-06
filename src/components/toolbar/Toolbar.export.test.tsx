@@ -31,7 +31,7 @@ vi.mock('../../engine/workerBridge', () => {
   };
 });
 
-import { Toolbar } from './Toolbar';
+import { Toolbar, affectedPreflightBounds } from './Toolbar';
 import { useModelerStore } from '../../store/modelerStore';
 import { useViewportStore } from '../../store/viewportStore';
 import { useProjectStore } from '../../store/projectStore';
@@ -42,6 +42,12 @@ function deferred<T>() {
   const promise = new Promise<T>((res, rej) => { resolve = res; reject = rej; });
   return { promise, resolve, reject };
 }
+
+it('unions localized preflight findings for viewport highlighting', () => {
+  const diagnostics = artifact(1, 12).diagnostics;
+  expect(affectedPreflightBounds(diagnostics)).toEqual({ min: [0, 0, 0], max: [5, 6, 6] });
+  expect(affectedPreflightBounds({ ...diagnostics, overhang: undefined, thickness: undefined })).toBeNull();
+});
 
 function artifact(size: number, triangleCount: number): ExportArtifact {
   return {

@@ -19,9 +19,19 @@ import type { ExportConformance, ExportDiagnostics } from '../../types/geometry'
 import { dimensionsOutsideBuildVolume, exportPreflightOptions, useManufacturingProfileStore } from '../../store/manufacturingProfile';
 import { commandById, OPEN_COMMAND_PALETTE_EVENT, runEditorCommand, TOOLBAR_COMMAND_EVENT } from '../../commands/editorCommands';
 import { formatLength } from '../../types/units';
+import { getEngineRef } from '../../engine/engineRef';
 
 function hasImportedMesh(node: ReturnType<typeof useModelerStore.getState>['tree']): boolean {
   return !!node && (node.kind === 'mesh' || node.children.some(hasImportedMesh));
+}
+
+export function affectedPreflightBounds(diagnostics: ExportDiagnostics) {
+  const regions = [diagnostics.overhang?.affectedBounds, diagnostics.thickness?.affectedBounds].filter(Boolean) as { min: [number, number, number]; max: [number, number, number] }[];
+  if (!regions.length) return null;
+  return {
+    min: [0, 1, 2].map((axis) => Math.min(...regions.map((region) => region.min[axis]))) as [number, number, number],
+    max: [0, 1, 2].map((axis) => Math.max(...regions.map((region) => region.max[axis]))) as [number, number, number],
+  };
 }
 
 export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => void; onMobileProps?: () => void } = {}) {
@@ -126,6 +136,7 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
   const handleCancelExport = () => {
     exportEpoch.current++;
     workerBridge.cancelExport();
+    getEngineRef()?.setPreflightBounds(null);
   };
 
   const handleExportSTL = async () => {
@@ -136,6 +147,7 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
     try {
       const { blob, triangleCount: triangles, diagnostics, conformance, achievedTolerance, componentCount } = await workerBridge.exportSTL(tree, onProgress, exportResolution, exportPreflightOptions(manufacturingProfile));
       if (exportEpoch.current !== epoch) return;
+      getEngineRef()?.setPreflightBounds(affectedPreflightBounds(diagnostics));
       setExportPreview({ blob, name: `${projectName}.stl`, triangles, size: blob.size, diagnostics, conformance, approximateSource: hasImportedMesh(tree), achievedTolerance, componentCount });
     } catch (err: any) {
       if (!isCancelled(err)) setError(`STL export failed: ${err?.message || String(err)}`);
@@ -153,6 +165,7 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
     try {
       const { blob, triangleCount: triangles, diagnostics, conformance, achievedTolerance, componentCount } = await workerBridge.export3MF(tree, onProgress, exportResolution, exportPreflightOptions(manufacturingProfile));
       if (exportEpoch.current !== epoch) return;
+      getEngineRef()?.setPreflightBounds(affectedPreflightBounds(diagnostics));
       setExportPreview({ blob, name: `${projectName}.3mf`, triangles, size: blob.size, diagnostics, conformance, approximateSource: hasImportedMesh(tree), achievedTolerance, componentCount });
     } catch (err: any) {
       if (!isCancelled(err)) setError(`3MF export failed: ${err?.message || String(err)}`);
@@ -515,8 +528,8 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
         approximateSource={exportPreview.approximateSource}
         achievedTolerance={exportPreview.achievedTolerance}
         componentCount={exportPreview.componentCount}
-        onDownload={() => { triggerDownload(exportPreview.blob, exportPreview.name); setExportPreview(null); }}
-        onCancel={() => setExportPreview(null)}
+        onDownload={() => { triggerDownload(exportPreview.blob, exportPreview.name); getEngineRef()?.setPreflightBounds(null); setExportPreview(null); }}
+        onCancel={() => { getEngineRef()?.setPreflightBounds(null); setExportPreview(null); }}
       />
     )}
     </>
@@ -718,6 +731,11 @@ function ExportPreview({ triangles, size, name, diagnostics, conformance, approx
             <p role="alert" className="text-[11px] leading-relaxed rounded p-2" style={{ color: 'var(--warning, #f59e0b)', background: 'var(--bg-elevated)' }}>
               Support risk: {diagnostics.overhang.riskyTriangles.toLocaleString()} of {diagnostics.overhang.analyzedTriangles.toLocaleString()} export triangles exceed the configured {diagnostics.overhang.overhangAngle}° overhang threshold for {diagnostics.overhang.buildDirection.toUpperCase()}-up printing.
               {diagnostics.overhang.affectedBounds && <> Affected region: {diagnostics.overhang.affectedBounds.min.map((value) => formatLength(value, { displayUnit, decimalPrecision, fractionalDenominator }, false)).join(', ')} to {diagnostics.overhang.affectedBounds.max.map((value) => formatLength(value, { displayUnit, decimalPrecision, fractionalDenominator }, false)).join(', ')}{displayUnit === 'ft-in' ? '' : ` ${displayUnit}`}.</>}
+            </p>
+          )}
+          {(diagnostics.overhang?.affectedBounds || diagnostics.thickness?.affectedBounds) && (
+            <p className="text-[10px] leading-relaxed" style={{ color: 'var(--text-muted)' }}>
+              The combined affected region is outlined in amber in the 3D viewport until this dialog closes.
             </p>
           )}
           {diagnostics.thickness?.status === 'inconclusive' && (

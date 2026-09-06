@@ -36,6 +36,7 @@ export class ThreeEngine {
   private sdfMesh: SdfMesh;
   private outlinePass: OutlinePass;
   private gizmo: GizmoController;
+  private preflightHelper: THREE.Box3Helper | null = null;
   private animId: number = 0;
   private resizeObserver: ResizeObserver;
   private disposed = false;
@@ -183,6 +184,24 @@ export class ThreeEngine {
   invalidate = () => {
     this.dirty = true;
   };
+
+  /** Highlight a localized manufacturing-preflight finding in model space. */
+  setPreflightBounds(bounds: { min: Vec3; max: Vec3 } | null) {
+    if (this.preflightHelper) {
+      this.scene.remove(this.preflightHelper);
+      this.preflightHelper.geometry.dispose();
+      (this.preflightHelper.material as THREE.Material).dispose();
+      this.preflightHelper = null;
+    }
+    if (bounds) {
+      const box = new THREE.Box3(new THREE.Vector3(...bounds.min), new THREE.Vector3(...bounds.max));
+      this.preflightHelper = new THREE.Box3Helper(box, 0xf59e0b);
+      this.preflightHelper.renderOrder = 20;
+      (this.preflightHelper.material as THREE.LineBasicMaterial).depthTest = false;
+      this.scene.add(this.preflightHelper);
+    }
+    this.invalidate();
+  }
 
   /**
    * Run `fn` after every frame this engine draws.
@@ -935,6 +954,7 @@ export class ThreeEngine {
     this.renderer.domElement.removeEventListener('pointermove', this.onPointerMove);
     this.renderer.domElement.removeEventListener('pointerleave', this.onPointerLeave);
     useViewportStore.getState().setHoveredNode(null);
+    this.setPreflightBounds(null);
     this.sdfMesh.dispose();
     this.outlinePass.dispose();
     this.gizmo.dispose();
