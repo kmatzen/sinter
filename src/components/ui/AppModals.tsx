@@ -13,6 +13,9 @@ function ConfirmDialog() {
   const visible = useModalStore((s) => s.confirmVisible);
   const message = useModalStore((s) => s.confirmMessage);
   const action = useModalStore((s) => s.confirmAction);
+  const confirmLabel = useModalStore((s) => s.confirmLabel);
+  const secondaryLabel = useModalStore((s) => s.confirmSecondaryLabel);
+  const secondaryAction = useModalStore((s) => s.confirmSecondaryAction);
   const hide = useModalStore((s) => s.hideConfirm);
 
   if (!visible) return null;
@@ -33,10 +36,17 @@ function ConfirmDialog() {
                   style={{ background: 'var(--bg-elevated)', color: 'var(--text-secondary)', border: '1px solid var(--border-subtle)' }}>
             Cancel
           </button>
+          {secondaryLabel && (
+            <button onClick={() => { secondaryAction?.(); hide(); }}
+                    className="text-xs px-4 py-2 rounded font-medium"
+                    style={{ background: 'var(--accent)', color: 'var(--bg-deep)' }}>
+              {secondaryLabel}
+            </button>
+          )}
           <button onClick={() => { action?.(); hide(); }}
                   className="text-xs px-4 py-2 rounded font-medium"
                   style={{ background: 'var(--accent-red)', color: 'white' }}>
-            Delete
+            {confirmLabel}
           </button>
         </div>
       </div>

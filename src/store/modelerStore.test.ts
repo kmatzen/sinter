@@ -928,3 +928,44 @@ describe('interactive history transactions', () => {
     expect(useModelerStore.getState().tree!.params.x).toBe(12);
   });
 });
+
+describe('document boundaries', () => {
+  beforeEach(reset);
+
+  it('establishes entry zero and clears every document-scoped transient', () => {
+    getState().addPrimitive('box');
+    const oldId = getState().tree!.id;
+    getState().selectNode(oldId);
+    getState().toggleExpanded(oldId);
+    getState().copySelected();
+    getState().beginHistoryTransaction();
+    useModelerStore.setState({
+      mesh: {} as never,
+      sdfDisplay: {} as never,
+      evaluating: true,
+      error: 'old evaluation failed',
+    });
+    const incoming: SDFNodeUI = {
+      id: 'incoming', kind: 'sphere', label: 'Sphere', params: { radius: 7 }, children: [], enabled: true,
+    };
+
+    getState().resetDocument(incoming, 'Incoming');
+
+    const state = getState();
+    expect(state.tree).toEqual(incoming);
+    expect(state.projectName).toBe('Incoming');
+    expect(state.selectedNodeId).toBeNull();
+    expect(state.expandedNodes.size).toBe(0);
+    expect(state.mesh).toBeNull();
+    expect(state.sdfDisplay).toBeNull();
+    expect(state.evaluating).toBe(false);
+    expect(state.error).toBeNull();
+    expect(state.history).toEqual([incoming]);
+    expect(state.historyIndex).toBe(0);
+    expect(state.historyTransaction).toBeNull();
+    expect(state.clipboard).toBeNull();
+
+    getState().undo();
+    expect(getState().tree).toEqual(incoming);
+  });
+});

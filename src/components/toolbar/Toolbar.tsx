@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useModelerStore } from '../../store/modelerStore';
 import { useAuthStore } from '../../store/authStore';
-import { isCloudDirty, useProjectStore } from '../../store/projectStore';
+import { isCloudDirty, requestDocumentReplacement, useProjectStore } from '../../store/projectStore';
 import { workerBridge, isCancelled } from '../../engine/workerBridge';
 import { triggerDownload } from '../../utils/download';
 import { useChatStore } from '../../store/chatStore';
@@ -30,6 +30,7 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
   const toggleShare = useProjectStore((s) => s.toggleShare);
   const projectId = useProjectStore((s) => s.projectId);
   const projectProvider = useProjectStore((s) => s.provider);
+  const createProject = useProjectStore((s) => s.createProject);
   const [showProjects, setShowProjects] = useState(false);
   const [copied, setCopied] = useState(false);
   const [shareError, setShareError] = useState<string | null>(null);
@@ -175,7 +176,7 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
       {/* Desktop-only: full toolbar */}
       <div className="hidden lg:contents">
         <div className="w-px h-4 mx-1" style={{ background: 'var(--border-default)' }} />
-        <IconBtn icon={<FilePlus size={14} />} title="New project" onClick={() => { useModelerStore.getState().setTree(null); useModelerStore.getState().setProjectName('Untitled'); }} />
+        <IconBtn icon={<FilePlus size={14} />} title="New project" onClick={() => requestDocumentReplacement(createProject)} />
         <IconBtn icon={<FolderOpen size={14} />} title="Projects" onClick={() => setShowProjects(true)} />
         <IconBtn icon={<Upload size={14} />} title="Import STL" onClick={() => setShowImportMesh(true)} />
         <IconBtn icon={<Save size={14} />} title={saving ? 'Saving...' : 'Save to cloud'} onClick={handleSaveCloud} disabled={saving || !dirty} />
@@ -250,7 +251,7 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
         {showOverflow && (
           <div className="absolute top-10 right-0 rounded-lg py-1 z-50 w-48 shadow-lg"
                style={{ background: 'var(--bg-panel)', border: '1px solid var(--border-default)' }}>
-            <OverflowItem label="New Project" onClick={() => { useModelerStore.getState().setTree(null); useModelerStore.getState().setProjectName('Untitled'); setShowOverflow(false); }} />
+            <OverflowItem label="New Project" onClick={() => { requestDocumentReplacement(createProject); setShowOverflow(false); }} />
             <OverflowItem label="Open Projects" onClick={() => { setShowProjects(true); setShowOverflow(false); }} />
             <OverflowItem label={saving ? 'Saving...' : 'Save'} onClick={() => { handleSaveCloud(); setShowOverflow(false); }} disabled={saving || !dirty} />
             <OverflowDivider />

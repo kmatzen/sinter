@@ -40,8 +40,9 @@ vi.mock('../storage/thumbnailCache', () => ({
   getThumbnail: vi.fn(), putThumbnail: vi.fn(), deleteThumbnail: vi.fn(),
 }));
 
-const { isCloudDirty, useProjectStore } = await import('./projectStore');
+const { isCloudDirty, requestDocumentReplacement, useProjectStore } = await import('./projectStore');
 const { useModelerStore } = await import('./modelerStore');
+const { useModalStore } = await import('./modalStore');
 
 const box = (width = 10): SDFNodeUI => ({
   id: 'b', kind: 'box', label: 'Box', params: { width, height: 10, depth: 10 }, children: [], enabled: true,
@@ -53,6 +54,7 @@ function resetStores() {
     provider: null, projectId: null, remoteName: '', lastSavedHash: '',
     saving: false, saveError: null, shareUrl: null,
   });
+  useModalStore.getState().hideConfirm();
 }
 
 describe('projectStore.save', () => {
@@ -214,12 +216,16 @@ describe('projectStore.loadProject', () => {
   });
 
   it('puts the loaded tree and name into the modeler', async () => {
+    useModelerStore.getState().addPrimitive('sphere');
     read.mockResolvedValue({ version: 1, tree: box(42) });
 
     await useProjectStore.getState().loadProject('google', 'id-1', 'Bracket');
 
     expect(useModelerStore.getState().tree!.params.width).toBe(42);
     expect(useModelerStore.getState().projectName).toBe('Bracket');
+    expect(useModelerStore.getState().history).toHaveLength(1);
+    useModelerStore.getState().undo();
+    expect(useModelerStore.getState().tree!.params.width).toBe(42);
   });
 
   /**
@@ -300,6 +306,20 @@ describe('projectStore.createProject', () => {
     // And clean, so an untouched new document is not offered for saving.
     expect(isCloudDirty()).toBe(false);
   });
+
+  it('loads a browser document without retaining cloud identity', () => {
+    useProjectStore.setState({ projectId: 'old', provider: 'google', shareUrl: 'https://x' });
+
+    useProjectStore.getState().loadLocalDocument('Recovered', box(33));
+
+    const state = useProjectStore.getState();
+    expect(state.projectId).toBeNull();
+    expect(state.provider).toBeNull();
+    expect(state.shareUrl).toBeNull();
+    expect(useModelerStore.getState().projectName).toBe('Recovered');
+    expect(useModelerStore.getState().tree!.params.width).toBe(33);
+    expect(useModelerStore.getState().history).toHaveLength(1);
+  });
 });
 
 describe('projectStore.toggleShare', () => {
@@ -335,5 +355,51 @@ describe('projectStore.toggleShare', () => {
 
     expect(setPublic).toHaveBeenCalledWith('token', 'file-1', false);
     expect(useProjectStore.getState().shareUrl).toBeNull();
+  });
+});
+
+describe('requestDocumentReplacement', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getAccessToken.mockResolvedValue('token');
+    getCurrentProvider.mockReturnValue('google');
+    create.mockResolvedValue({ externalId: 'saved-id' });
+    resetStores();
+  });
+
+  it('offers cancel, discard, and save when cloud has unsaved changes', () => {
+    const replace = vi.fn();
+    requestDocumentReplacement(replace);
+
+    const modal = useModalStore.getState();
+    expect(modal.confirmVisible).toBe(true);
+    expect(modal.confirmLabel).toBe('Discard');
+    expect(modal.confirmSecondaryLabel).toBe('Save');
+    expect(replace).not.toHaveBeenCalled();
+
+    modal.confirmAction?.();
+    expect(replace).toHaveBeenCalledOnce();
+  });
+
+  it('replaces only after Save succeeds', async () => {
+    const replace = vi.fn();
+    requestDocumentReplacement(replace);
+
+    useModalStore.getState().confirmSecondaryAction?.();
+    await vi.waitFor(() => expect(replace).toHaveBeenCalledOnce());
+    expect(create).toHaveBeenCalledOnce();
+  });
+
+  it('keeps the current document when Save fails', async () => {
+    create.mockRejectedValueOnce(new Error('offline'));
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const replace = vi.fn();
+    requestDocumentReplacement(replace);
+
+    useModalStore.getState().confirmSecondaryAction?.();
+    await vi.waitFor(() => expect(useProjectStore.getState().saveError).toBe('offline'));
+    expect(replace).not.toHaveBeenCalled();
+    expect(useModalStore.getState().toastMessage).toMatch(/kept open/i);
+    logged.mockRestore();
   });
 });

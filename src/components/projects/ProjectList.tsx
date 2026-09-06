@@ -2,8 +2,7 @@ import { useState, useEffect } from 'react';
 import { triggerDownload } from '../../utils/download';
 import { useModalStore } from '../../store/modalStore';
 import { useAuthStore, getCurrentProvider } from '../../store/authStore';
-import { useProjectStore, deleteCloudProject } from '../../store/projectStore';
-import { useModelerStore } from '../../store/modelerStore';
+import { useProjectStore, deleteCloudProject, requestDocumentReplacement } from '../../store/projectStore';
 import { getStorageProvider, type ProviderName, type ProjectMeta } from '../../storage';
 import { getThumbnail } from '../../storage/thumbnailCache';
 
@@ -54,6 +53,7 @@ export function ProjectList({ onClose, onLoaded, onImport }: Props) {
   const user = useAuthStore((s) => s.user);
   const loadProject = useProjectStore((s) => s.loadProject);
   const createProject = useProjectStore((s) => s.createProject);
+  const loadLocalDocument = useProjectStore((s) => s.loadLocalDocument);
 
   useEffect(() => {
     let cancelled = false;
@@ -94,29 +94,27 @@ export function ProjectList({ onClose, onLoaded, onImport }: Props) {
     setTimeout(() => setToast(null), 2000);
   }
 
-  const selectCloud = async (p: CloudProject) => {
+  const selectCloud = (p: CloudProject) => requestDocumentReplacement(async () => {
     try {
       await loadProject(p.provider, p.externalId, p.name);
       onLoaded();
     } catch (err: unknown) {
       showToast(err instanceof Error ? err.message : 'Failed to load');
     }
-  };
+  });
 
-  const selectLocal = (_p: LocalProject) => {
+  const selectLocal = (_p: LocalProject) => requestDocumentReplacement(() => {
     // Local project is already loaded by startLocalAutoSave on app boot.
     // Selecting it just clears any cloud project state.
-    createProject();
     try {
       const raw = localStorage.getItem(LEGACY_LOCAL_KEY);
       if (raw) {
         const data = JSON.parse(raw);
-        useModelerStore.getState().setProjectName(data.projectName || 'Untitled');
-        if (data.tree) useModelerStore.getState().setTree(data.tree);
+        loadLocalDocument(data.projectName || 'Untitled', data.tree ?? null);
       }
     } catch { /* */ }
     onLoaded();
-  };
+  });
 
   const handleDeleteCloud = (p: CloudProject, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -228,7 +226,7 @@ export function ProjectList({ onClose, onLoaded, onImport }: Props) {
                 Import File
               </button>
             )}
-            <button onClick={() => { createProject(); onLoaded(); }} className="text-[11px] px-2.5 py-1 rounded font-medium"
+            <button onClick={() => requestDocumentReplacement(() => { createProject(); onLoaded(); })} className="text-[11px] px-2.5 py-1 rounded font-medium"
                     style={{ background: 'var(--accent)', color: 'var(--bg-deep)' }}>
               + New Project
             </button>

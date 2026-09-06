@@ -4,6 +4,8 @@ import { useAuthStore, getCurrentProvider } from './authStore';
 import { captureCanvasThumbnail } from '../utils/thumbnail';
 import { getStorageProvider, buildShareUrl, type ProviderName, type ProjectFileBody } from '../storage';
 import { getThumbnail, putThumbnail, deleteThumbnail } from '../storage/thumbnailCache';
+import { useChatStore } from './chatStore';
+import { useModalStore } from './modalStore';
 
 interface ProjectState {
   provider: ProviderName | null;
@@ -19,6 +21,7 @@ interface ProjectState {
   setProjectId: (id: string | null, provider?: ProviderName | null) => void;
   save: () => Promise<boolean>;
   loadProject: (provider: ProviderName, externalId: string, name: string) => Promise<void>;
+  loadLocalDocument: (name: string, tree: unknown) => void;
   createProject: () => void;
   toggleShare: () => Promise<void>;
   clearSaveError: () => void;
@@ -31,6 +34,27 @@ function bodyHash(): string {
 
 export function isCloudDirty(): boolean {
   return bodyHash() !== useProjectStore.getState().lastSavedHash;
+}
+
+export function requestDocumentReplacement(replace: () => void | Promise<void>): void {
+  if (!isCloudDirty()) {
+    void replace();
+    return;
+  }
+  useModalStore.getState().showConfirm(
+    'This project has changes that have not been saved to cloud. Save them before replacing the document?',
+    () => { void replace(); },
+    {
+      confirmLabel: 'Discard',
+      secondaryLabel: 'Save',
+      onSecondary: () => {
+        void useProjectStore.getState().save().then((saved) => {
+          if (saved) void replace();
+          else useModalStore.getState().showToast('Save failed. The current project was kept open.');
+        });
+      },
+    },
+  );
 }
 
 export const useProjectStore = create<ProjectState>((set, get) => ({
@@ -100,8 +124,11 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     const body = await storage.read(accessToken, externalId);
 
     const modeler = useModelerStore.getState();
-    modeler.setProjectName(name || 'Untitled');
-    modeler.setTree((body?.tree ?? null) as Parameters<typeof modeler.setTree>[0]);
+    modeler.resetDocument(
+      (body?.tree ?? null) as Parameters<typeof modeler.resetDocument>[0],
+      name || 'Untitled',
+    );
+    useChatStore.getState().clearMessages();
 
     if (body?.thumbnail) await putThumbnail(externalId, body.thumbnail);
 
@@ -125,14 +152,29 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   },
 
   createProject: () => {
-    useModelerStore.getState().setTree(null);
-    useModelerStore.getState().setProjectName('Untitled');
+    useModelerStore.getState().resetDocument(null, 'Untitled');
+    useChatStore.getState().clearMessages();
     set({
       projectId: null,
       provider: null,
       remoteName: '',
       lastSavedHash: bodyHash(),
       shareUrl: null,
+      saveError: null,
+    });
+  },
+
+  loadLocalDocument: (name, tree) => {
+    const modeler = useModelerStore.getState();
+    modeler.resetDocument(tree as Parameters<typeof modeler.resetDocument>[0], name || 'Untitled');
+    useChatStore.getState().clearMessages();
+    set({
+      projectId: null,
+      provider: null,
+      remoteName: '',
+      lastSavedHash: bodyHash(),
+      shareUrl: null,
+      saveError: null,
     });
   },
 

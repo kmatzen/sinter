@@ -35,6 +35,7 @@ interface ModelerState {
 
   // Actions
   setTree: (tree: SDFNodeUI | null) => void;
+  resetDocument: (tree: SDFNodeUI | null, projectName?: string) => void;
   selectNode: (id: string | null) => void;
   updateNodeParams: (id: string, params: Record<string, number>) => void;
   updateNodeData: (id: string, data: Record<string, string>) => void;
@@ -272,6 +273,24 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
 
   setTree: (tree) => {
     set(commit(get(), tree, { selectedNodeId: null }));
+  },
+
+  resetDocument: (tree, projectName = 'Untitled') => {
+    const snapshot = tree ? cloneTree(tree) : null;
+    set({
+      tree: snapshot,
+      projectName,
+      selectedNodeId: null,
+      expandedNodes: new Set<string>(),
+      mesh: null,
+      sdfDisplay: null,
+      evaluating: false,
+      error: null,
+      history: [snapshot ? cloneTree(snapshot) : null],
+      historyIndex: 0,
+      historyTransaction: null,
+      clipboard: null,
+    });
   },
 
   selectNode: (id) => {
@@ -786,13 +805,7 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
 
   fromJSON: (json: string) => {
     const data = JSON.parse(json);
-    set({
-      projectName: data.projectName || 'Untitled',
-      tree: data.tree || null,
-      selectedNodeId: null,
-      history: [data.tree ? cloneTree(data.tree) : null],
-      historyIndex: 0,
-    });
+    get().resetDocument(data.tree || null, data.projectName || 'Untitled');
   },
 }));
 
