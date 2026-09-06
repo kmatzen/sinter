@@ -232,6 +232,13 @@ export function computeBounds(node: SDFNode): BBox {
  * practice; `boundsAreSound` in interval.ts is the check that actually holds
  * the line, and the interval-derived bounds are what the mesher uses.
  */
+/**
+ * Gradient re-distancing preserves a modifier's zero surface, but the
+ * correction varies near seams and medial axes. Reserve slope headroom so the
+ * resulting field remains a conservative sphere-tracing step there.
+ */
+export const MODIFIER_DISTANCE_SAFETY = 2;
+
 export function fieldScale(node: SDFNode): number {
   switch (node.kind) {
     case 'transform': {
@@ -255,6 +262,7 @@ export function fieldScale(node: SDFNode): number {
     case 'shell':
     case 'offset':
     case 'round':
+      return fieldScale(node.child) * MODIFIER_DISTANCE_SAFETY;
     case 'mirror':
     case 'linearPattern':
     case 'circularPattern':

@@ -2,7 +2,7 @@ import type { SDFNode, Vec3 } from './types';
 import { hasGlyphOutlines } from './types';
 import { sampleMeshField } from './meshField';
 import { linearWindow, circularWindow } from './patternWindow';
-import { fieldScale } from './bounds';
+import { fieldScale, MODIFIER_DISTANCE_SAFETY } from './bounds';
 
 /**
  * Evaluate the field at a point.
@@ -166,13 +166,16 @@ export function evalAt(node: SDFNode, px: number, py: number, pz: number): numbe
       return Math.max(a, b);
     }
     case 'shell':
-      return (Math.abs(localDistance(node.child, px, py, pz)) - node.thickness / 2) / cachedFieldScale(node.child);
+      return (Math.abs(localDistance(node.child, px, py, pz)) - node.thickness / 2) /
+        (cachedFieldScale(node.child) * MODIFIER_DISTANCE_SAFETY);
     case 'offset':
       if (node.distance === 0) return evalAt(node.child, px, py, pz);
-      return (localDistance(node.child, px, py, pz) - node.distance) / cachedFieldScale(node.child);
+      return (localDistance(node.child, px, py, pz) - node.distance) /
+        (cachedFieldScale(node.child) * MODIFIER_DISTANCE_SAFETY);
     case 'round':
       if (node.radius === 0) return evalAt(node.child, px, py, pz);
-      return (localDistance(node.child, px, py, pz) - node.radius) / cachedFieldScale(node.child);
+      return (localDistance(node.child, px, py, pz) - node.radius) /
+        (cachedFieldScale(node.child) * MODIFIER_DISTANCE_SAFETY);
     case 'transform': {
       // Inverse transform the point: R^-1((p - t) / s).
       let qx = (px - node.tx) / node.sx;

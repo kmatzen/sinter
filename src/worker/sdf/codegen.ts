@@ -1,7 +1,7 @@
 import type { SDFNode } from './types';
 import { hasGlyphOutlines } from './types';
 import { linearWindow, circularWindow } from './patternWindow';
-import { fieldScale } from './bounds';
+import { fieldScale, MODIFIER_DISTANCE_SAFETY } from './bounds';
 
 let varCounter = 0;
 let paramIndex = 0;
@@ -484,19 +484,19 @@ function emitNode(node: SDFNode, pVar: string, lines: string[]): string {
     }
     case 'shell': {
       const child = emitDistanceFunction(node.child);
-      lines.push(`float ${result} = (abs(${child}(${pVar})) - ${up(node.thickness / 2)}) / ${up(fieldScale(node.child))};`);
+      lines.push(`float ${result} = (abs(${child}(${pVar})) - ${up(node.thickness / 2)}) / ${up(fieldScale(node.child) * MODIFIER_DISTANCE_SAFETY)};`);
       return result;
     }
     case 'offset': {
       if (node.distance === 0) return emitNode(node.child, pVar, lines);
       const child = emitDistanceFunction(node.child);
-      lines.push(`float ${result} = (${child}(${pVar}) - ${up(node.distance)}) / ${up(fieldScale(node.child))};`);
+      lines.push(`float ${result} = (${child}(${pVar}) - ${up(node.distance)}) / ${up(fieldScale(node.child) * MODIFIER_DISTANCE_SAFETY)};`);
       return result;
     }
     case 'round': {
       if (node.radius === 0) return emitNode(node.child, pVar, lines);
       const child = emitDistanceFunction(node.child);
-      lines.push(`float ${result} = (${child}(${pVar}) - ${up(node.radius)}) / ${up(fieldScale(node.child))};`);
+      lines.push(`float ${result} = (${child}(${pVar}) - ${up(node.radius)}) / ${up(fieldScale(node.child) * MODIFIER_DISTANCE_SAFETY)};`);
       return result;
     }
     case 'transform': {

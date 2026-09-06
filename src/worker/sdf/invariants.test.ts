@@ -300,4 +300,22 @@ describe('regressions for the defects these properties found', () => {
     for (let x = 0; x < 400; x += 0.5) if (evaluateSDF(tree, [x, 0, 0]) < 0) maxX = x;
     expect(maxX).toBeLessThanOrEqual(bb.max[0]);
   });
+
+  it('#196 re-distanced shells retain conservative clearance at pattern seams', () => {
+    const tree: SDFNode = {
+      kind: 'shell', thickness: 1.9329051203417758,
+      child: {
+        kind: 'circularPattern', axis: [1, 0, 0], count: 2,
+        child: { kind: 'ellipsoid', size: [2, 2, 2.00705572143069] },
+      },
+    };
+    const p: Vec3 = [0.0005845642837624121, -0.00370254509323395, 0.004002533035354028];
+    const q: Vec3 = [-0.020895285179394808, -0.023297387513701976, 0.01429300514567089];
+    const clearance = evaluateSDF(tree, p);
+    const crossingDistance = Math.hypot(q[0] - p[0], q[1] - p[1], q[2] - p[2]);
+
+    expect(clearance).toBeGreaterThan(0);
+    expect(clearance).toBeLessThanOrEqual(crossingDistance);
+    expect(Math.abs(evaluateSDF(tree, q))).toBeLessThan(1e-9);
+  });
 });

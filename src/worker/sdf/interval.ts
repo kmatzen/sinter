@@ -1,6 +1,6 @@
 import { sampleMeshField } from './meshField';
 import type { SDFNode, BBox, Vec3 } from './types';
-import { fieldScale } from './bounds';
+import { fieldScale, MODIFIER_DISTANCE_SAFETY } from './bounds';
 
 /**
  * Interval-arithmetic evaluation of the SDF tree.
@@ -185,13 +185,13 @@ export function evaluateInterval(node: SDFNode, box: BBox): Interval {
       return maxI(a, b);
     }
     case 'shell':
-      return mulK(addK(absI(distanceI(node.child, box)), -node.thickness / 2), 1 / fieldScale(node.child));
+      return mulK(addK(absI(distanceI(node.child, box)), -node.thickness / 2), 1 / (fieldScale(node.child) * MODIFIER_DISTANCE_SAFETY));
     case 'offset':
       if (node.distance === 0) return evaluateInterval(node.child, box);
-      return mulK(addK(distanceI(node.child, box), -node.distance), 1 / fieldScale(node.child));
+      return mulK(addK(distanceI(node.child, box), -node.distance), 1 / (fieldScale(node.child) * MODIFIER_DISTANCE_SAFETY));
     case 'round':
       if (node.radius === 0) return evaluateInterval(node.child, box);
-      return mulK(addK(distanceI(node.child, box), -node.radius), 1 / fieldScale(node.child));
+      return mulK(addK(distanceI(node.child, box), -node.radius), 1 / (fieldScale(node.child) * MODIFIER_DISTANCE_SAFETY));
     case 'transform': {
       if (!isFinite(node.sx) || !isFinite(node.sy) || !isFinite(node.sz) ||
           Math.abs(node.sx) < 1e-9 || Math.abs(node.sy) < 1e-9 || Math.abs(node.sz) < 1e-9) return WHOLE;
