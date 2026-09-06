@@ -1,4 +1,5 @@
 import type { StorageProvider, ProjectMeta, ProjectFileBody } from './types';
+import { decodeProjectFileBody, MAX_PROJECT_JSON_CHARS } from '../types/documentDecoder';
 
 const DRIVE_API = 'https://www.googleapis.com';
 const FOLDER_NAME = 'Sinter';
@@ -47,17 +48,16 @@ function isMarkedProject(file: Pick<DriveFile, 'appProperties'>): boolean {
 }
 
 function isProjectBody(value: unknown): value is ProjectFileBody {
-  if (!value || typeof value !== 'object') return false;
-  const body = value as Record<string, unknown>;
-  return body.version === 1 && Object.prototype.hasOwnProperty.call(body, 'tree') &&
-    (body.thumbnail === null || typeof body.thumbnail === 'string');
+  try { decodeProjectFileBody(value); return true; } catch { return false; }
 }
 
 async function readFileBody(token: string | null, externalId: string, signal?: AbortSignal): Promise<unknown> {
   const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
   const res = await fetch(`${DRIVE_API}/drive/v3/files/${externalId}?alt=media`, { headers, signal });
   if (!res.ok) throw new Error(`Drive read failed (${res.status})`);
-  return JSON.parse(await res.text());
+  const text = await res.text();
+  if (text.length > MAX_PROJECT_JSON_CHARS) throw new Error('Drive project exceeds the supported document size');
+  return JSON.parse(text);
 }
 
 async function markProject(token: string, externalId: string, signal?: AbortSignal): Promise<void> {
@@ -231,8 +231,7 @@ export const googleStorage: StorageProvider = {
 
   async read(token, externalId) {
     const body = await readFileBody(token, externalId);
-    if (!isProjectBody(body)) throw new Error('Drive file is not a valid Sinter project');
-    return body;
+    return decodeProjectFileBody(body);
   },
 
   async create(token, name, body) {

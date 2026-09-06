@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { getCurrentProvider, useAuthStore } from '../../store/authStore';
 import { getStorageProvider } from '../../storage';
+import { decodeProjectDocument, MAX_PROJECT_JSON_CHARS } from '../../types/documentDecoder';
 
 interface Props {
   onDone: () => void;
@@ -34,9 +35,10 @@ export function ImportProject({ onDone }: Props) {
         let name = file.name.replace('.json', '');
         try {
           const text = await file.text();
-          const data = JSON.parse(text);
+          if (text.length > MAX_PROJECT_JSON_CHARS) throw new Error('Project file exceeds the supported document size');
+          const data = decodeProjectDocument(JSON.parse(text), name);
           name = data.projectName || name;
-          const tree = data.tree || null;
+          const tree = data.tree;
           await storage.create(accessToken, name, { version: 1, thumbnail: null, tree });
           importResults.push({ name, ok: true });
         } catch (err: unknown) {

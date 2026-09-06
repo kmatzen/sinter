@@ -32,7 +32,10 @@ describe('Google Drive storage', () => {
   });
 
   it('hides unrelated folder contents and adopts only valid legacy projects', async () => {
-    const body = { version: 1, thumbnail: null, tree: { id: 'box' } };
+    const body = {
+      version: 1, thumbnail: null,
+      tree: { id: 'box', kind: 'box', label: 'Box', params: { width: 1, height: 1, depth: 1 }, children: [], enabled: true },
+    };
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(json({ files: [{ id: 'folder', createdTime: '2020-01-01' }] }))
       .mockResolvedValueOnce(json({ files: [

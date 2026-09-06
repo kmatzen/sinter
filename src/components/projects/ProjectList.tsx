@@ -7,6 +7,7 @@ import { getStorageProvider, type ProviderName, type ProjectMeta } from '../../s
 import { getThumbnail } from '../../storage/thumbnailCache';
 import { deleteLocalBackup, readLocalBackupJSON, useLocalBackupStore, writeLocalBackupJSON } from '../../store/localPersist';
 import { moveCloudProjectToLocal } from '../../storage/projectTransfer';
+import { decodeProjectDocument } from '../../types/documentDecoder';
 
 interface CloudProject extends ProjectMeta {
   source: 'cloud';
@@ -32,7 +33,7 @@ async function getLocalProjects(): Promise<LocalProject[]> {
   const json = await readLocalBackupJSON();
   if (!json) return [];
   try {
-    const data = JSON.parse(json);
+    const data = decodeProjectDocument(JSON.parse(json));
     return [{
       id: 'local_default',
       name: data.projectName || 'Untitled',
@@ -115,8 +116,8 @@ export function ProjectList({ onClose, onLoaded, onImport }: Props) {
     try {
       const raw = await readLocalBackupJSON();
       if (raw) {
-        const data = JSON.parse(raw);
-        loadLocalDocument(data.projectName || 'Untitled', data.tree ?? null);
+        const data = decodeProjectDocument(JSON.parse(raw));
+        loadLocalDocument(data.projectName || 'Untitled', data.tree);
       }
     } catch (error) {
       showToast(error instanceof Error ? error.message : 'Local backup could not be opened');
@@ -211,8 +212,8 @@ export function ProjectList({ onClose, onLoaded, onImport }: Props) {
     }
     const legacy = await readLocalBackupJSON();
     if (!legacy) return;
-    let data: { projectName?: string; tree?: unknown };
-    try { data = JSON.parse(legacy); } catch { return; }
+    let data;
+    try { data = decodeProjectDocument(JSON.parse(legacy)); } catch { return; }
     try {
       const accessToken = await useAuthStore.getState().getAccessToken();
       const storage = getStorageProvider(provider);

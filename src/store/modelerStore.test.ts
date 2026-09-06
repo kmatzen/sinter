@@ -579,6 +579,14 @@ describe('Modeler editing scenarios', () => {
 
   // ─── Scenario 17: addNodeFromData drag-and-drop paths ─────────────
   describe('Scenario: addNodeFromData', () => {
+    it('rejects malformed external node data without changing the tree', () => {
+      getState().addPrimitive('box');
+      const before = getState().tree;
+      getState().addNodeFromData(null, { kind: 'future-shape', params: {} });
+      expect(getState().tree).toBe(before);
+      expect(getState().error).toMatch(/validation failed/i);
+    });
+
     it('becomes root when there is no tree', () => {
       getState().addNodeFromData(null, { kind: 'box', params: { width: 5, height: 5, depth: 5 } });
       expect(getState().tree!.kind).toBe('box');

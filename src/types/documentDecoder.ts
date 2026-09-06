@@ -1,0 +1,217 @@
+import { NODE_DEFAULTS, NODE_LABELS, expectedChildren, type SDFNodeUI } from './operations';
+import { normalizeNodeParams } from './parameterSchema';
+import type { ProjectFileBody } from '../storage/types';
+
+export const CURRENT_DOCUMENT_VERSION = 1;
+export const MAX_DOCUMENT_NODES = 1_000;
+export const MAX_DOCUMENT_DEPTH = 64;
+export const MAX_PROJECT_JSON_CHARS = 40 * 1024 * 1024;
+export const MAX_MESH_BASE64_CHARS = 3 * 1024 * 1024;
+
+const MAX_LABEL_CHARS = 256;
+const MAX_PROJECT_NAME_CHARS = 256;
+const MAX_THUMBNAIL_CHARS = 2 * 1024 * 1024;
+const MAX_TEXT_CHARS = 10_000;
+const MAX_GLYPH_CHARS = 2 * 1024 * 1024;
+const MAX_GENERIC_DATA_CHARS = 8 * 1024 * 1024;
+const KNOWN_KINDS = new Set([...Object.keys(NODE_DEFAULTS), '_empty']);
+
+export class DocumentDecodeError extends Error {
+  constructor(message: string) {
+    super(`Project validation failed: ${message}`);
+    this.name = 'DocumentDecodeError';
+  }
+}
+
+interface DecodeOptions {
+  /** Legacy documents may omit IDs, labels, enabled, and newer parameters. */
+  legacy?: boolean;
+  /** AI nodes commonly omit IDs; synthesize stable path-derived IDs. */
+  repairMissingIds?: boolean;
+}
+
+interface Context extends DecodeOptions {
+  ids: Set<string>;
+  nodes: number;
+  stringChars: number;
+}
+
+function record(value: unknown, path: string): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new DocumentDecodeError(`${path} must be an object`);
+  }
+  return value as Record<string, unknown>;
+}
+
+function generatedId(path: number[], ids: Set<string>): string {
+  const base = `migrated-${path.length ? path.join('-') : 'root'}`;
+  let id = base;
+  let suffix = 2;
+  while (ids.has(id)) id = `${base}-${suffix++}`;
+  return id;
+}
+
+function validateMeshPayload(value: string, path: string): void {
+  if (value.length === 0 || value.length > MAX_MESH_BASE64_CHARS) {
+    throw new DocumentDecodeError(`${path} mesh payload is empty or exceeds the 3 MiB encoded limit`);
+  }
+  if (value.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(value)) {
+    throw new DocumentDecodeError(`${path} mesh payload is not valid base64`);
+  }
+  let binary: string;
+  try { binary = atob(value); } catch { throw new DocumentDecodeError(`${path} mesh payload is not valid base64`); }
+  if (binary.length === 0 || binary.length % 36 !== 0) {
+    throw new DocumentDecodeError(`${path} mesh payload must contain whole Float32 triangles`);
+  }
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  const values = new Float32Array(bytes.buffer);
+  for (let i = 0; i < values.length; i++) {
+    if (!Number.isFinite(values[i]) || Math.abs(values[i]) > 1e6) {
+      throw new DocumentDecodeError(`${path} mesh coordinate ${i} is non-finite or outside the supported range`);
+    }
+  }
+}
+
+function accountString(context: Context, value: string): void {
+  context.stringChars += value.length;
+  if (context.stringChars > MAX_PROJECT_JSON_CHARS) {
+    throw new DocumentDecodeError('document string data exceeds the supported size');
+  }
+}
+
+function decodeData(kind: string, input: unknown, path: string, context: Context): Record<string, string> | undefined {
+  if (input === undefined) return undefined;
+  const raw = record(input, `${path}.data`);
+  const allowed = kind === 'mesh' ? new Set(['meshPositions', 'meshName'])
+    : kind === 'text' ? new Set(['text', 'glyphPaths']) : new Set<string>();
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(raw)) {
+    if (key.length > 64) throw new DocumentDecodeError(`${path}.data contains an overlong key`);
+    if ((kind === 'mesh' || kind === 'text') && !allowed.has(key)) {
+      throw new DocumentDecodeError(`${path}.data.${key} is not supported for ${kind}`);
+    }
+    if (typeof value !== 'string') throw new DocumentDecodeError(`${path}.data.${key} must be a string`);
+    accountString(context, value);
+    if (key === 'meshPositions') validateMeshPayload(value, path);
+    else if (key === 'text' && value.length > MAX_TEXT_CHARS) throw new DocumentDecodeError(`${path} text exceeds ${MAX_TEXT_CHARS} characters`);
+    else if (key === 'glyphPaths') {
+      if (value.length > MAX_GLYPH_CHARS) throw new DocumentDecodeError(`${path} glyph data is too large`);
+      try { record(JSON.parse(value), `${path}.data.glyphPaths`); }
+      catch (error) { if (error instanceof DocumentDecodeError) throw error; throw new DocumentDecodeError(`${path} glyph data is invalid JSON`); }
+    } else if (value.length > (allowed.has(key) ? MAX_LABEL_CHARS : MAX_GENERIC_DATA_CHARS)) {
+      throw new DocumentDecodeError(`${path}.data.${key} is too long`);
+    }
+    out[key] = value;
+  }
+  if (kind === 'mesh' && typeof out.meshPositions !== 'string') {
+    throw new DocumentDecodeError(`${path} imported mesh has no geometry payload`);
+  }
+  return Object.keys(out).length ? out : undefined;
+}
+
+function decodeNode(input: unknown, path: number[], depth: number, context: Context): SDFNodeUI {
+  const labelPath = path.length ? `tree.children[${path.join('].children[')}]` : 'tree';
+  if (depth > MAX_DOCUMENT_DEPTH) throw new DocumentDecodeError(`tree exceeds maximum depth ${MAX_DOCUMENT_DEPTH}`);
+  if (++context.nodes > MAX_DOCUMENT_NODES) throw new DocumentDecodeError(`tree exceeds maximum node count ${MAX_DOCUMENT_NODES}`);
+  const raw = record(input, labelPath);
+  if (typeof raw.kind !== 'string' || !KNOWN_KINDS.has(raw.kind)) {
+    throw new DocumentDecodeError(`${labelPath}.kind is unknown`);
+  }
+  const kind = raw.kind;
+
+  let id: string;
+  if (typeof raw.id === 'string' && raw.id.trim() && raw.id.length <= 128) id = raw.id;
+  else if (context.legacy || context.repairMissingIds) id = generatedId(path, context.ids);
+  else throw new DocumentDecodeError(`${labelPath}.id is missing or invalid`);
+  if (context.ids.has(id)) throw new DocumentDecodeError(`duplicate node id at ${labelPath}`);
+  context.ids.add(id);
+
+  const defaults = NODE_DEFAULTS[kind] ?? {};
+  const rawParams = record(raw.params ?? (context.legacy ? {} : undefined), `${labelPath}.params`);
+  const params: Record<string, number> = {};
+  for (const [key, value] of Object.entries(rawParams)) {
+    if (!(key in defaults)) throw new DocumentDecodeError(`${labelPath}.params.${key} is not supported`);
+    if (typeof value !== 'number' || !Number.isFinite(value)) throw new DocumentDecodeError(`${labelPath}.params.${key} must be finite`);
+    params[key] = value;
+  }
+  if (!context.legacy) {
+    for (const key of Object.keys(defaults)) {
+      if (!(key in params)) throw new DocumentDecodeError(`${labelPath}.params.${key} is required`);
+    }
+  }
+
+  if (!Array.isArray(raw.children)) {
+    if (!context.legacy) throw new DocumentDecodeError(`${labelPath}.children must be an array`);
+  }
+  const childrenInput = Array.isArray(raw.children) ? raw.children : [];
+  const capacity = kind === '_empty' ? 0 : expectedChildren(kind);
+  // Incomplete operations are valid editor state (the outline renders their
+  // vacant inputs). Extra children are not: the evaluator ignores them, which
+  // would make saved geometry silently differ from the document tree.
+  if (childrenInput.length > capacity) {
+    throw new DocumentDecodeError(`${labelPath} (${kind}) accepts at most ${capacity} child${capacity === 1 ? '' : 'ren'}`);
+  }
+  const children = childrenInput.map((child, index) => decodeNode(child, [...path, index], depth + 1, context));
+
+  let label = NODE_LABELS[kind] ?? '';
+  if (typeof raw.label === 'string') {
+    if (raw.label.length > MAX_LABEL_CHARS) throw new DocumentDecodeError(`${labelPath}.label is too long`);
+    label = raw.label || label;
+    accountString(context, raw.label);
+  } else if (!context.legacy && !context.repairMissingIds && kind !== '_empty') {
+    throw new DocumentDecodeError(`${labelPath}.label must be a string`);
+  }
+  if (raw.enabled !== undefined && typeof raw.enabled !== 'boolean') {
+    throw new DocumentDecodeError(`${labelPath}.enabled must be boolean`);
+  }
+
+  const data = decodeData(kind, raw.data, labelPath, context);
+  return {
+    id, kind, label,
+    params: normalizeNodeParams(kind, params),
+    ...(data ? { data } : {}),
+    children,
+    enabled: raw.enabled !== false,
+  };
+}
+
+export function decodeTree(input: unknown, options: DecodeOptions = {}): SDFNodeUI | null {
+  if (input === null || input === undefined) return null;
+  return decodeNode(input, [], 1, { ...options, ids: new Set(), nodes: 0, stringChars: 0 });
+}
+
+export interface DecodedProject {
+  version: 1;
+  projectName: string;
+  thumbnail: string | null;
+  tree: SDFNodeUI | null;
+}
+
+/** Decode current cloud envelopes and migrate legacy exported/local envelopes. */
+export function decodeProjectDocument(input: unknown, fallbackName = 'Untitled'): DecodedProject {
+  const raw = record(input, 'project');
+  const hasVersion = Object.prototype.hasOwnProperty.call(raw, 'version');
+  if (hasVersion && raw.version !== CURRENT_DOCUMENT_VERSION) {
+    throw new DocumentDecodeError(`document version ${String(raw.version)} is not supported by this app`);
+  }
+  const legacy = !hasVersion;
+  if (!Object.prototype.hasOwnProperty.call(raw, 'tree')) throw new DocumentDecodeError('project.tree is required');
+  const projectName = typeof raw.projectName === 'string' ? raw.projectName : fallbackName;
+  if (projectName.length > MAX_PROJECT_NAME_CHARS) throw new DocumentDecodeError('project name is too long');
+  const thumbnail = raw.thumbnail === undefined || raw.thumbnail === null ? null : raw.thumbnail;
+  if (thumbnail !== null && (typeof thumbnail !== 'string' || thumbnail.length > MAX_THUMBNAIL_CHARS)) {
+    throw new DocumentDecodeError('thumbnail is invalid or too large');
+  }
+  return {
+    version: 1,
+    projectName: projectName || fallbackName,
+    thumbnail,
+    tree: decodeTree(raw.tree, { legacy, repairMissingIds: legacy }),
+  };
+}
+
+export function decodeProjectFileBody(input: unknown): ProjectFileBody {
+  const decoded = decodeProjectDocument(input);
+  return { version: 1, thumbnail: decoded.thumbnail, tree: decoded.tree };
+}

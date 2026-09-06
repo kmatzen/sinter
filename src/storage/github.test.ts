@@ -5,7 +5,10 @@ function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 }
 
-const project = { version: 1 as const, thumbnail: null, tree: { id: 'box' } };
+const project = {
+  version: 1 as const, thumbnail: null,
+  tree: { id: 'box', kind: 'box', label: 'Box', params: { width: 1, height: 1, depth: 1 }, children: [], enabled: true },
+};
 
 describe('GitHub gist storage', () => {
   beforeEach(() => vi.restoreAllMocks());

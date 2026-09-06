@@ -4,6 +4,7 @@ import { buildSystemPrompt } from '../llm/systemPrompt';
 import { parseResponse } from '../llm/parseResponse';
 import { useModelerStore } from './modelerStore';
 import { getEngineRef } from '../engine/engineRef';
+import { decodeTree } from '../types/documentDecoder';
 import { ensureConsent, hasConsent } from './consent';
 import type { ProviderId } from '../llm/providers';
 import { getProvider, isProviderId, PROVIDER_IDS } from '../llm/providers';
@@ -336,13 +337,17 @@ function applyModifications(changes: any[]) {
       tree = useModelerStore.getState().tree;
     } else if (change.addChild && change.node) {
       tree = addChildToNode(tree!, change.addChild, change.node);
+      tree = decodeTree(tree, { repairMissingIds: true });
       store.setTree(tree);
     } else if (change.remove) {
       store.removeNode(change.remove);
       tree = useModelerStore.getState().tree;
     } else if (change.wrapIn && change.wrapper) {
       tree = wrapNodeIn(tree!, change.wrapIn, change.wrapper);
-      if (tree) store.setTree(tree);
+      if (tree) {
+        tree = decodeTree(tree, { repairMissingIds: true });
+        store.setTree(tree);
+      }
     }
   }
 }

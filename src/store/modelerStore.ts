@@ -4,6 +4,7 @@ import type { SDFNodeUI } from '../types/operations';
 import { NODE_LABELS, NODE_DEFAULTS, NODE_KINDS, expectedChildren } from '../types/operations';
 import type { TriangulatedMesh } from '../types/geometry';
 import { applyNodeParamPatch, normalizeNodeParams, normalizeTreeParams } from '../types/parameterSchema';
+import { decodeProjectDocument, decodeTree } from '../types/documentDecoder';
 
 export interface SDFDisplayData {
   glsl: string;
@@ -501,6 +502,15 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
   },
 
   addNodeFromData: (targetId, nodeData) => {
+    let validated: SDFNodeUI;
+    try {
+      const decoded = decodeTree(nodeData, { legacy: true, repairMissingIds: true });
+      if (!decoded) throw new Error('Node data is empty');
+      validated = decoded;
+    } catch (error) {
+      set({ error: error instanceof Error ? error.message : 'Dropped node data is invalid' });
+      return;
+    }
     // Reconstruct a full SDFNodeUI from the palette's JSON data
     function hydrate(data: any): SDFNodeUI {
       return {
@@ -516,7 +526,7 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
         enabled: data.enabled !== false,
       };
     }
-    const newNode = hydrate(nodeData);
+    const newNode = hydrate(validated);
     const { tree } = get();
     // "Takes no children", not "is in the primitives palette". `text` and
     // `mesh` are leaves that the palette does not offer — a mesh only exists
@@ -816,8 +826,8 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
   },
 
   fromJSON: (json: string) => {
-    const data = JSON.parse(json);
-    get().resetDocument(data.tree || null, data.projectName || 'Untitled');
+    const data = decodeProjectDocument(JSON.parse(json));
+    get().resetDocument(data.tree, data.projectName);
   },
 }));
 

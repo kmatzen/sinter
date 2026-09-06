@@ -6,6 +6,7 @@ import { getStorageProvider, buildShareUrl, type ProviderName, type ProjectFileB
 import { getThumbnail, putThumbnail, deleteThumbnail } from '../storage/thumbnailCache';
 import { useChatStore } from './chatStore';
 import { useModalStore } from './modalStore';
+import { decodeProjectDocument, decodeTree } from '../types/documentDecoder';
 
 interface ProjectState {
   provider: ProviderName | null;
@@ -121,11 +122,11 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   loadProject: async (provider, externalId, name) => {
     const accessToken = await useAuthStore.getState().getAccessToken();
     const storage = getStorageProvider(provider);
-    const body = await storage.read(accessToken, externalId);
+    const body = decodeProjectDocument(await storage.read(accessToken, externalId), name || 'Untitled');
 
     const modeler = useModelerStore.getState();
     modeler.resetDocument(
-      (body?.tree ?? null) as Parameters<typeof modeler.resetDocument>[0],
+      body.tree,
       name || 'Untitled',
     );
     useChatStore.getState().clearMessages();
@@ -166,7 +167,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
   loadLocalDocument: (name, tree) => {
     const modeler = useModelerStore.getState();
-    modeler.resetDocument(tree as Parameters<typeof modeler.resetDocument>[0], name || 'Untitled');
+    modeler.resetDocument(decodeTree(tree, { legacy: true, repairMissingIds: true }), name || 'Untitled');
     useChatStore.getState().clearMessages();
     set({
       projectId: null,

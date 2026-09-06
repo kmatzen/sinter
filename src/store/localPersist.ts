@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { openBrowserDB, LOCAL_BACKUP_STORE } from '../storage/browserDb';
 import { useModelerStore } from './modelerStore';
 import { ensureConsent, hasConsent } from './consent';
+import { decodeProjectDocument, MAX_PROJECT_JSON_CHARS } from '../types/documentDecoder';
 
 const LEGACY_STORAGE_KEY = 'sinter_local_project';
 const CURRENT_KEY = 'current';
@@ -98,8 +99,8 @@ let startGeneration = 0;
 
 function parseProject(json: string): { projectName?: string; tree?: unknown } | null {
   try {
-    const value = JSON.parse(json);
-    return value && typeof value === 'object' ? value : null;
+    if (json.length > MAX_PROJECT_JSON_CHARS) return null;
+    return decodeProjectDocument(JSON.parse(json));
   } catch {
     return null;
   }

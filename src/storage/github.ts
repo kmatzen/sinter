@@ -1,4 +1,5 @@
-import type { StorageProvider, ProjectMeta, ProjectFileBody } from './types';
+import type { StorageProvider, ProjectMeta } from './types';
+import { decodeProjectFileBody, MAX_PROJECT_JSON_CHARS } from '../types/documentDecoder';
 
 const API = 'https://api.github.com';
 const DESC_PREFIX = 'sinter:';
@@ -95,7 +96,8 @@ export const githubStorage: StorageProvider = {
       if (!rawRes.ok) throw new Error('Failed to fetch raw gist content');
       content = await rawRes.text();
     }
-    return JSON.parse(content) as ProjectFileBody;
+    if (content.length > MAX_PROJECT_JSON_CHARS) throw new Error('GitHub project exceeds the supported document size');
+    return decodeProjectFileBody(JSON.parse(content));
   },
 
   async create(token, name, body) {

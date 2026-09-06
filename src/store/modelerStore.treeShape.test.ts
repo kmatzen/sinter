@@ -91,7 +91,7 @@ describe('NodeTree.tla — WithinCapacity', () => {
     getState().addNodeFromData(null, {
       kind: 'mesh',
       params: { resolution: 48 },
-      data: { meshName: 'part.stl', meshPositions: 'AAAA' },
+      data: { meshName: 'part.stl', meshPositions: 'A'.repeat(48) },
     });
     const meshId = getState().tree!.id;
 

@@ -282,10 +282,11 @@ describe('projectStore.loadProject', () => {
     expect(useProjectStore.getState().shareUrl).toBeNull();
   });
 
-  it('opens an empty document for a file with no tree in it', async () => {
+  it('rejects a malformed file with no tree without replacing the document', async () => {
+    useModelerStore.getState().resetDocument(box(9), 'Current');
     read.mockResolvedValue({ version: 1 });
-    await useProjectStore.getState().loadProject('google', 'id-1', 'Empty');
-    expect(useModelerStore.getState().tree).toBeNull();
+    await expect(useProjectStore.getState().loadProject('google', 'id-1', 'Empty')).rejects.toThrow(/tree is required/);
+    expect(useModelerStore.getState().tree?.params.width).toBe(9);
   });
 });
 
