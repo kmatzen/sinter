@@ -19,6 +19,10 @@ interface ModelerState {
   selectedNodeId: string | null;
   mesh: TriangulatedMesh | null;
   sdfDisplay: SDFDisplayData | null;
+  /** Exact immutable tree object that produced sdfDisplay. */
+  evaluatedTree: SDFNodeUI | null;
+  /** Most recent tree revision whose evaluation succeeded, for recovery. */
+  lastValidTree: SDFNodeUI | null;
   evaluating: boolean;
   error: string | null;
   projectName: string;
@@ -263,6 +267,8 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
   selectedNodeId: null,
   mesh: null,
   sdfDisplay: null,
+  evaluatedTree: null,
+  lastValidTree: null,
   evaluating: false,
   error: null,
   projectName: 'Untitled',

@@ -18,12 +18,7 @@ export function useEvaluator() {
 
   useEffect(() => {
     function triggerEval() {
-      // Cancel any pending evaluation
-      if (debounceRef.current) clearTimeout(debounceRef.current);
-
-      // Evaluate immediately — codegen is <1ms, no need for debounce
-      debounceRef.current = setTimeout(() => {
-        const tree = useModelerStore.getState().tree;
+      const tree = useModelerStore.getState().tree;
         // Object identity, not a serialisation.
         //
         // This subscribes to the whole store, and `setEvaluating` and
@@ -39,23 +34,32 @@ export function useEvaluator() {
         // object. The converse (a new object with identical content) costs one
         // extra evaluation that the bridge supersedes anyway, which is a much
         // better trade than stringifying a megabyte on every store event.
-        if (tree === prevTreeRef.current) return;
-        prevTreeRef.current = tree;
+      if (tree === prevTreeRef.current) return;
+      prevTreeRef.current = tree;
 
-        const seq = ++evalSeqRef.current;
-        useModelerStore.getState().setEvaluating(true);
-        useModelerStore.getState().setError(null);
+      // Invalidate the old render synchronously with the document change. A
+      // failed or delayed evaluation must never leave an older model looking
+      // like it belongs to the active tree.
+      const seq = ++evalSeqRef.current;
+      useModelerStore.setState({ sdfDisplay: null, evaluatedTree: null, evaluating: !!tree, error: null });
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      if (!tree) return;
 
+      // Evaluate immediately — codegen is <1ms, no need for debounce.
+      debounceRef.current = setTimeout(() => {
         workerBridge.evaluate(tree)
           .then((sdf) => {
-            if (seq !== evalSeqRef.current) return;
-            useModelerStore.getState().setSDFDisplay(sdf);
-            useModelerStore.getState().setEvaluating(false);
+            if (seq !== evalSeqRef.current || useModelerStore.getState().tree !== tree) return;
+            useModelerStore.setState({
+              sdfDisplay: sdf,
+              evaluatedTree: sdf ? tree : null,
+              lastValidTree: sdf ? tree : useModelerStore.getState().lastValidTree,
+              evaluating: false,
+            });
           })
           .catch((err) => {
-            if (seq !== evalSeqRef.current) return;
-            useModelerStore.getState().setError(err.message);
-            useModelerStore.getState().setEvaluating(false);
+            if (seq !== evalSeqRef.current || useModelerStore.getState().tree !== tree) return;
+            useModelerStore.setState({ sdfDisplay: null, evaluatedTree: null, error: err.message, evaluating: false });
           });
       }, 0); // Immediate — codegen is <1ms
     }
@@ -78,7 +82,7 @@ export function useEvaluator() {
     // still de-duped by the identity check, and under StrictMode's
     // double-mount the first pass's pending timer is cleared by cleanup before
     // it can run, leaving exactly one evaluation.
-    if (useModelerStore.getState().tree) triggerEval();
+    triggerEval();
 
     return () => {
       unsub1();

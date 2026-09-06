@@ -49,6 +49,7 @@ function artifact(size: number, triangleCount: number): ExportArtifact {
 const BOX: SDFNodeUI = {
   id: 'n1', kind: 'box', label: 'Box', params: { width: 10, height: 10, depth: 10 }, children: [], enabled: true,
 };
+const DISPLAY = { glsl: 'sdf', paramCount: 0, paramValues: [], textures: [], bbMin: [-1, -1, -1], bbMax: [1, 1, 1], hasWarn: false };
 
 /** Let queued microtasks run and React commit whatever they scheduled. */
 const flush = () => act(async () => { await new Promise((r) => setTimeout(r, 0)); });
@@ -56,7 +57,7 @@ const flush = () => act(async () => { await new Promise((r) => setTimeout(r, 0))
 describe('Toolbar export cancellation', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    useModelerStore.setState({ tree: BOX, evaluating: false });
+    useModelerStore.setState({ tree: BOX, evaluatedTree: BOX, sdfDisplay: DISPLAY as any, evaluating: false });
   });
 
   afterEach(() => {
@@ -120,6 +121,24 @@ describe('Toolbar export cancellation', () => {
     // A cancel is a user decision, not a failure.
     expect(errorLog).not.toHaveBeenCalled();
     errorLog.mockRestore();
+  });
+
+  it('surfaces a real export failure in application state', async () => {
+    const job = deferred<ExportArtifact>();
+    exportSTL.mockReturnValue(job.promise);
+    await startExport();
+    job.reject(new Error('worker ran out of memory'));
+    await flush();
+    expect(useModelerStore.getState().error).toBe('STL export failed: worker ran out of memory');
+  });
+
+  it('does not export when the displayed geometry belongs to another tree revision', () => {
+    useModelerStore.setState({ evaluatedTree: { ...BOX } });
+    render(<Toolbar />);
+    const button = screen.getByTitle('Export STL');
+    expect(button).toBeDisabled();
+    fireEvent.click(button);
+    expect(exportSTL).not.toHaveBeenCalled();
   });
 
   // The epoch is per-cancel, not a latch: a cancelled export must not poison

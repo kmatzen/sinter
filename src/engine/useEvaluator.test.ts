@@ -46,9 +46,16 @@ const display = { glsl: 'float sdf(vec3 p){return 1.0;}', paramCount: 0, paramVa
 /** Let the hook's setTimeout(0) and the promise continuation run. */
 const flush = () => new Promise((r) => setTimeout(r, 0));
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (error: Error) => void;
+  const promise = new Promise<T>((res, rej) => { resolve = res; reject = rej; });
+  return { promise, resolve, reject };
+}
+
 /** Hydrate a tree the way loading a project does: directly, before mount. */
 function hydrate(tree: SDFNodeUI | null) {
-  useModelerStore.setState({ tree, sdfDisplay: null, evaluating: false, error: null });
+  useModelerStore.setState({ tree, sdfDisplay: null, evaluatedTree: null, lastValidTree: null, evaluating: false, error: null });
 }
 
 beforeEach(() => {
@@ -126,6 +133,42 @@ describe('useEvaluator', () => {
 
     expect(evaluate).toHaveBeenCalledTimes(2);
     expect(evaluate.mock.calls[1][0]).toMatchObject({ params: { width: 200 } });
+  });
+
+  it('clears a previous display immediately and keeps it cleared after failure', async () => {
+    const oldTree = box(100);
+    hydrate(oldTree);
+    useModelerStore.setState({ sdfDisplay: display, evaluatedTree: oldTree });
+    evaluate.mockRejectedValueOnce(new Error('codegen failed'));
+    renderHook(() => useEvaluator());
+
+    expect(useModelerStore.getState().sdfDisplay).toBeNull();
+    await flush();
+    expect(useModelerStore.getState()).toMatchObject({
+      sdfDisplay: null, evaluatedTree: null, evaluating: false, error: 'codegen failed',
+    });
+  });
+
+  it('ignores a stale failure after a newer revision succeeds', async () => {
+    const first = deferred<unknown>();
+    const second = deferred<unknown>();
+    evaluate.mockImplementationOnce(() => first.promise).mockImplementationOnce(() => second.promise);
+    const firstTree = box(100);
+    hydrate(firstTree);
+    renderHook(() => useEvaluator());
+    await flush();
+
+    const secondTree = box(200);
+    useModelerStore.getState().setTree(secondTree);
+    await flush();
+    second.resolve(display);
+    await flush();
+    first.reject(new Error('old failure'));
+    await flush();
+
+    expect(useModelerStore.getState()).toMatchObject({
+      tree: secondTree, sdfDisplay: display, evaluatedTree: secondTree, error: null,
+    });
   });
 
   it('evaluates exactly once across a StrictMode-style double mount', async () => {
