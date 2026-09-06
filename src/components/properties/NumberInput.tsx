@@ -81,6 +81,13 @@ export function NumberInput({ label, value, unit = 'mm', min, max, step = 1, onC
     }
   }, [value, isFocused]);
 
+  const constrain = (input: number) => {
+    let num = input;
+    if (min !== undefined) num = Math.max(min, num);
+    if (max !== undefined) num = Math.min(max, num);
+    return Math.round(num * 1000) / 1000;
+  };
+
   const commit = () => {
     const exprResult = evalExpression(localValue);
     let num = exprResult !== null ? exprResult : parseFloat(localValue);
@@ -90,9 +97,7 @@ export function NumberInput({ label, value, unit = 'mm', min, max, step = 1, onC
       setIsExpr(false);
       return;
     }
-    if (min !== undefined) num = Math.max(min, num);
-    if (max !== undefined) num = Math.min(max, num);
-    num = Math.round(num * 1000) / 1000;
+    num = constrain(num);
 
     setLocalValue(String(num));
     setIsExpr(false);
@@ -175,8 +180,8 @@ export function NumberInput({ label, value, unit = 'mm', min, max, step = 1, onC
           onBlur={() => { setIsFocused(false); commit(); }}
           onKeyDown={(e) => {
             if (e.key === 'Enter') { commit(); inputRef.current?.blur(); }
-            if (e.key === 'ArrowUp') { e.preventDefault(); onChange(value + step); }
-            if (e.key === 'ArrowDown') { e.preventDefault(); onChange(value - step); }
+            if (e.key === 'ArrowUp') { e.preventDefault(); onChange(constrain(value + step)); }
+            if (e.key === 'ArrowDown') { e.preventDefault(); onChange(constrain(value - step)); }
           }}
           aria-label={label}
           /*

@@ -46,6 +46,32 @@ describe('Modeler editing scenarios', () => {
     });
   });
 
+  describe('Scenario: parameter invariants', () => {
+    it('clamps every live mutation through the node schema', () => {
+      getState().addPrimitive('box');
+      getState().updateNodeParams(getState().tree!.id, { width: -10 });
+      expect(getState().tree!.params.width).toBe(0.1);
+    });
+
+    it('rejects a mixed finite/non-finite patch atomically', () => {
+      getState().addPrimitive('box');
+      const id = getState().tree!.id;
+      getState().updateNodeParams(id, { width: 99, height: Number.NaN });
+      expect(getState().tree!.params).toMatchObject({ width: 50, height: 30 });
+      expect(getState().error).toBe('height must be a finite number');
+    });
+
+    it('normalizes whole-tree replacement paths such as AI and cloud loads', () => {
+      getState().setTree({
+        id: 'pattern', kind: 'linearPattern', label: 'Pattern',
+        params: { count: -4, spacing: 0, axisX: 0, axisY: 0, axisZ: 0 }, enabled: true,
+        children: [{ id: 'box', kind: 'box', label: 'Box', params: { width: Infinity, height: -1, depth: 2 }, children: [], enabled: true }],
+      });
+      expect(getState().tree!.params).toMatchObject({ count: 2, spacing: 0.1, axisX: 1 });
+      expect(getState().tree!.children[0].params).toMatchObject({ width: 50, height: 0.1, depth: 2 });
+    });
+  });
+
   // ─── Scenario 2: Build a box with a hole ────────────────────────────
   describe('Scenario: Box with cylindrical hole (subtract)', () => {
     it('builds the complete tree', () => {

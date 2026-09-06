@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import type { SDFNodeUI } from '../types/operations';
 import { NODE_LABELS, NODE_DEFAULTS, NODE_KINDS, expectedChildren } from '../types/operations';
 import type { TriangulatedMesh } from '../types/geometry';
+import { applyNodeParamPatch, normalizeNodeParams, normalizeTreeParams } from '../types/parameterSchema';
 
 export interface SDFDisplayData {
   glsl: string;
@@ -79,7 +80,7 @@ function createNode(kind: string, children: SDFNodeUI[] = []): SDFNodeUI {
     id: uuidv4(),
     kind,
     label: NODE_LABELS[kind] || kind,
-    params: { ...NODE_DEFAULTS[kind] },
+    params: normalizeNodeParams(kind, NODE_DEFAULTS[kind]),
     children,
     enabled: true,
   };
@@ -278,11 +279,12 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
   historyTransaction: null,
 
   setTree: (tree) => {
-    set(commit(get(), tree, { selectedNodeId: null }));
+    set(commit(get(), normalizeTreeParams(tree), { selectedNodeId: null }));
   },
 
   resetDocument: (tree, projectName = 'Untitled') => {
-    const snapshot = tree ? cloneTree(tree) : null;
+    const normalized = normalizeTreeParams(tree);
+    const snapshot = normalized ? cloneTree(normalized) : null;
     set({
       tree: snapshot,
       projectName,
@@ -290,6 +292,8 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
       expandedNodes: new Set<string>(),
       mesh: null,
       sdfDisplay: null,
+      evaluatedTree: null,
+      lastValidTree: null,
       evaluating: false,
       error: null,
       history: [snapshot ? cloneTree(snapshot) : null],
@@ -329,10 +333,13 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
   updateNodeParams: (id, params) => {
     const { tree } = get();
     if (!tree) return;
-    const newTree = updateInTree(tree, id, (node) => ({
-      ...node,
-      params: { ...node.params, ...params },
-    }));
+    let error: string | undefined;
+    const newTree = updateInTree(tree, id, (node) => {
+      const result = applyNodeParamPatch(node, params);
+      error = result.error;
+      return result.params ? { ...node, params: result.params } : node;
+    });
+    if (error) { set({ error }); return; }
     set(commit(get(), newTree));
   },
 
@@ -377,12 +384,13 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
   replaceNode: (id, replacement) => {
     const { tree } = get();
     if (!tree) return;
+    const normalized = normalizeTreeParams(replacement)!;
     if (tree.id === id) {
-      set(commit(get(), replacement, { selectedNodeId: replacement.id }));
+      set(commit(get(), normalized, { selectedNodeId: normalized.id }));
       return;
     }
-    const newTree = updateInTree(tree, id, () => replacement);
-    set(commit(get(), newTree, { selectedNodeId: replacement.id }));
+    const newTree = updateInTree(tree, id, () => normalized);
+    set(commit(get(), newTree, { selectedNodeId: normalized.id }));
   },
 
   toggleNode: (id) => {
@@ -490,7 +498,7 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
         id: uuidv4(),
         kind: data.kind,
         label: data.label || NODE_LABELS[data.kind] || data.kind,
-        params: data.params || NODE_DEFAULTS[data.kind] || {},
+        params: normalizeNodeParams(data.kind, data.params),
         // `data` carries what params cannot: a text node's glyph outlines, an
         // imported mesh's geometry. Dropping it here turned an imported STL
         // into an empty node — and had been doing the same to text.
