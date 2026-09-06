@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { MAX_HISTORY_ENTRIES, useModelerStore } from './modelerStore';
+import { effectiveNodeTransform, MAX_HISTORY_ENTRIES, useModelerStore } from './modelerStore';
 import { isTreeValid } from '../types/operations';
 import type { SDFNodeUI } from '../types/operations';
 import { useViewportStore } from './viewportStore';
@@ -1385,5 +1385,32 @@ describe('document boundaries', () => {
 
     getState().undo();
     expect(getState().tree).toEqual(incoming);
+  });
+});
+
+describe('effective world transforms', () => {
+  beforeEach(reset);
+
+  it('reads and edits a nested object in world space with one history entry', () => {
+    const box: SDFNodeUI = { id: 'box', kind: 'box', label: 'Box', params: { width: 2, height: 2, depth: 2 }, children: [], enabled: true };
+    const localMove: SDFNodeUI = { id: 'local', kind: 'translate', label: 'Local', params: { x: 2, y: 0, z: 0 }, children: [box], enabled: true };
+    const rotate: SDFNodeUI = { id: 'rotate', kind: 'rotate', label: 'Rotate', params: { x: 0, y: 0, z: 90 }, children: [localMove], enabled: true };
+    const root: SDFNodeUI = { id: 'root', kind: 'translate', label: 'Root', params: { x: 5, y: 0, z: 0 }, children: [rotate], enabled: true };
+    getState().resetDocument(root);
+    getState().selectNode('box');
+    const before = getState().historyIndex;
+
+    const initial = effectiveNodeTransform(getState().tree!, 'box')!;
+    expect(initial.position[0]).toBeCloseTo(5);
+    expect(initial.position[1]).toBeCloseTo(2);
+    getState().setEffectiveNodeTransform('box', { ...initial, position: [5, 7, 0] });
+
+    expect(getState().historyIndex).toBe(before + 1);
+    expect(getState().selectedNodeId).toBe('box');
+    const updated = effectiveNodeTransform(getState().tree!, 'box')!;
+    expect(updated.position[0]).toBeCloseTo(5);
+    expect(updated.position[1]).toBeCloseTo(7);
+    getState().undo();
+    expect(effectiveNodeTransform(getState().tree!, 'box')!.position[1]).toBeCloseTo(2);
   });
 });

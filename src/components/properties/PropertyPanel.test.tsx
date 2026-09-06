@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('../../engine/workerBridge', () => ({ workerBridge: { fitMesh: vi.fn() } }));
 import { PropertyContent } from './PropertyPanel';
@@ -49,5 +49,27 @@ describe('property formulas', () => {
     expect(screen.getByRole('status')).toHaveTextContent('This node is locked');
     expect(screen.queryByLabelText('Width')).not.toBeInTheDocument();
     expect(screen.queryByText(/Driven properties/)).not.toBeInTheDocument();
+  });
+
+  it('shows and edits the effective world transform as one undoable change', () => {
+    const tree = {
+      id: 'move', kind: 'translate', label: 'Move', params: { x: 5, y: 0, z: 0 }, enabled: true,
+      children: [box],
+    };
+    useModelerStore.getState().resetDocument(tree, 'Transform test', []);
+    useModelerStore.getState().selectNode('box');
+    const before = useModelerStore.getState().historyIndex;
+    render(<PropertyContent />);
+
+    expect(screen.getByText('Effective transform · world')).toBeInTheDocument();
+    const xInputs = screen.getAllByLabelText('X');
+    expect(xInputs[0]).toHaveValue('5.00');
+    fireEvent.change(xInputs[0], { target: { value: '12' } });
+    fireEvent.blur(xInputs[0]);
+
+    expect(useModelerStore.getState().historyIndex).toBe(before + 1);
+    expect(useModelerStore.getState().selectedNodeId).toBe('box');
+    act(() => useModelerStore.getState().undo());
+    expect(useModelerStore.getState().historyIndex).toBe(before);
   });
 });

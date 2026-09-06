@@ -536,7 +536,12 @@ export class ThreeEngine {
   private stepCameraTransition(now: number): boolean {
     const transition = this.cameraTransition;
     if (!transition) return false;
-    const raw = Math.min(1, Math.max(0, (now - transition.startedAt) / transition.duration));
+    const elapsed = now - transition.startedAt;
+    // Adding the duration to a fractional high-resolution timestamp can round
+    // back a few ulps. Treat that numerical dust as the intended endpoint so
+    // a visually complete transition cannot remain live for another frame.
+    const complete = elapsed >= transition.duration - 1e-6;
+    const raw = complete ? 1 : Math.min(1, Math.max(0, elapsed / transition.duration));
     const t = 1 - (1 - raw) ** 3;
     this.camera.position.lerpVectors(transition.fromPosition, transition.toPosition, t);
     this.controls.target.lerpVectors(transition.fromTarget, transition.toTarget, t);
@@ -546,7 +551,7 @@ export class ThreeEngine {
     }
     this.camera.lookAt(this.controls.target);
     this.camera.updateMatrixWorld();
-    if (raw >= 1) this.cameraTransition = null;
+    if (complete) this.cameraTransition = null;
     return true;
   }
 
