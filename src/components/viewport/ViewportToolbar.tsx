@@ -3,6 +3,7 @@ import { triggerDownload } from '../../utils/download';
 import { Move, RotateCcw, Magnet, Camera, Ruler, Scissors, Scaling, Crosshair } from 'lucide-react';
 import type { ThreeEngine } from '../../engine/ThreeEngine';
 import type { ReactNode } from 'react';
+import type { StandardView } from '../../engine/cameraViews';
 
 const BTN = 'w-7 h-7 tap rounded flex items-center justify-center transition-colors';
 const ICON = 13;
@@ -130,6 +131,30 @@ export function ViewportToolbar({ engine }: { engine: ThreeEngine | null }) {
         <VpBtn active={measurementMode} onClick={toggleMeasurementMode} title="Measure surfaces">
           <Crosshair size={ICON} />
         </VpBtn>
+        <BtnGroup>
+          <select
+            defaultValue=""
+            aria-label="Standard view"
+            title="Standard view"
+            onChange={(event) => {
+              if (event.target.value) engine?.setStandardView(event.target.value as StandardView);
+              event.target.value = '';
+            }}
+            className="h-7 rounded bg-transparent text-[10px] px-1"
+            style={{ color: 'var(--text-muted)' }}
+          >
+            <option value="" disabled>View</option>
+            <option value="isometric">Isometric</option>
+            <option value="front">Front</option>
+            <option value="back">Back</option>
+            <option value="right">Right</option>
+            <option value="left">Left</option>
+            <option value="top">Top</option>
+            <option value="bottom">Bottom</option>
+          </select>
+          <SmallBtn onClick={() => engine?.zoomToFit()} title="Frame all">A</SmallBtn>
+          <SmallBtn onClick={() => engine?.frameSelection()} title="Frame selection">S</SmallBtn>
+        </BtnGroup>
       </div>
 
       {/* Bottom right — screenshot */}

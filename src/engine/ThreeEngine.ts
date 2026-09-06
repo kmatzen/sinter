@@ -9,6 +9,7 @@ import { attributePath } from './sdfPicking';
 import type { Vec3 } from '../worker/sdf/types';
 import { makeAnchor } from '../types/measurement';
 import { nodeWorldBounds } from './nodeBounds';
+import { standardViewPose, type StandardView } from './cameraViews';
 
 interface PickResult { path: string[]; point?: Vec3 }
 
@@ -449,18 +450,42 @@ export class ThreeEngine {
     const sdfDisplay = useModelerStore.getState().sdfDisplay;
     if (!sdfDisplay) return;
 
-    const bbMin = new THREE.Vector3(...sdfDisplay.bbMin);
-    const bbMax = new THREE.Vector3(...sdfDisplay.bbMax);
-    const center = new THREE.Vector3().addVectors(bbMin, bbMax).multiplyScalar(0.5);
-    const radius = bbMin.distanceTo(bbMax) * 0.5;
-    const fovRad = (this.camera.fov * Math.PI) / 180;
-    const dist = radius / Math.sin(fovRad / 2);
+    this.applyStandardView('isometric', { min: sdfDisplay.bbMin, max: sdfDisplay.bbMax });
+  }
 
-    // Position camera at a 3/4 view angle
-    const dir = new THREE.Vector3(1, 0.8, 1).normalize();
-    this.camera.position.copy(center).addScaledVector(dir, dist);
-    this.controls.target.copy(center);
+  /** Frame the selected operation without changing its exact current view axis. */
+  frameSelection() {
+    const model = useModelerStore.getState();
+    if (!model.tree || !model.selectedNodeId) return;
+    const bounds = nodeWorldBounds(model.tree, model.selectedNodeId);
+    if (!bounds) return;
+    const direction = this.camera.position.clone().sub(this.controls.target);
+    if (direction.lengthSq() < 1e-12) direction.set(1, 0.8, 1);
+    const pose = standardViewPose(bounds, 'isometric', this.camera.fov);
+    const target = new THREE.Vector3(...pose.target);
+    this.camera.position.copy(target).addScaledVector(direction.normalize(), pose.distance);
+    this.controls.target.copy(target);
+    this.camera.lookAt(target);
+    this.camera.updateMatrixWorld();
     this.controls.update();
+    this.invalidate();
+  }
+
+  setStandardView(view: StandardView) {
+    const sdfDisplay = useModelerStore.getState().sdfDisplay;
+    if (!sdfDisplay) return;
+    this.applyStandardView(view, { min: sdfDisplay.bbMin, max: sdfDisplay.bbMax });
+  }
+
+  private applyStandardView(view: StandardView, bounds: { min: Vec3; max: Vec3 }) {
+    const pose = standardViewPose(bounds, view, this.camera.fov);
+    this.camera.up.set(...pose.up);
+    this.camera.position.set(...pose.position);
+    this.controls.target.set(...pose.target);
+    this.camera.lookAt(this.controls.target);
+    this.camera.updateMatrixWorld();
+    this.controls.update();
+    this.invalidate();
   }
 
   /**
