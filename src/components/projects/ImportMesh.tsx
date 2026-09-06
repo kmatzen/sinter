@@ -4,6 +4,19 @@ import { useModelerStore } from '../../store/modelerStore';
 import { MAX_STL_TRIANGLES, parseSTL, STLParseError, STL_TOPOLOGY_STATUS, type RawMesh } from '../../worker/sdf/stl';
 import type { SDFNodeUI } from '../../types/operations';
 import { useDialogFocus } from '../ui/useDialogFocus';
+import { useViewportStore } from '../../store/viewportStore';
+import { toMillimeters, type DisplayUnit } from '../../types/units';
+
+const STL_UNIT_KEY = 'sinter_stl_import_unit';
+type STLUnit = Exclude<DisplayUnit, 'ft-in'>;
+
+function initialSTLUnit(projectUnit: DisplayUnit): STLUnit {
+  try {
+    const remembered = localStorage.getItem(STL_UNIT_KEY);
+    if (remembered === 'mm' || remembered === 'cm' || remembered === 'm' || remembered === 'in') return remembered;
+  } catch { /* preference persistence is best effort */ }
+  return projectUnit === 'ft-in' ? 'in' : projectUnit;
+}
 
 /**
  * STL import (#87, layer 1).
@@ -36,24 +49,27 @@ function toBase64(floats: Float32Array): string {
   return btoa(bin);
 }
 
-export function buildMeshNode(name: string, positions: Float32Array, resolution = 48): SDFNodeUI {
+export function buildMeshNode(name: string, positions: Float32Array, resolution = 48, sourceUnit: STLUnit = 'mm'): SDFNodeUI {
+  const scaled = sourceUnit === 'mm' ? positions : Float32Array.from(positions, (value) => toMillimeters(value, sourceUnit));
   return {
     id: uuidv4(),
     kind: 'mesh',
     label: name.replace(/\.stl$/i, '').slice(0, 40) || 'Imported Mesh',
     params: { resolution },
-    data: { meshPositions: toBase64(positions), meshName: name, meshTopology: STL_TOPOLOGY_STATUS },
+    data: { meshPositions: toBase64(scaled), meshName: name, meshTopology: STL_TOPOLOGY_STATUS, meshImportUnit: sourceUnit },
     children: [],
     enabled: true,
   };
 }
 
 export function ImportMesh({ onDone }: { onDone: () => void }) {
+  const projectUnit = useViewportStore((s) => s.measurementUnit);
   const addNodeFromData = useModelerStore((s) => s.addNodeFromData);
   const selectedId = useModelerStore((s) => s.selectedNodeId);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [pending, setPending] = useState<{ file: File; mesh: RawMesh } | null>(null);
+  const [sourceUnit, setSourceUnit] = useState<STLUnit>(() => initialSTLUnit(projectUnit));
   const inputRef = useRef<HTMLInputElement>(null);
   const surface = useRef<HTMLDivElement>(null);
   useDialogFocus(surface, onDone);
@@ -125,6 +141,15 @@ export function ImportMesh({ onDone }: { onDone: () => void }) {
 
         {pending && (
           <div className="text-[11px] mb-3 px-2 py-2 rounded" style={{ background: 'var(--bg-elevated)', color: 'var(--text-secondary)' }}>
+            <label className="flex items-center justify-between gap-3 mb-2">
+              <span>STL coordinate unit</span>
+              <select aria-label="STL coordinate unit" value={sourceUnit} onChange={(event) => setSourceUnit(event.target.value as STLUnit)} className="rounded px-2 py-1" style={{ background: 'var(--bg-panel)' }}>
+                <option value="mm">millimeters</option><option value="cm">centimeters</option><option value="m">meters</option><option value="in">inches</option>
+              </select>
+            </label>
+            <div className="mb-2" style={{ color: 'var(--text-muted)' }}>
+              STL files contain no unit metadata. This choice scales coordinates into Sinter’s canonical millimeters and is remembered for the next import.
+            </div>
             <div style={{ color: 'var(--text-primary)' }}>
               Closed manifold · {pending.mesh.topology.componentCount} shell{pending.mesh.topology.componentCount === 1 ? '' : 's'}
             </div>
@@ -133,7 +158,8 @@ export function ImportMesh({ onDone }: { onDone: () => void }) {
             </div>
             <button
               onClick={() => {
-                addNodeFromData(selectedId, buildMeshNode(pending.file.name, pending.mesh.positions));
+                try { localStorage.setItem(STL_UNIT_KEY, sourceUnit); } catch { /* preference persistence is best effort */ }
+                addNodeFromData(selectedId, buildMeshNode(pending.file.name, pending.mesh.positions, 48, sourceUnit));
                 onDone();
               }}
               className="w-full px-3 py-2 rounded text-[12px] font-medium mt-2"
