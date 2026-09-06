@@ -64,8 +64,10 @@ interface ModelerState {
   renameGroup: (group: string, nextName: string) => void;
   changeNodeKind: (id: string, kind: string) => void;
   removeNode: (id: string) => void;
+  removeSelected: () => void;
   replaceNode: (id: string, replacement: SDFNodeUI) => void;
   toggleNode: (id: string) => void;
+  toggleSelected: () => void;
   toggleExpanded: (id: string) => void;
   expandAll: () => void;
   collapseAll: () => void;
@@ -202,6 +204,15 @@ function findNode(tree: SDFNodeUI, id: string): SDFNodeUI | null {
     if (found) return found;
   }
   return null;
+}
+
+/** Remove descendants when an ancestor is also selected, then use tree order. */
+function selectedRoots(tree: SDFNodeUI, ids: string[]): string[] {
+  const selected = new Set(ids.filter((id) => !!findNode(tree, id)));
+  return treeOrder(tree).filter((id) => {
+    if (!selected.has(id)) return false;
+    return ![...selected].some((ancestor) => ancestor !== id && !!findNode(findNode(tree, ancestor)!, id));
+  });
 }
 
 // Apply an update to a node by ID, returning a new tree (immutable)
@@ -534,6 +545,16 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
     set(commit(get(), removeFromTree(tree, id)));
   },
 
+  removeSelected: () => {
+    const { tree, selectedNodeIds } = get();
+    if (!tree || !selectedNodeIds.length) return;
+    let next: SDFNodeUI | null = tree;
+    for (const id of selectedRoots(tree, selectedNodeIds).reverse()) {
+      if (next && findNode(next, id)) next = removeFromTree(next, id);
+    }
+    set(commit(get(), next, { selectedNodeId: null, selectedNodeIds: [] }));
+  },
+
   /**
    * Swap one node for another in place, as a single history entry.
    *
@@ -560,6 +581,17 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
     // this is a document mutation and belongs in history like any other.
     const newTree = updateInTree(tree, id, (node) => ({ ...node, enabled: !node.enabled }));
     set(commit(get(), newTree));
+  },
+
+  toggleSelected: () => {
+    const { tree, selectedNodeIds } = get();
+    if (!tree || !selectedNodeIds.length) return;
+    const ids = new Set(selectedRoots(tree, selectedNodeIds));
+    const enabled = ![...ids].some((id) => findNode(tree, id)?.enabled);
+    const visit = (node: SDFNodeUI): SDFNodeUI => ids.has(node.id)
+      ? { ...node, enabled }
+      : { ...node, children: node.children.map(visit) };
+    set(commit(get(), visit(tree)));
   },
 
   toggleExpanded: (id) => {
@@ -805,21 +837,38 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
   },
 
   duplicateSelected: () => {
-    const { tree, selectedNodeId } = get();
+    const { tree, selectedNodeId, selectedNodeIds } = get();
     if (!tree || !selectedNodeId) return;
-    const node = findNode(tree, selectedNodeId);
-    if (!node) return;
+    const roots = selectedRoots(tree, selectedNodeIds);
+    const node = findNode(tree, roots[0]);
+    if (!node || !roots.length) return;
     const dupe = reassignIds(cloneTree(node));
     // If root, wrap in union
-    if (tree.id === selectedNodeId) {
+    if (tree.id === roots[0]) {
       const unionNode = createNode('union', [tree, dupe]);
       const expanded = new Set(get().expandedNodes);
       expanded.add(unionNode.id);
       set(commit(get(), unionNode, { selectedNodeId: dupe.id, expandedNodes: expanded }));
       return;
     }
+    if (roots.length > 1) {
+      let next = tree;
+      const duplicates: string[] = [];
+      for (const id of roots) {
+        const source = findNode(tree, id);
+        const parent = findParentOf(next, id);
+        if (!source || !parent) continue;
+        const copy = reassignIds(cloneTree(source));
+        next = attachChild(next, parent.id, copy);
+        duplicates.push(copy.id);
+      }
+      if (duplicates.length) set(commit(get(), next, {
+        selectedNodeIds: duplicates, selectedNodeId: duplicates[duplicates.length - 1],
+      }));
+      return;
+    }
     // Find parent, add dupe as sibling
-    const parent = findParentOf(tree, selectedNodeId);
+    const parent = findParentOf(tree, roots[0]);
     if (!parent) return;
     const newTree = attachChild(tree, parent.id, dupe);
     set(commit(get(), newTree, { selectedNodeId: dupe.id }));

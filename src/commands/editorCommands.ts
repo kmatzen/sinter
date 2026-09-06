@@ -62,9 +62,9 @@ export const editorCommands: EditorCommand[] = [
   { id: 'edit.copy', title: 'Copy selected node', category: 'Edit', shortcut: 'Mod+C', shortcutDescription: 'Copy node', unavailableReason: selectedReason, run: () => useModelerStore.getState().copySelected() },
   { id: 'edit.paste', title: 'Paste node', category: 'Edit', shortcut: 'Mod+V', shortcutDescription: 'Paste node', unavailableReason: pasteReason, run: () => useModelerStore.getState().pasteToSelected() },
   { id: 'edit.duplicate', title: 'Duplicate selected node', category: 'Edit', shortcut: 'Mod+D', shortcutDescription: 'Duplicate node', unavailableReason: selectedReason, run: () => useModelerStore.getState().duplicateSelected() },
-  { id: 'edit.delete', title: 'Delete selected node', category: 'Edit', shortcut: 'Delete', shortcutDescription: 'Remove selected node', unavailableReason: selectedReason, run: () => { const s = useModelerStore.getState(); if (s.selectedNodeId) s.removeNode(s.selectedNodeId); } },
+  { id: 'edit.delete', title: 'Delete selected nodes', category: 'Edit', shortcut: 'Delete', shortcutDescription: 'Remove selected nodes', unavailableReason: selectedReason, run: () => useModelerStore.getState().removeSelected() },
   { id: 'tree.simplify', title: 'Simplify model tree', category: 'Tree', aliases: ['normalize'], unavailableReason: treeReason, run: () => useModelerStore.getState().simplifyTree() },
-  { id: 'tree.toggle-selected', title: 'Enable or disable selected node', category: 'Tree', aliases: ['toggle visibility'], unavailableReason: selectedReason, run: () => { const s = useModelerStore.getState(); if (s.selectedNodeId) s.toggleNode(s.selectedNodeId); } },
+  { id: 'tree.toggle-selected', title: 'Enable or disable selected nodes', category: 'Tree', aliases: ['toggle visibility'], unavailableReason: selectedReason, run: () => useModelerStore.getState().toggleSelected() },
   { id: 'tree.expand-all', title: 'Expand all tree nodes', category: 'Tree', unavailableReason: treeReason, run: () => useModelerStore.getState().expandAll() },
   { id: 'tree.collapse-all', title: 'Collapse all tree nodes', category: 'Tree', unavailableReason: treeReason, run: () => useModelerStore.getState().collapseAll() },
 

@@ -1073,6 +1073,46 @@ describe('ordered multi-selection', () => {
     expect(getState().selectedNodeIds).toEqual(['root', 'b']);
     expect(getState().selectedNodeId).toBe('b');
   });
+
+  it('deletes and restores a multi-selection in one undo step', () => {
+    getState().resetDocument(document());
+    getState().selectNode('a');
+    getState().selectNode('b', 'toggle');
+    getState().removeSelected();
+    expect(getState().tree?.children.map((node) => node.kind)).toEqual([
+      '_empty',
+      '_empty',
+    ]);
+    expect(JSON.stringify(getState().tree)).not.toContain('"id":"a"');
+    expect(JSON.stringify(getState().tree)).not.toContain('"id":"b"');
+    expect(getState().history).toHaveLength(2);
+    getState().undo();
+    expect(getState().tree?.children.map((node) => node.id)).toEqual(['a', 'b']);
+  });
+
+  it('toggles every selected root atomically', () => {
+    getState().resetDocument(document());
+    getState().selectNode('a');
+    getState().selectNode('b', 'toggle');
+    getState().toggleSelected();
+    expect(getState().tree?.children.map((node) => node.enabled)).toEqual([false, false]);
+    expect(getState().history).toHaveLength(2);
+    getState().undo();
+    expect(getState().tree?.children.map((node) => node.enabled)).toEqual([true, true]);
+  });
+
+  it('duplicates all selected roots as one history entry and selects the copies', () => {
+    getState().resetDocument(document());
+    getState().selectNode('a');
+    getState().selectNode('b', 'toggle');
+    getState().duplicateSelected();
+    expect(getState().history).toHaveLength(2);
+    expect(getState().selectedNodeIds).toHaveLength(2);
+    expect(getState().selectedNodeIds).not.toContain('a');
+    expect(getState().selectedNodeIds).not.toContain('b');
+    getState().undo();
+    expect(getState().tree?.children.map((node) => node.id)).toEqual(['a', 'b']);
+  });
 });
 
 describe('bounded structurally-shared history', () => {
