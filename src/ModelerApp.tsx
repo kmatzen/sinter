@@ -77,6 +77,21 @@ function ModelerApp() {
     return () => window.removeEventListener('keydown', handleModelerKeyDown);
   }, []);
 
+  useEffect(() => {
+    // A mobile drawer left mounted while crossing to desktop is hidden by
+    // CSS, but without clearing its state it springs back open on the next
+    // rotation. Reconcile at the same 1024px boundary the layout classes use.
+    const reconcileLayout = () => {
+      if (!isMobile()) setMobilePanel(null);
+    };
+    window.addEventListener('resize', reconcileLayout);
+    window.addEventListener('orientationchange', reconcileLayout);
+    return () => {
+      window.removeEventListener('resize', reconcileLayout);
+      window.removeEventListener('orientationchange', reconcileLayout);
+    };
+  }, []);
+
   return (
     <div data-testid="modeler-app" className="h-full flex flex-col overflow-hidden" style={{ background: 'var(--bg-deep)', color: 'var(--text-primary)' }}>
       <Toolbar onMobileTree={() => setMobilePanel((p) => p === 'tree' ? null : 'tree')} onMobileProps={() => setMobilePanel((p) => p === 'props' ? null : 'props')} />

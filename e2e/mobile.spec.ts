@@ -134,6 +134,33 @@ test('the property sheet opens far enough to edit in, and closes without a swipe
   await expect(sheet).toBeHidden();
 });
 
+test('tablet portrait stays mobile and rotation does not resurrect a stale drawer', async ({ page }) => {
+  await page.setViewportSize({ width: 768, height: 1024 });
+  await enterModeler(page);
+  await expect(page.locator('[aria-label="Node tree"]')).toBeVisible();
+  await page.locator('[aria-label="Node tree"]').click();
+  await expect(page.getByRole('dialog', { name: 'Model tools' })).toBeVisible();
+
+  await page.setViewportSize({ width: 1024, height: 768 });
+  await expect(page.getByRole('dialog', { name: 'Model tools' })).toBeHidden();
+  await page.setViewportSize({ width: 768, height: 1024 });
+  await expect(page.getByRole('dialog', { name: 'Model tools' })).toBeHidden();
+});
+
+test('short landscape phones dock properties beside the viewport', async ({ page }) => {
+  await page.setViewportSize({ width: 750, height: 342 });
+  await enterModeler(page);
+  await page.locator('[aria-label="Node tree"]').click();
+  await overlay(page).locator('[title="Add Box"]').click();
+  await page.locator('[aria-label="Close node tree"]').click();
+  await page.locator('[aria-label="Properties"]').click();
+
+  const box = await overlay(page).locator('.mobile-properties-sheet').boundingBox();
+  expect(box!.height).toBeGreaterThan(330);
+  expect(box!.width).toBeLessThan(360);
+  expect(box!.x).toBeGreaterThan(390);
+});
+
 test('the chat drawer carries its own way out', async ({ page }) => {
   await enterModeler(page);
 

@@ -188,7 +188,7 @@ export function BottomSheet({ onClose, children }: Props) {
         role="dialog"
         aria-modal="true"
         aria-labelledby="properties-sheet-title"
-        className="absolute bottom-0 left-0 right-0 flex flex-col rounded-t-xl"
+        className="mobile-properties-sheet absolute bottom-0 left-0 right-0 flex flex-col rounded-t-xl"
         style={{
           height: `${height}px`,
           background: 'var(--bg-panel)',
@@ -199,7 +199,7 @@ export function BottomSheet({ onClose, children }: Props) {
       >
         {/* Drag handle */}
         <div
-          className="flex items-center justify-center py-2 tap-h cursor-grab active:cursor-grabbing shrink-0"
+          className="mobile-properties-handle flex items-center justify-center py-2 tap-h cursor-grab active:cursor-grabbing shrink-0"
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
