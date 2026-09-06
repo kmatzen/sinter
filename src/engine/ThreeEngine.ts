@@ -10,7 +10,7 @@ import type { Vec3 } from '../worker/sdf/types';
 import { makeAnchor } from '../types/measurement';
 import { nodeWorldBounds } from './nodeBounds';
 import { standardViewPose, type StandardView } from './cameraViews';
-import type { NamedProjectView } from '../types/view';
+import { hasValidCameraBasis, type NamedProjectView } from '../types/view';
 
 interface PickResult { path: string[]; point?: Vec3 }
 
@@ -639,7 +639,7 @@ export class ThreeEngine {
       ? 2 * distance * Math.tan((this.camera.fov * Math.PI) / 360) / this.camera.zoom
       : (this.camera.top - this.camera.bottom) / this.camera.zoom;
     const viewport = useViewportStore.getState();
-    return {
+    const view: NamedProjectView = {
       id: crypto.randomUUID(), name: cleanName, createdAt: new Date().toISOString(),
       position: this.camera.position.toArray() as [number, number, number],
       target: target.toArray() as [number, number, number],
@@ -648,9 +648,16 @@ export class ThreeEngine {
       verticalSpan,
       clipping: { enabled: viewport.clipEnabled, axis: viewport.clipAxis, position: viewport.clipPosition, flip: viewport.clipFlip },
     };
+    if (!hasValidCameraBasis(view.position, view.target, view.up)) {
+      throw new Error('The current camera orientation cannot be saved; orbit the view slightly and try again');
+    }
+    return view;
   }
 
   applyNamedView(view: NamedProjectView): void {
+    if (!hasValidCameraBasis(view.position, view.target, view.up)) {
+      throw new Error('Named view has an invalid camera orientation');
+    }
     if (view.projection !== this.projection) this.setProjection(view.projection);
     this.camera.position.fromArray(view.position);
     this.camera.up.fromArray(view.up).normalize();

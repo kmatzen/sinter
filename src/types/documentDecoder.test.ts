@@ -65,8 +65,29 @@ describe('document decoder', () => {
     expect(decodeProjectDocument({ version: 2, tree: box(), views: [view] }).views[0]).toEqual(view);
     expect(decodeProjectDocument({ version: 1, tree: box(), views: [view] }).views).toEqual([]);
     expect(() => decodeProjectDocument({ version: 2, tree: box(), views: [{ ...view, target: view.position }] })).toThrow(/position must differ/);
+    expect(() => decodeProjectDocument({ version: 2, tree: box(), views: [{ ...view, up: [0, 0, 1] }] })).toThrow(/parallel/);
+    expect(() => decodeProjectDocument({ version: 2, tree: box(), views: [{ ...view, up: [0, 0, -1] }] })).toThrow(/parallel/);
+    expect(() => decodeProjectDocument({ version: 2, tree: box(), views: [{ ...view, up: [0, 1e-8, 1] }] })).toThrow(/parallel/);
     expect(() => decodeProjectDocument({ version: 2, tree: box(), views: [{ ...view, verticalSpan: Infinity }] })).toThrow(/verticalSpan/);
     expect(() => decodeProjectDocument({ version: 2, tree: box(), views: Array.from({ length: 21 }, (_, i) => ({ ...view, id: `v${i}` })) })).toThrow(/at most 20/);
+  });
+
+  it('round-trips checkpoint views while preserving the legacy absence marker', () => {
+    const view = {
+      id: 'detail', name: 'Detail', createdAt: '2026-09-06T12:00:00Z',
+      position: [0, 0, 100], target: [0, 0, 0], up: [0, 1, 0],
+      projection: 'perspective', verticalSpan: 42,
+      clipping: { enabled: false, axis: 'z', position: 0, flip: false },
+    };
+    const current = decodeProjectDocument({ version: 2, tree: box(), checkpoints: [
+      { id: 'with-view', name: 'With view', createdAt: '2026-09-06T12:00:00Z', tree: box('old'), views: [view] },
+    ] });
+    expect(current.checkpoints[0].views).toEqual([view]);
+
+    const legacy = decodeProjectDocument({ version: 2, tree: box(), checkpoints: [
+      { id: 'legacy', name: 'Legacy', createdAt: '2026-09-06T12:00:00Z', tree: box('old') },
+    ] });
+    expect(legacy.checkpoints[0]).not.toHaveProperty('views');
   });
 
   it('rejects duplicate IDs, unknown kinds, and invalid arity', () => {

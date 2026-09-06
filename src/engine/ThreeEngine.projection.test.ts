@@ -74,6 +74,17 @@ describe('ThreeEngine projection switching', () => {
     expect(useViewportStore.getState()).toMatchObject({ projection: 'perspective', clipEnabled: true, clipAxis: 'x', clipPosition: 7, clipFlip: true });
   });
 
+  it('refuses to capture or apply a camera with undefined roll', () => {
+    const { engine, controls } = harness();
+    engine.camera.up.set(0, 0, 1);
+    expect(() => engine.captureNamedView('Broken')).toThrow(/cannot be saved/);
+
+    engine.camera.up.set(0, 1, 0);
+    const valid = engine.captureNamedView('Valid');
+    expect(() => engine.applyNamedView({ ...valid, up: [0, 0, -1] })).toThrow(/invalid camera orientation/);
+    expect(controls.target.toArray()).toEqual([0, 0, 0]);
+  });
+
   it('eases camera transitions to the exact requested pose and allows replacement mid-flight', () => {
     const { engine, controls } = harness();
     const internals = engine as unknown as {

@@ -11,6 +11,8 @@ export interface ProjectCheckpoint {
   createdAt: string;
   tree: unknown;
   parameters?: NamedParameter[];
+  /** Added after document v2 shipped; absence preserves the current views for legacy checkpoints. */
+  views?: NamedProjectView[];
 }
 
 export interface ProjectFileBody {

@@ -2,7 +2,7 @@ import { NODE_DEFAULTS, NODE_LABELS, expectedChildren, type SDFNodeUI } from './
 import { normalizeNodeParams } from './parameterSchema';
 import type { ProjectCheckpoint, ProjectFileBody } from '../storage/types';
 import type { NamedParameter } from './operations';
-import type { NamedProjectView } from './view';
+import { hasValidCameraBasis, type NamedProjectView } from './view';
 import { FormulaError, resolveNamedParameters, resolveTreeFormulas } from './formulas';
 import { STLParseError, STL_TOPOLOGY_STATUS, validateSTLTopology } from '../worker/sdf/stl';
 import { MODEL_SPATIAL_LIMIT_MM } from './modelingEnvelope';
@@ -326,6 +326,7 @@ function decodeNamedViews(input: unknown): NamedProjectView[] {
     const offset: [number, number, number] = [position[0] - target[0], position[1] - target[1], position[2] - target[2]];
     if (lengthSquared(offset) < 1e-12) throw new DocumentDecodeError(`${path}.position must differ from its target`);
     if (lengthSquared(up) < 1e-12) throw new DocumentDecodeError(`${path}.up must be non-zero`);
+    if (!hasValidCameraBasis(position, target, up)) throw new DocumentDecodeError(`${path}.up must not be parallel to the viewing direction`);
     return {
       id: raw.id, name: raw.name.trim(), createdAt: raw.createdAt,
       position, target, up,
@@ -390,6 +391,8 @@ export function decodeProjectDocument(input: unknown, fallbackName = 'Untitled')
       throw new DocumentDecodeError(`project.checkpoints[${index}].tree is required`);
     }
     const checkpointParameters = decodeNamedParameters(checkpoint.parameters, `project.checkpoints[${index}].parameters`);
+    const checkpointViews = Object.prototype.hasOwnProperty.call(checkpoint, 'views')
+      ? decodeNamedViews(checkpoint.views) : undefined;
     let tree = decodeTree(checkpoint.tree);
     try { tree = resolveTreeFormulas(tree, checkpointParameters); }
     catch (error) { throw new DocumentDecodeError(`project.checkpoints[${index}]: ${error instanceof Error ? error.message : 'invalid formulas'}`); }
@@ -399,6 +402,7 @@ export function decodeProjectDocument(input: unknown, fallbackName = 'Untitled')
       createdAt: checkpoint.createdAt,
       tree,
       parameters: checkpointParameters,
+      ...(checkpointViews ? { views: checkpointViews } : {}),
     };
   });
   let tree = decodeTree(raw.tree, { legacy, repairMissingIds: legacy });

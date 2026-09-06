@@ -64,6 +64,15 @@ function resetStores() {
   useViewportStore.setState({ namedViews: [] });
 }
 
+const projectView = (id: string, x = 0) => ({
+  id, name: id, createdAt: '2026-09-06T12:00:00Z',
+  position: [x, 0, 10] as [number, number, number],
+  target: [x, 0, 0] as [number, number, number],
+  up: [0, 1, 0] as [number, number, number],
+  projection: 'perspective' as const, verticalSpan: 10,
+  clipping: { enabled: false, axis: 'z' as const, position: 0, flip: false },
+});
+
 describe('projectStore.save', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -452,6 +461,18 @@ describe('project checkpoints', () => {
     expect(useProjectStore.getState().checkpoints).toHaveLength(1);
   });
 
+  it('checkpoints the last committed views when only project views changed', async () => {
+    const original = projectView('original');
+    useViewportStore.setState({ namedViews: [original] });
+    await useProjectStore.getState().save();
+    useViewportStore.setState({ namedViews: [projectView('later', 5)] });
+    await useProjectStore.getState().save();
+
+    const checkpoint = update.mock.calls[0][2].checkpoints[0];
+    expect(checkpoint.tree.params.width).toBe(10);
+    expect(checkpoint.views).toEqual([original]);
+  });
+
   it('keeps only the ten newest checkpoints', async () => {
     const old = Array.from({ length: 10 }, (_, i) => ({
       id: `v${i}`, name: `Version ${i}`, createdAt: new Date(i).toISOString(), tree: box(i + 1),
@@ -547,6 +568,35 @@ describe('project checkpoints', () => {
     expect(useModelerStore.getState().namedParameters).toEqual(version.parameters);
     expect(useModelerStore.getState().tree?.params.width).toBe(30);
     expect(update.mock.calls[0][2].parameters).toEqual(version.parameters);
+  });
+
+  it('restores checkpoint views atomically and records current views for recovery', async () => {
+    const savedViews = [projectView('saved')];
+    const currentViews = [projectView('current', 5)];
+    const version = {
+      id: 'view-v1', name: 'View state', createdAt: '2026-09-06T12:00:00Z',
+      tree: box(12), views: savedViews,
+    };
+    useProjectStore.setState({ projectId: 'existing', provider: 'google', revision: 'r1', checkpoints: [version] });
+    useViewportStore.setState({ namedViews: currentViews });
+
+    await expect(useProjectStore.getState().restoreCheckpoint('view-v1')).resolves.toBe(true);
+
+    expect(update.mock.calls[0][2].views).toEqual(savedViews);
+    expect(update.mock.calls[0][2].checkpoints.at(-1).views).toEqual(currentViews);
+    expect(useViewportStore.getState().namedViews).toEqual(savedViews);
+    expect(useProjectStore.getState().lastSavedViews).toEqual(savedViews);
+  });
+
+  it('retains current views when restoring a legacy checkpoint without a view snapshot', async () => {
+    const currentViews = [projectView('current')];
+    const version = { id: 'legacy', name: 'Legacy', createdAt: '2026-09-06T12:00:00Z', tree: box(12) };
+    useProjectStore.setState({ projectId: 'existing', provider: 'google', revision: 'r1', checkpoints: [version] });
+    useViewportStore.setState({ namedViews: currentViews });
+
+    await expect(useProjectStore.getState().restoreCheckpoint('legacy')).resolves.toBe(true);
+    expect(update.mock.calls[0][2].views).toEqual(currentViews);
+    expect(useViewportStore.getState().namedViews).toEqual(currentViews);
   });
 });
 
