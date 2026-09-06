@@ -41,13 +41,25 @@ export interface ExportDiagnostics {
   zeroAreaTriangles: number;
   dimensions: [number, number, number];
   overhang?: OverhangDiagnostics;
+  thickness?: ThicknessDiagnostics;
 }
 
 export type BuildDirection = 'x' | '-x' | 'y' | '-y' | 'z' | '-z';
-export interface ExportPreflightOptions { overhangAngle: number; buildDirection: BuildDirection; }
-export interface OverhangDiagnostics extends ExportPreflightOptions {
+export interface ExportPreflightOptions { overhangAngle: number; buildDirection: BuildDirection; minimumWallThickness: number; }
+export interface OverhangDiagnostics extends Pick<ExportPreflightOptions, 'overhangAngle' | 'buildDirection'> {
   riskyTriangles: number;
   analyzedTriangles: number;
+  affectedTriangleIds: number[];
+  affectedBounds: { min: [number, number, number]; max: [number, number, number] } | null;
+  affectedIdsTruncated: boolean;
+}
+export interface ThicknessDiagnostics {
+  threshold: number;
+  status: 'analyzed' | 'inconclusive';
+  sampledTriangles: number;
+  totalTriangles: number;
+  thinTriangles: number;
+  minimumThickness: number | null;
   affectedTriangleIds: number[];
   affectedBounds: { min: [number, number, number]; max: [number, number, number] } | null;
   affectedIdsTruncated: boolean;

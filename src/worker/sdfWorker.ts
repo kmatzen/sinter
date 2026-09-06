@@ -19,7 +19,7 @@ import { export3MF } from './exporters';
 import { toSDFNode } from './sdf/convert';
 import { simplifyMesh } from './sdf/simplify';
 import { CLUSTER_ERROR_VOXELS, SIMPLIFY_ERROR_VOXELS, PROJECT_TOLERANCE_VOXELS } from './sdf/budgets';
-import { analyzeMesh, analyzeOverhangs, removeDegenerateTriangles, projectVerticesToSurface } from './sdf/meshRepair';
+import { analyzeMesh, analyzeOverhangs, analyzeWallThickness, removeDegenerateTriangles, projectVerticesToSurface } from './sdf/meshRepair';
 import { validateModelingEnvelope } from './sdf/modelingEnvelope';
 import { partitionExportComponents, planComponentSampling } from './sdf/exportComponents';
 import type { MeshResult } from './sdf/marchingCubes';
@@ -223,7 +223,8 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
         const { mesh, achievedTolerance, componentCount, conformance } = result;
         progress('Encoding STL', 95);
         const data = exportBinarySTL(mesh);
-        const diagnostics = { ...analyzeMesh(mesh), overhang: analyzeOverhangs(mesh, req.preflight ?? { overhangAngle: 45, buildDirection: 'z' }) };
+        const preflight = req.preflight ?? { overhangAngle: 45, buildDirection: 'z', minimumWallThickness: 1.2 };
+        const diagnostics = { ...analyzeMesh(mesh), overhang: analyzeOverhangs(mesh, preflight), thickness: analyzeWallThickness(mesh, preflight.minimumWallThickness) };
         self.postMessage({ type: 'exportResult', rid, format: 'stl' as const, data,
           vertexCount: mesh.positions.length / 3, triangleCount: mesh.indices.length / 3, diagnostics, achievedTolerance, componentCount, conformance }, [data]);
         break;
@@ -241,7 +242,8 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
         const { mesh, achievedTolerance, componentCount, conformance } = result;
         progress('Encoding 3MF', 95);
         const data = export3MF(mesh);
-        const diagnostics = { ...analyzeMesh(mesh), overhang: analyzeOverhangs(mesh, req.preflight ?? { overhangAngle: 45, buildDirection: 'z' }) };
+        const preflight = req.preflight ?? { overhangAngle: 45, buildDirection: 'z', minimumWallThickness: 1.2 };
+        const diagnostics = { ...analyzeMesh(mesh), overhang: analyzeOverhangs(mesh, preflight), thickness: analyzeWallThickness(mesh, preflight.minimumWallThickness) };
         self.postMessage({ type: 'exportResult', rid, format: '3mf' as const, data,
           vertexCount: mesh.positions.length / 3, triangleCount: mesh.indices.length / 3, diagnostics, achievedTolerance, componentCount, conformance }, [data]);
         break;

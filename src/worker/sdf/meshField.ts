@@ -275,6 +275,27 @@ function rayHitsTriangle(
   return t > 1e-9;
 }
 
+/** Möller–Trumbore distance, or Infinity when the ray misses. */
+function rayTriangleDistance(
+  ox: number, oy: number, oz: number, dx: number, dy: number, dz: number,
+  ax: number, ay: number, az: number, bx: number, by: number, bz: number, cx: number, cy: number, cz: number,
+): number {
+  const e1x = bx - ax, e1y = by - ay, e1z = bz - az;
+  const e2x = cx - ax, e2y = cy - ay, e2z = cz - az;
+  const px = dy * e2z - dz * e2y, py = dz * e2x - dx * e2z, pz = dx * e2y - dy * e2x;
+  const det = e1x * px + e1y * py + e1z * pz;
+  if (Math.abs(det) < 1e-12) return Infinity;
+  const inv = 1 / det;
+  const tx = ox - ax, ty = oy - ay, tz = oz - az;
+  const u = (tx * px + ty * py + tz * pz) * inv;
+  if (u < 0 || u > 1) return Infinity;
+  const qx = ty * e1z - tz * e1y, qy = tz * e1x - tx * e1z, qz = tx * e1y - ty * e1x;
+  const v = (dx * qx + dy * qy + dz * qz) * inv;
+  if (v < 0 || u + v > 1) return Infinity;
+  const distance = (e2x * qx + e2y * qy + e2z * qz) * inv;
+  return distance > 1e-9 ? distance : Infinity;
+}
+
 function rayBoxHit(b: Float32Array, o: number, ox: number, oy: number, oz: number, ix: number, iy: number, iz: number): boolean {
   let t0 = (b[o] - ox) * ix, t1 = (b[o + 3] - ox) * ix;
   let tmin = Math.min(t0, t1), tmax = Math.max(t0, t1);
@@ -333,6 +354,55 @@ function isInside(bvh: BVH, x: number, y: number, z: number): boolean {
     if (crossingsAlong(bvh, x, y, z, d[0], d[1], d[2]) % 2 === 1) votes++;
   }
   return votes >= 2;
+}
+
+function nearestRayHit(bvh: BVH, origin: Vec3, direction: Vec3, ignoredTriangle: number): number {
+  let best = Infinity;
+  const ix = 1 / (direction[0] || 1e-30), iy = 1 / (direction[1] || 1e-30), iz = 1 / (direction[2] || 1e-30);
+  const stack = [0];
+  const P = bvh.positions;
+  while (stack.length) {
+    const node = stack.pop()!;
+    if (!rayBoxHit(bvh.bounds, node * 6, origin[0], origin[1], origin[2], ix, iy, iz)) continue;
+    if (bvh.count[node] > 0) {
+      const end = bvh.start[node] + bvh.count[node];
+      for (let i = bvh.start[node]; i < end; i++) {
+        const triangle = bvh.order[i];
+        if (triangle === ignoredTriangle) continue;
+        const t = triangle * 9;
+        const distance = rayTriangleDistance(origin[0], origin[1], origin[2], direction[0], direction[1], direction[2],
+          P[t], P[t + 1], P[t + 2], P[t + 3], P[t + 4], P[t + 5], P[t + 6], P[t + 7], P[t + 8]);
+        if (distance < best) best = distance;
+      }
+    } else stack.push(bvh.left[node], bvh.right[node]);
+  }
+  return best;
+}
+
+/** Measure material thickness at selected triangle centroids in a triangle soup. */
+export function measureTriangleThickness(positions: Float32Array, triangleIds: number[], epsilon: number): number[] {
+  const triangleCount = Math.floor(positions.length / 9);
+  if (!triangleCount) return [];
+  const bvh = buildBVH(positions, triangleCount);
+  return triangleIds.map((triangle) => {
+    const o = triangle * 9;
+    const ax = positions[o], ay = positions[o + 1], az = positions[o + 2];
+    const bx = positions[o + 3], by = positions[o + 4], bz = positions[o + 5];
+    const cx = positions[o + 6], cy = positions[o + 7], cz = positions[o + 8];
+    const abx = bx - ax, aby = by - ay, abz = bz - az, acx = cx - ax, acy = cy - ay, acz = cz - az;
+    let nx = aby * acz - abz * acy, ny = abz * acx - abx * acz, nz = abx * acy - aby * acx;
+    const length = Math.hypot(nx, ny, nz);
+    if (length <= 1e-12) return Infinity;
+    nx /= length; ny /= length; nz /= length;
+    const center: Vec3 = [(ax + bx + cx) / 3, (ay + by + cy) / 3, (az + bz + cz) / 3];
+    const plus: Vec3 = [center[0] + nx * epsilon, center[1] + ny * epsilon, center[2] + nz * epsilon];
+    const minus: Vec3 = [center[0] - nx * epsilon, center[1] - ny * epsilon, center[2] - nz * epsilon];
+    const plusInside = isInside(bvh, plus[0], plus[1], plus[2]);
+    const origin = plusInside ? plus : minus;
+    const direction: Vec3 = plusInside ? [nx, ny, nz] : [-nx, -ny, -nz];
+    const hit = nearestRayHit(bvh, origin, direction, triangle);
+    return Number.isFinite(hit) ? hit + epsilon : Infinity;
+  });
 }
 
 /** Axis-aligned bounds of the triangle soup, padded. */

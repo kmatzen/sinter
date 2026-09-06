@@ -13,7 +13,7 @@ describe('manufacturing profile', () => {
 
   it('normalizes corrupted and unsafe persisted values', () => {
     expect(normalizeManufacturingProfile({ nozzleDiameter: -1, layerHeight: Infinity, buildVolume: [0, 300, 'wide'] })).toEqual({
-      nozzleDiameter: 0.1, layerHeight: 0.2, tolerance: 0.2, buildVolume: [1, 300, 250], overhangAngle: 45, buildDirection: 'z',
+      nozzleDiameter: 0.1, layerHeight: 0.2, tolerance: 0.2, buildVolume: [1, 300, 250], overhangAngle: 45, buildDirection: 'z', minimumWallThickness: 1.2,
     });
   });
 

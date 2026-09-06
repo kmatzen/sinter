@@ -8,6 +8,7 @@ export interface ManufacturingProfile {
   buildVolume: [number, number, number];
   overhangAngle: number;
   buildDirection: BuildDirection;
+  minimumWallThickness: number;
 }
 
 export const DEFAULT_MANUFACTURING_PROFILE: ManufacturingProfile = {
@@ -17,6 +18,7 @@ export const DEFAULT_MANUFACTURING_PROFILE: ManufacturingProfile = {
   buildVolume: [220, 220, 250],
   overhangAngle: 45,
   buildDirection: 'z',
+  minimumWallThickness: 1.2,
 };
 
 const STORAGE_KEY = 'sinter_manufacturing_profile';
@@ -42,11 +44,12 @@ export function normalizeManufacturingProfile(value: unknown): ManufacturingProf
     overhangAngle: finiteRange(input.overhangAngle, 0, 89, DEFAULT_MANUFACTURING_PROFILE.overhangAngle),
     buildDirection: ['x', '-x', 'y', '-y', 'z', '-z'].includes(input.buildDirection as string)
       ? input.buildDirection as BuildDirection : DEFAULT_MANUFACTURING_PROFILE.buildDirection,
+    minimumWallThickness: finiteRange(input.minimumWallThickness, 0.05, 100, DEFAULT_MANUFACTURING_PROFILE.minimumWallThickness),
   };
 }
 
 export function exportPreflightOptions(profile: ManufacturingProfile): ExportPreflightOptions {
-  return { overhangAngle: profile.overhangAngle, buildDirection: profile.buildDirection };
+  return { overhangAngle: profile.overhangAngle, buildDirection: profile.buildDirection, minimumWallThickness: profile.minimumWallThickness };
 }
 
 function loadProfile(): ManufacturingProfile {

@@ -10,7 +10,8 @@
 import type { SDFNode, Vec3 } from './types';
 import { evaluateSDF } from './evaluate';
 import type { MeshResult } from './marchingCubes';
-import type { BuildDirection, ExportPreflightOptions, OverhangDiagnostics } from '../../types/geometry';
+import type { BuildDirection, ExportPreflightOptions, OverhangDiagnostics, ThicknessDiagnostics } from '../../types/geometry';
+import { measureTriangleThickness } from './meshField';
 
 export interface MeshDiagnostics {
   vertexCount: number;
@@ -163,6 +164,48 @@ export function analyzeOverhangs(mesh: MeshResult, options: ExportPreflightOptio
     affectedBounds: riskyTriangles ? { min, max } : null,
     affectedIdsTruncated: riskyTriangles > affectedTriangleIds.length,
   };
+}
+
+/** Deterministic, bounded wall/feature-thickness sampling on the exact export mesh. */
+export function analyzeWallThickness(mesh: MeshResult, threshold: number, maxSamples = 512, maxAffectedIds = 256): ThicknessDiagnostics {
+  const diagnostics = analyzeMesh(mesh);
+  const totalTriangles = Math.floor(mesh.indices.length / 3);
+  const normalizedThreshold = Math.min(100, Math.max(0.05, Number.isFinite(threshold) ? threshold : 1.2));
+  const base = { threshold: normalizedThreshold, totalTriangles, sampledTriangles: 0, thinTriangles: 0,
+    minimumThickness: null, affectedTriangleIds: [] as number[], affectedBounds: null, affectedIdsTruncated: false };
+  if (!diagnostics.watertight || totalTriangles === 0 || maxSamples <= 0) return { ...base, status: 'inconclusive' };
+
+  const sampleCount = Math.min(totalTriangles, Math.max(1, Math.floor(maxSamples)));
+  const triangleIds = Array.from({ length: sampleCount }, (_, i) => Math.floor(i * totalTriangles / sampleCount));
+  const soup = new Float32Array(totalTriangles * 9);
+  for (let t = 0; t < totalTriangles; t++) for (let corner = 0; corner < 3; corner++) {
+    const vertex = mesh.indices[t * 3 + corner];
+    soup.set(mesh.positions.subarray(vertex * 3, vertex * 3 + 3), t * 9 + corner * 3);
+  }
+  const diagonal = Math.hypot(...diagnostics.dimensions);
+  const distances = measureTriangleThickness(soup, triangleIds, Math.max(diagonal * 1e-7, 1e-7));
+  const affectedTriangleIds: number[] = [];
+  const min: [number, number, number] = [Infinity, Infinity, Infinity];
+  const max: [number, number, number] = [-Infinity, -Infinity, -Infinity];
+  let thinTriangles = 0, minimumThickness = Infinity, measured = 0;
+  distances.forEach((distance, sample) => {
+    if (!Number.isFinite(distance)) return;
+    measured++; minimumThickness = Math.min(minimumThickness, distance);
+    if (distance >= normalizedThreshold) return;
+    thinTriangles++;
+    const triangle = triangleIds[sample];
+    if (affectedTriangleIds.length < maxAffectedIds) affectedTriangleIds.push(triangle);
+    for (let corner = 0; corner < 3; corner++) {
+      const vertex = mesh.indices[triangle * 3 + corner];
+      for (let axis = 0; axis < 3; axis++) {
+        min[axis] = Math.min(min[axis], mesh.positions[vertex * 3 + axis]);
+        max[axis] = Math.max(max[axis], mesh.positions[vertex * 3 + axis]);
+      }
+    }
+  });
+  return { threshold: normalizedThreshold, status: measured ? 'analyzed' : 'inconclusive', sampledTriangles: measured,
+    totalTriangles, thinTriangles, minimumThickness: measured ? minimumThickness : null, affectedTriangleIds,
+    affectedBounds: thinTriangles ? { min, max } : null, affectedIdsTruncated: thinTriangles > affectedTriangleIds.length };
 }
 
 /**
