@@ -60,7 +60,7 @@ export function SelectionBreadcrumb() {
     return (
       <div
         data-testid="selection-breadcrumb"
-        className="absolute top-3 left-1/2 -translate-x-1/2 z-20 pointer-events-none max-w-[60%]"
+        className="absolute top-3 left-1/2 -translate-x-1/2 z-20 pointer-events-none max-w-[60%] hidden sm:block"
       >
         <div
           className="rounded-lg px-2.5 py-1 text-[10px] leading-normal font-mono text-center"
@@ -75,7 +75,7 @@ export function SelectionBreadcrumb() {
   return (
     <div
       data-testid="selection-breadcrumb"
-      className="absolute top-3 left-1/2 -translate-x-1/2 z-20 max-w-[60%]"
+      className="absolute top-3 left-1/2 -translate-x-1/2 z-20 max-w-[60%] hidden sm:block"
     >
       <div
         className="rounded-lg px-2.5 py-1 flex items-center gap-1 overflow-hidden"

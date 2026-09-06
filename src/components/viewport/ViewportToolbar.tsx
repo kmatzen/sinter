@@ -64,7 +64,8 @@ function SmallBtn({ active, onClick, title, children }: { active?: boolean; onCl
 }
 
 function OrientationWidget({ engine }: { engine: ThreeEngine | null }) {
-  const [axes, setAxes] = useState(() => ({ x: [50, 32], y: [32, 14], z: [32, 32] } as Record<'x' | 'y' | 'z', number[]>));
+  const lines = useRef<Partial<Record<'x' | 'y' | 'z', SVGLineElement>>>({});
+  const endpoints = useRef<Partial<Record<'x' | 'y' | 'z', HTMLButtonElement>>>({});
   const drag = useRef<{ x: number; y: number } | null>(null);
   useEffect(() => {
     if (!engine || typeof engine.viewQuaternion !== 'function' || typeof engine.onFrame !== 'function') return;
@@ -74,7 +75,14 @@ function OrientationWidget({ engine }: { engine: ThreeEngine | null }) {
         const value = axis.applyQuaternion(inverse);
         return [32 + value.x * 19, 32 - value.y * 19];
       };
-      setAxes({ x: project(new THREE.Vector3(1, 0, 0)), y: project(new THREE.Vector3(0, 1, 0)), z: project(new THREE.Vector3(0, 0, 1)) });
+      const axes = { x: project(new THREE.Vector3(1, 0, 0)), y: project(new THREE.Vector3(0, 1, 0)), z: project(new THREE.Vector3(0, 0, 1)) };
+      for (const axis of ['x', 'y', 'z'] as const) {
+        const [x, y] = axes[axis];
+        lines.current[axis]?.setAttribute('x2', String(x));
+        lines.current[axis]?.setAttribute('y2', String(y));
+        const endpoint = endpoints.current[axis];
+        if (endpoint) { endpoint.style.left = `${x}px`; endpoint.style.top = `${y}px`; }
+      }
     };
     update();
     return engine.onFrame(update);
@@ -95,12 +103,12 @@ function OrientationWidget({ engine }: { engine: ThreeEngine | null }) {
       onPointerCancel={() => { drag.current = null; }}
     >
       <svg aria-hidden="true" className="absolute inset-0" viewBox="0 0 64 64">
-        {(['x', 'y', 'z'] as const).map((axis) => <line key={axis} x1="32" y1="32" x2={axes[axis][0]} y2={axes[axis][1]} stroke={axis === 'x' ? '#ef4444' : axis === 'y' ? '#22c55e' : '#3b82f6'} strokeWidth="2" />)}
+        {(['x', 'y', 'z'] as const).map((axis) => <line key={axis} ref={(node) => { if (node) lines.current[axis] = node; }} x1="32" y1="32" x2="32" y2="32" stroke={axis === 'x' ? '#ef4444' : axis === 'y' ? '#22c55e' : '#3b82f6'} strokeWidth="2" />)}
       </svg>
       {([['x', 'right'], ['y', 'top'], ['z', 'front']] as const).map(([axis, view]) => (
-        <button key={axis} aria-label={`${view[0].toUpperCase()}${view.slice(1)} view`} title={`${view} view`}
+        <button key={axis} ref={(node) => { if (node) endpoints.current[axis] = node; }} aria-label={`${view[0].toUpperCase()}${view.slice(1)} view`} title={`${view} view`}
           className="absolute w-5 h-5 -ml-2.5 -mt-2.5 rounded-full text-[9px] font-bold text-white"
-          style={{ left: axes[axis][0], top: axes[axis][1], background: axis === 'x' ? '#b91c1c' : axis === 'y' ? '#15803d' : '#1d4ed8' }}
+          style={{ left: 32, top: 32, background: axis === 'x' ? '#b91c1c' : axis === 'y' ? '#15803d' : '#1d4ed8' }}
           onPointerDown={(event) => event.stopPropagation()} onClick={() => engine?.setStandardView(view)}>{axis.toUpperCase()}</button>
       ))}
     </div>
@@ -172,16 +180,18 @@ export function ViewportToolbar({ engine }: { engine: ThreeEngine | null }) {
           </SmallBtn>
         </BtnGroup>
 
-        <VpBtn active={objectSnapEnabled} onClick={toggleObjectSnap} title="Snap to objects, bounds, and world origin">
-          <Scan size={ICON} />
-        </VpBtn>
-        {snapIndicator && (
+        <div className="hidden sm:contents">
+          <VpBtn active={objectSnapEnabled} onClick={toggleObjectSnap} title="Snap to objects, bounds, and world origin">
+            <Scan size={ICON} />
+          </VpBtn>
+        </div>
+        {snapIndicator && <div className="hidden sm:block">
           <div role="status" className="tap-h flex items-center rounded-lg px-2 text-[10px]" style={{ background: 'var(--accent)', color: 'var(--bg-deep)' }}>
             Snapped to {snapIndicator.label}
           </div>
-        )}
+        </div>}
 
-        <BtnGroup>
+        <div className="hidden sm:contents"><BtnGroup>
           <select
             value={gizmoPivot}
             aria-label="Transform pivot"
@@ -213,9 +223,9 @@ export function ViewportToolbar({ engine }: { engine: ThreeEngine | null }) {
               />
             </label>
           ))}
-        </BtnGroup>
+        </BtnGroup></div>
 
-        <BtnGroup>
+        <div className="hidden sm:contents"><BtnGroup>
           <SmallBtn active={snapEnabled} onClick={toggleSnap} title="Snap to grid">
             <Magnet size={ICON} />
           </SmallBtn>
@@ -228,14 +238,14 @@ export function ViewportToolbar({ engine }: { engine: ThreeEngine | null }) {
               ))}
             </>
           )}
-        </BtnGroup>
+        </BtnGroup></div>
 
-        <VpBtn active={showDimensions} onClick={toggleDimensions} title="Dimensions">
+        <div className="hidden sm:contents"><VpBtn active={showDimensions} onClick={toggleDimensions} title="Dimensions">
           <Ruler size={ICON} />
-        </VpBtn>
-        <VpBtn active={measurementMode} onClick={toggleMeasurementMode} title="Measure surfaces">
+        </VpBtn></div>
+        <div className="hidden sm:contents"><VpBtn active={measurementMode} onClick={toggleMeasurementMode} title="Measure surfaces">
           <Crosshair size={ICON} />
-        </VpBtn>
+        </VpBtn></div>
         <BtnGroup>
           <select
             defaultValue=""
@@ -257,15 +267,15 @@ export function ViewportToolbar({ engine }: { engine: ThreeEngine | null }) {
             <option value="top">Top</option>
             <option value="bottom">Bottom</option>
           </select>
-          <SmallBtn onClick={() => engine?.zoomToFit()} title="Frame all">A</SmallBtn>
+          <span className="hidden sm:contents"><SmallBtn onClick={() => engine?.zoomToFit()} title="Frame all">A</SmallBtn>
           <SmallBtn onClick={() => engine?.frameSelection()} title="Frame selection">S</SmallBtn>
           <SmallBtn
             active={projection === 'orthographic'}
             onClick={() => setProjection(projection === 'perspective' ? 'orthographic' : 'perspective')}
             title={`Projection: ${projection}. Switch to ${projection === 'perspective' ? 'orthographic' : 'perspective'}`}
-          >{projection === 'perspective' ? 'P' : 'O'}</SmallBtn>
+          >{projection === 'perspective' ? 'P' : 'O'}</SmallBtn></span>
         </BtnGroup>
-        <BtnGroup>
+        <div className="hidden sm:contents"><BtnGroup>
           <select
             value={selectedNamedViewId}
             aria-label="Named view"
@@ -294,7 +304,7 @@ export function ViewportToolbar({ engine }: { engine: ThreeEngine | null }) {
             removeNamedView(selectedNamedViewId);
             setSelectedNamedViewId('');
           }} title="Delete selected named view"><Trash2 size={ICON} /></SmallBtn>}
-        </BtnGroup>
+        </BtnGroup></div>
       </div>
       <OrientationWidget engine={engine} />
 

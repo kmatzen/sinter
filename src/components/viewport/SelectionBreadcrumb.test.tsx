@@ -27,6 +27,7 @@ describe('SelectionBreadcrumb', () => {
   it('tells the user how selection works when nothing is selected', () => {
     render(<SelectionBreadcrumb />);
     expect(screen.getByTestId('selection-breadcrumb')).toHaveTextContent('Click a surface to select its node');
+    expect(screen.getByTestId('selection-breadcrumb')).toHaveClass('hidden', 'sm:block');
   });
 
   it('shows the whole chain from the root down to the selected node', () => {

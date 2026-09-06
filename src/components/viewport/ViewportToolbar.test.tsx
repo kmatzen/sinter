@@ -45,6 +45,14 @@ describe('ViewportToolbar camera controls', () => {
     expect(screen.getByRole('combobox', { name: 'Named view' })).toHaveClass('tap-h');
   });
 
+  it('keeps advanced controls out of the crowded phone layout', () => {
+    render(<ViewportToolbar engine={null} />);
+    expect(screen.getByRole('combobox', { name: 'Transform pivot' }).closest('.hidden')).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'Named view' }).closest('.hidden')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Dimensions' }).closest('.hidden')).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'Standard view' })).toBeInTheDocument();
+  });
+
   it('exposes every pivot mode and editable custom coordinates', () => {
     render(<ViewportToolbar engine={null} />);
     const pivot = screen.getByRole('combobox', { name: 'Transform pivot' });
@@ -95,5 +103,20 @@ describe('ViewportToolbar camera controls', () => {
     fireEvent.pointerDown(widget, { pointerId: 1, clientX: 10, clientY: 10 });
     fireEvent.pointerMove(widget, { pointerId: 1, clientX: 15, clientY: 7 });
     expect(orbitFromWidget).toHaveBeenCalledWith(5, -3);
+  });
+
+  it('moves orientation endpoints directly on each engine frame', () => {
+    let frame = () => {};
+    let quaternion: [number, number, number, number] = [0, 0, 0, 1];
+    const engine = {
+      viewQuaternion: () => quaternion,
+      onFrame: (fn: () => void) => { frame = fn; fn(); return () => {}; },
+    } as unknown as ThreeEngine;
+    render(<ViewportToolbar engine={engine} />);
+    const endpoint = screen.getByRole('button', { name: 'Right view' });
+    const before = endpoint.style.left;
+    quaternion = [0, 0, Math.SQRT1_2, Math.SQRT1_2];
+    act(() => frame());
+    expect(endpoint.style.left).not.toBe(before);
   });
 });
