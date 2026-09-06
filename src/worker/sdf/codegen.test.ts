@@ -1,6 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import { generateGLSL, generateSDFFunction } from './codegen';
 import type { SDFNode } from './types';
+import type { SDFNodeUI } from '../../types/operations';
+import { normalizeNodeParams } from '../../types/parameterSchema';
+import { toSDFNode } from './convert';
+import { evaluateSDF } from './evaluate';
 
 describe('generateGLSL', () => {
   it('generates valid GLSL for a box', () => {
@@ -45,6 +49,23 @@ describe('generateGLSL', () => {
     // Rotation is now a precomputed 3x3 matrix (numeric values, no trig in shader)
     expect(glsl).toContain('0.707107');  // cos(45°) ≈ sin(45°) ≈ 0.707107
     expect(glsl).not.toContain('NaN');
+  });
+
+  it('gives equivalent turns identical CPU fields and GPU parameters', () => {
+    const rotated = (angle: number): SDFNode => {
+      const ui: SDFNodeUI = {
+        id: `r-${angle}`, kind: 'rotate', label: 'Rotate',
+        params: normalizeNodeParams('rotate', { x: 0, y: 0, z: angle }), enabled: true,
+        children: [{ id: 'b', kind: 'box', label: 'Box', params: { width: 2, height: 4, depth: 6 }, children: [], enabled: true }],
+      };
+      return toSDFNode(ui)!;
+    };
+    const zero = rotated(0);
+    for (const angle of [360, -720, 1_000_080]) {
+      const equivalent = rotated(angle);
+      expect(evaluateSDF(equivalent, [1.25, 0.5, -0.75])).toBe(evaluateSDF(zero, [1.25, 0.5, -0.75]));
+      expect(generateSDFFunction(equivalent).paramValues).toEqual(generateSDFFunction(zero).paramValues);
+    }
   });
 
   it('sanitizes NaN/Infinity values', () => {

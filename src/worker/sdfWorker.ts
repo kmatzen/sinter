@@ -20,6 +20,7 @@ import { toSDFNode } from './sdf/convert';
 import { simplifyMesh } from './sdf/simplify';
 import { CLUSTER_ERROR_VOXELS, SIMPLIFY_ERROR_VOXELS, PROJECT_TOLERANCE_VOXELS } from './sdf/budgets';
 import { analyzeMesh, removeDegenerateTriangles, projectVerticesToSurface } from './sdf/meshRepair';
+import { validateModelingEnvelope } from './sdf/modelingEnvelope';
 
 self.postMessage({ type: 'ready' });
 
@@ -81,6 +82,7 @@ function evaluateAndMeshWithProgress(tree: SDFNodeUI | null, resolution: number,
   if (!tree) return null;
   const root = toSDFNode(tree);
   if (!root) return null;
+  validateModelingEnvelope(root);
 
   const bbox = prepareBBox(root);
   const voxel = Math.max(
@@ -162,6 +164,7 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
           self.postMessage({ type: 'sdf', rid, glsl: '', paramCount: 0, paramValues: [], bbMin: [0,0,0], bbMax: [0,0,0] });
           return;
         }
+        validateModelingEnvelope(root);
         const bbox = prepareBBox(root);
         const bbMin: [number, number, number] = [...bbox.min];
         const bbMax: [number, number, number] = [...bbox.max];
