@@ -1,7 +1,7 @@
 /// <reference lib="webworker" />
 declare const self: DedicatedWorkerGlobalScope;
 
-import type { WorkerRequest } from '../types/geometry';
+import type { ExportConformance, WorkerRequest } from '../types/geometry';
 import type { SDFNodeUI } from '../types/operations';
 import { isTreeExportable } from '../types/operations';
 import type { SDFNode, BBox } from './sdf/types';
@@ -23,6 +23,7 @@ import { analyzeMesh, removeDegenerateTriangles, projectVerticesToSurface } from
 import { validateModelingEnvelope } from './sdf/modelingEnvelope';
 import { partitionExportComponents, planComponentSampling } from './sdf/exportComponents';
 import type { MeshResult } from './sdf/marchingCubes';
+import { combineConformance, verifyMeshConformance } from './sdf/meshConformance';
 
 self.postMessage({ type: 'ready' });
 
@@ -88,6 +89,7 @@ function evaluateAndMeshWithProgress(tree: SDFNodeUI | null, resolution: number,
 
   const components = partitionExportComponents(root);
   const meshes: MeshResult[] = [];
+  const conformances: ExportConformance[] = [];
   let achievedTolerance = 0;
   const report = (index: number, stage: string, localPercent: number) =>
     progress(components.length > 1 ? `${stage} (${index + 1}/${components.length})` : stage,
@@ -107,9 +109,17 @@ function evaluateAndMeshWithProgress(tree: SDFNodeUI | null, resolution: number,
     report(index, 'Simplifying mesh', 80);
     const simplified = simplifyMesh(removeDegenerateTriangles(raw), { maxError: voxel * SIMPLIFY_ERROR_VOXELS }, (pct) => report(index, 'Simplifying mesh', 80 + pct * 0.12));
     report(index, 'Refining surface', 92);
-    meshes.push(projectVerticesToSurface(simplified, component, voxel * PROJECT_TOLERANCE_VOXELS));
+    const mesh = projectVerticesToSurface(simplified, component, voxel * PROJECT_TOLERANCE_VOXELS);
+    report(index, 'Verifying geometry', 94);
+    const conformance = verifyMeshConformance(mesh, component, bbox, plan.tolerance);
+    if (conformance.status === 'failed') {
+      throw new Error(`Export geometry deviates by ${conformance.maxDeviation.toPrecision(4)} mm, exceeding the verified ${conformance.tolerance.toPrecision(4)} mm tolerance`);
+    }
+    meshes.push(mesh);
+    conformances.push(conformance);
   }
-  if (meshes.length === 1) return { mesh: meshes[0], achievedTolerance, componentCount: components.length };
+  const conformance = combineConformance(conformances);
+  if (meshes.length === 1) return { mesh: meshes[0], achievedTolerance, componentCount: components.length, conformance };
   const positionCount = meshes.reduce((sum, mesh) => sum + mesh.positions.length, 0);
   const normalCount = meshes.reduce((sum, mesh) => sum + mesh.normals.length, 0);
   const indexCount = meshes.reduce((sum, mesh) => sum + mesh.indices.length, 0);
@@ -120,7 +130,7 @@ function evaluateAndMeshWithProgress(tree: SDFNodeUI | null, resolution: number,
     for (let i = 0; i < mesh.indices.length; i++) indices[indexOffset + i] = mesh.indices[i] + vertexOffset;
     positionOffset += mesh.positions.length; normalOffset += mesh.normals.length; indexOffset += mesh.indices.length; vertexOffset += mesh.positions.length / 3;
   }
-  return { mesh: { positions, normals, indices }, achievedTolerance, componentCount: components.length };
+  return { mesh: { positions, normals, indices }, achievedTolerance, componentCount: components.length, conformance };
 }
 
 /**
@@ -206,12 +216,12 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
         };
         const result = evaluateAndMeshWithProgress(req.tree, exportResolution(req.resolution), progress);
         if (!result) { self.postMessage({ type: 'error', rid, message: 'No geometry to export' }); return; }
-        const { mesh, achievedTolerance, componentCount } = result;
+        const { mesh, achievedTolerance, componentCount, conformance } = result;
         progress('Encoding STL', 95);
         const data = exportBinarySTL(mesh);
         const diagnostics = analyzeMesh(mesh);
         self.postMessage({ type: 'exportResult', rid, format: 'stl' as const, data,
-          vertexCount: mesh.positions.length / 3, triangleCount: mesh.indices.length / 3, diagnostics, achievedTolerance, componentCount }, [data]);
+          vertexCount: mesh.positions.length / 3, triangleCount: mesh.indices.length / 3, diagnostics, achievedTolerance, componentCount, conformance }, [data]);
         break;
       }
 
@@ -224,12 +234,12 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
         };
         const result = evaluateAndMeshWithProgress(req.tree, exportResolution(req.resolution), progress);
         if (!result) { self.postMessage({ type: 'error', rid, message: 'No geometry to export' }); return; }
-        const { mesh, achievedTolerance, componentCount } = result;
+        const { mesh, achievedTolerance, componentCount, conformance } = result;
         progress('Encoding 3MF', 95);
         const data = export3MF(mesh);
         const diagnostics = analyzeMesh(mesh);
         self.postMessage({ type: 'exportResult', rid, format: '3mf' as const, data,
-          vertexCount: mesh.positions.length / 3, triangleCount: mesh.indices.length / 3, diagnostics, achievedTolerance, componentCount }, [data]);
+          vertexCount: mesh.positions.length / 3, triangleCount: mesh.indices.length / 3, diagnostics, achievedTolerance, componentCount, conformance }, [data]);
         break;
       }
     }

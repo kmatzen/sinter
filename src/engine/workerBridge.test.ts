@@ -60,6 +60,7 @@ function sdfResponse(rid: number, glsl: string) {
 const exportResult = (rid: number) => ({
   type: 'exportResult', rid, format: 'stl', data: new ArrayBuffer(8), vertexCount: 6, triangleCount: 2,
   diagnostics: { watertight: true, boundaryEdges: 0, nonManifoldEdges: 0, inconsistentEdges: 0, degenerateTriangles: 0, invalidIndices: 0, nonFiniteVertices: 0, zeroAreaTriangles: 0, dimensions: [1, 2, 3] },
+  conformance: { status: 'verified', tolerance: 0.1, meshToSourceMax: 0.02, meshToSourceRms: 0.01, sourceToMeshMax: 0.03, sourceToMeshRms: 0.02, maxDeviation: 0.03, rmsDeviation: 0.015, meshSamples: 20, sourceSamples: 30 },
 });
 
 let bridge: typeof import('./workerBridge').workerBridge;

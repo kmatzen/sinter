@@ -15,7 +15,7 @@ import { useLocalBackupStore } from '../../store/localPersist';
 import { useModalStore } from '../../store/modalStore';
 import { isTreeExportable } from '../../types/operations';
 import { useDialogFocus } from '../ui/useDialogFocus';
-import type { ExportDiagnostics } from '../../types/geometry';
+import type { ExportConformance, ExportDiagnostics } from '../../types/geometry';
 import { dimensionsOutsideBuildVolume, useManufacturingProfileStore } from '../../store/manufacturingProfile';
 import { commandById, OPEN_COMMAND_PALETTE_EVENT, runEditorCommand, TOOLBAR_COMMAND_EVENT } from '../../commands/editorCommands';
 
@@ -67,7 +67,7 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
   const [avatarFailed, setAvatarFailed] = useState(false);
   const [exporting, setExporting] = useState<string | null>(null);
   const [exportProgress, setExportProgress] = useState<{ stage: string; percent: number } | null>(null);
-  const [exportPreview, setExportPreview] = useState<{ blob: Blob; name: string; triangles: number; size: number; diagnostics: ExportDiagnostics; approximateSource: boolean; achievedTolerance?: number; componentCount?: number } | null>(null);
+  const [exportPreview, setExportPreview] = useState<{ blob: Blob; name: string; triangles: number; size: number; diagnostics: ExportDiagnostics; conformance: ExportConformance; approximateSource: boolean; achievedTolerance?: number; componentCount?: number } | null>(null);
   const [dirty, setDirty] = useState(() => isCloudDirty());
   const overflowRef = useRef<HTMLDivElement>(null);
 
@@ -133,9 +133,9 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
     setExporting('STL');
     setExportProgress({ stage: 'Starting', percent: 0 });
     try {
-      const { blob, triangleCount: triangles, diagnostics, achievedTolerance, componentCount } = await workerBridge.exportSTL(tree, onProgress, exportResolution);
+      const { blob, triangleCount: triangles, diagnostics, conformance, achievedTolerance, componentCount } = await workerBridge.exportSTL(tree, onProgress, exportResolution);
       if (exportEpoch.current !== epoch) return;
-      setExportPreview({ blob, name: `${projectName}.stl`, triangles, size: blob.size, diagnostics, approximateSource: hasImportedMesh(tree), achievedTolerance, componentCount });
+      setExportPreview({ blob, name: `${projectName}.stl`, triangles, size: blob.size, diagnostics, conformance, approximateSource: hasImportedMesh(tree), achievedTolerance, componentCount });
     } catch (err: any) {
       if (!isCancelled(err)) setError(`STL export failed: ${err?.message || String(err)}`);
     } finally {
@@ -150,9 +150,9 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
     setExporting('3MF');
     setExportProgress({ stage: 'Starting', percent: 0 });
     try {
-      const { blob, triangleCount: triangles, diagnostics, achievedTolerance, componentCount } = await workerBridge.export3MF(tree, onProgress, exportResolution);
+      const { blob, triangleCount: triangles, diagnostics, conformance, achievedTolerance, componentCount } = await workerBridge.export3MF(tree, onProgress, exportResolution);
       if (exportEpoch.current !== epoch) return;
-      setExportPreview({ blob, name: `${projectName}.3mf`, triangles, size: blob.size, diagnostics, approximateSource: hasImportedMesh(tree), achievedTolerance, componentCount });
+      setExportPreview({ blob, name: `${projectName}.3mf`, triangles, size: blob.size, diagnostics, conformance, approximateSource: hasImportedMesh(tree), achievedTolerance, componentCount });
     } catch (err: any) {
       if (!isCancelled(err)) setError(`3MF export failed: ${err?.message || String(err)}`);
     } finally {
@@ -510,6 +510,7 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
         size={exportPreview.size}
         name={exportPreview.name}
         diagnostics={exportPreview.diagnostics}
+        conformance={exportPreview.conformance}
         approximateSource={exportPreview.approximateSource}
         achievedTolerance={exportPreview.achievedTolerance}
         componentCount={exportPreview.componentCount}
@@ -614,9 +615,10 @@ function formatTriangles(n: number): string {
   return `${(n / 1_000_000).toFixed(1)}M`;
 }
 
-function ExportPreview({ triangles, size, name, diagnostics, approximateSource, achievedTolerance, componentCount, onDownload, onCancel }: {
+function ExportPreview({ triangles, size, name, diagnostics, conformance, approximateSource, achievedTolerance, componentCount, onDownload, onCancel }: {
   triangles: number; size: number; name: string;
   diagnostics: ExportDiagnostics;
+  conformance: ExportConformance;
   approximateSource: boolean;
   achievedTolerance?: number;
   componentCount?: number;
@@ -643,6 +645,32 @@ function ExportPreview({ triangles, size, name, diagnostics, approximateSource, 
             <span style={{ color: 'var(--text-muted)' }}>Verified components</span>
             <span className="font-mono" style={{ color: 'var(--text-primary)' }}>{componentCount}</span>
           </div>}
+          <div className="flex justify-between text-[12px]">
+            <span style={{ color: 'var(--text-muted)' }}>Geometry fidelity</span>
+            <span className="font-medium" style={{ color: conformance.status === 'verified' ? 'var(--accent-green)' : 'var(--warning, #f59e0b)' }}>
+              {conformance.status === 'verified' ? 'Verified samples' : 'Inconclusive'}
+            </span>
+          </div>
+          <div className="flex justify-between text-[12px]">
+            <span style={{ color: 'var(--text-muted)' }}>Maximum deviation</span>
+            <span className="font-mono" style={{ color: 'var(--text-primary)' }}>{conformance.maxDeviation.toPrecision(3)} mm</span>
+          </div>
+          <div className="flex justify-between text-[12px]">
+            <span style={{ color: 'var(--text-muted)' }}>RMS deviation</span>
+            <span className="font-mono" style={{ color: 'var(--text-primary)' }}>{conformance.rmsDeviation.toPrecision(3)} mm</span>
+          </div>
+          {conformance.status === 'inconclusive' && (
+            <p role="alert" className="text-[11px] leading-relaxed rounded p-2" style={{ color: 'var(--warning, #f59e0b)', background: 'var(--bg-elevated)' }}>
+              Bidirectional sampling could not verify this export within {conformance.tolerance.toPrecision(3)} mm. Download remains available for inspection.
+            </p>
+          )}
+          <details className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>
+            <summary className="cursor-pointer select-none">Geometry verification details</summary>
+            <div className="mt-2 space-y-1 font-mono">
+              <p>mesh→source: max {conformance.meshToSourceMax.toPrecision(3)} mm, RMS {conformance.meshToSourceRms.toPrecision(3)} mm ({conformance.meshSamples} samples)</p>
+              <p>source→mesh: max {conformance.sourceToMeshMax.toPrecision(3)} mm, RMS {conformance.sourceToMeshRms.toPrecision(3)} mm ({conformance.sourceSamples} samples)</p>
+            </div>
+          </details>
           <div className="flex justify-between text-[12px]">
             <span style={{ color: 'var(--text-muted)' }}>Dimensions</span>
             <span className="font-mono" style={{ color: 'var(--text-primary)' }}>

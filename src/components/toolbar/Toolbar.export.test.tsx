@@ -48,6 +48,12 @@ function artifact(size: number, triangleCount: number): ExportArtifact {
     blob: { size } as Blob, vertexCount: triangleCount * 3, triangleCount,
     achievedTolerance: 0.025,
     componentCount: 2,
+    conformance: {
+      status: 'verified', tolerance: 0.025,
+      meshToSourceMax: 0.01, meshToSourceRms: 0.005,
+      sourceToMeshMax: 0.02, sourceToMeshRms: 0.008,
+      maxDeviation: 0.02, rmsDeviation: 0.007, meshSamples: 40, sourceSamples: 60,
+    },
     diagnostics: {
       watertight: true, boundaryEdges: 0, nonManifoldEdges: 0, inconsistentEdges: 0,
       degenerateTriangles: 0, invalidIndices: 0, nonFiniteVertices: 0, zeroAreaTriangles: 0,
@@ -92,6 +98,8 @@ describe('Toolbar export cancellation', () => {
     expect(screen.getByText('10.0 × 20.0 × 30.0 mm')).toBeInTheDocument();
     expect(screen.getByText('≤ 0.0250 mm')).toBeInTheDocument();
     expect(screen.getByText('Verified components')).toBeInTheDocument();
+    expect(screen.getByText('Verified samples')).toBeInTheDocument();
+    expect(screen.getByText('Maximum deviation')).toBeInTheDocument();
     expect(screen.getByText('2')).toBeInTheDocument();
   });
 

@@ -221,6 +221,7 @@ class WorkerBridge {
       diagnostics: msg.diagnostics,
       achievedTolerance: msg.achievedTolerance,
       componentCount: msg.componentCount,
+      conformance: msg.conformance,
     } satisfies ExportArtifact);
   }
 

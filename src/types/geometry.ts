@@ -14,6 +14,20 @@ export interface ExportArtifact {
   diagnostics: ExportDiagnostics;
   achievedTolerance?: number;
   componentCount?: number;
+  conformance: ExportConformance;
+}
+
+export interface ExportConformance {
+  status: 'verified' | 'failed' | 'inconclusive';
+  tolerance: number;
+  meshToSourceMax: number;
+  meshToSourceRms: number;
+  sourceToMeshMax: number;
+  sourceToMeshRms: number;
+  maxDeviation: number;
+  rmsDeviation: number;
+  meshSamples: number;
+  sourceSamples: number;
 }
 
 export interface ExportDiagnostics {
@@ -67,7 +81,7 @@ export interface MeshFitResult {
 export type WorkerResponse =
   | { type: 'mesh'; rid: number; positions: ArrayBuffer; normals: ArrayBuffer; indices: ArrayBuffer; thickness?: ArrayBuffer }
   | { type: 'sdf'; rid: number; glsl: string; paramCount: number; paramValues: number[]; textures?: { name: string; width: number; height: number; data: number[] }[]; bbMin: [number, number, number]; bbMax: [number, number, number]; hasWarn?: boolean }
-  | { type: 'exportResult'; rid: number; format: 'stl' | '3mf'; data: ArrayBuffer; vertexCount: number; triangleCount: number; diagnostics: ExportDiagnostics; achievedTolerance?: number; componentCount?: number }
+  | { type: 'exportResult'; rid: number; format: 'stl' | '3mf'; data: ArrayBuffer; vertexCount: number; triangleCount: number; diagnostics: ExportDiagnostics; achievedTolerance?: number; componentCount?: number; conformance: ExportConformance }
   | { type: 'fitResult'; rid: number; fit: MeshFitResult | null }
   | { type: 'progress'; rid: number; stage: string; percent: number }
   | { type: 'error'; rid: number; message: string }
