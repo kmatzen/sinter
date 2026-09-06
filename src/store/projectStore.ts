@@ -12,17 +12,15 @@ interface ProjectState {
   remoteName: string;
   lastSavedHash: string;
   saving: boolean;
-  dirty: boolean;
   saveError: string | null;
   /** App share URL (origin + /shared#...) when this project is shareable, else null. */
   shareUrl: string | null;
 
   setProjectId: (id: string | null, provider?: ProviderName | null) => void;
-  save: () => Promise<void>;
+  save: () => Promise<boolean>;
   loadProject: (provider: ProviderName, externalId: string, name: string) => Promise<void>;
   createProject: () => void;
   toggleShare: () => Promise<void>;
-  markClean: () => void;
   clearSaveError: () => void;
 }
 
@@ -31,27 +29,29 @@ function bodyHash(): string {
   return JSON.stringify({ tree, projectName });
 }
 
+export function isCloudDirty(): boolean {
+  return bodyHash() !== useProjectStore.getState().lastSavedHash;
+}
+
 export const useProjectStore = create<ProjectState>((set, get) => ({
   provider: null,
   projectId: null,
   remoteName: '',
-  lastSavedHash: '',
+  lastSavedHash: bodyHash(),
   saving: false,
-  dirty: false,
   saveError: null,
   shareUrl: null,
 
   setProjectId: (id, provider) => set({ projectId: id, provider: provider ?? null }),
 
-  markClean: () => set({ lastSavedHash: bodyHash(), dirty: false }),
   clearSaveError: () => set({ saveError: null }),
 
   save: async () => {
     const { saving, projectId, provider, remoteName } = get();
-    if (saving) return;
+    if (saving) return false;
 
     const hash = bodyHash();
-    if (hash === get().lastSavedHash && projectId) return;
+    if (hash === get().lastSavedHash && projectId) return true;
 
     set({ saving: true, saveError: null });
     try {
@@ -82,12 +82,13 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         projectId: externalId,
         remoteName: projectName,
         lastSavedHash: hash,
-        dirty: false,
       });
+      return true;
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Save failed';
       console.error('Save failed:', err);
       set({ saveError: message });
+      return false;
     } finally {
       set({ saving: false });
     }
@@ -119,7 +120,6 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       projectId: externalId,
       remoteName: name,
       lastSavedHash: bodyHash(),
-      dirty: false,
       shareUrl,
     });
   },
@@ -132,7 +132,6 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       provider: null,
       remoteName: '',
       lastSavedHash: bodyHash(),
-      dirty: false,
       shareUrl: null,
     });
   },
@@ -171,8 +170,8 @@ let autoSaveInterval: ReturnType<typeof setInterval> | null = null;
 export function startAutoSave() {
   if (autoSaveInterval) return;
   autoSaveInterval = setInterval(() => {
-    const { projectId, lastSavedHash } = useProjectStore.getState();
-    if (projectId && bodyHash() !== lastSavedHash) {
+    const { projectId } = useProjectStore.getState();
+    if (projectId && isCloudDirty()) {
       void useProjectStore.getState().save();
     }
   }, 30000);

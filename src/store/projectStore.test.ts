@@ -40,7 +40,7 @@ vi.mock('../storage/thumbnailCache', () => ({
   getThumbnail: vi.fn(), putThumbnail: vi.fn(), deleteThumbnail: vi.fn(),
 }));
 
-const { useProjectStore } = await import('./projectStore');
+const { isCloudDirty, useProjectStore } = await import('./projectStore');
 const { useModelerStore } = await import('./modelerStore');
 
 const box = (width = 10): SDFNodeUI => ({
@@ -51,7 +51,7 @@ function resetStores() {
   useModelerStore.setState({ tree: box(), projectName: 'Untitled' });
   useProjectStore.setState({
     provider: null, projectId: null, remoteName: '', lastSavedHash: '',
-    saving: false, dirty: false, saveError: null, shareUrl: null,
+    saving: false, saveError: null, shareUrl: null,
   });
 }
 
@@ -65,14 +65,23 @@ describe('projectStore.save', () => {
   });
 
   it('creates the project the first time and remembers its id', async () => {
-    await useProjectStore.getState().save();
+    const saved = await useProjectStore.getState().save();
 
+    expect(saved).toBe(true);
     expect(create).toHaveBeenCalledTimes(1);
     expect(update).not.toHaveBeenCalled();
     const s = useProjectStore.getState();
     expect(s.projectId).toBe('new-id');
     expect(s.provider).toBe('google');
-    expect(s.dirty).toBe(false);
+  });
+
+  it('derives cloud dirtiness from the last provider save, not local backup state', async () => {
+    expect(isCloudDirty()).toBe(true);
+    await useProjectStore.getState().save();
+    expect(isCloudDirty()).toBe(false);
+
+    useModelerStore.setState({ tree: box(99) });
+    expect(isCloudDirty()).toBe(true);
   });
 
   it('updates rather than creating once it has an id', async () => {
@@ -132,8 +141,9 @@ describe('projectStore.save', () => {
       create.mockRejectedValue(new Error('Drive quota exceeded'));
       const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
 
-      await useProjectStore.getState().save();
+      const saved = await useProjectStore.getState().save();
 
+      expect(saved).toBe(false);
       const s = useProjectStore.getState();
       expect(s.saveError).toBe('Drive quota exceeded');
       expect(s.saving).toBe(false);
@@ -167,6 +177,19 @@ describe('projectStore.save', () => {
       expect(update).toHaveBeenCalledTimes(1);
       expect(useProjectStore.getState().saveError).toBeNull();
       logged.mockRestore();
+    });
+
+    it('does not let a concurrent caller claim an in-flight save succeeded', async () => {
+      let finish!: (value: { externalId: string }) => void;
+      create.mockReturnValueOnce(new Promise((resolve) => { finish = resolve; }));
+
+      const first = useProjectStore.getState().save();
+      const concurrent = await useProjectStore.getState().save();
+      expect(concurrent).toBe(false);
+
+      finish({ externalId: 'new-id' });
+      await expect(first).resolves.toBe(true);
+      expect(create).toHaveBeenCalledTimes(1);
     });
 
     it('refuses to save when nobody is signed in', async () => {
@@ -207,7 +230,7 @@ describe('projectStore.loadProject', () => {
   it('lands clean, so a load does not immediately look like an edit', async () => {
     read.mockResolvedValue({ version: 1, tree: box(42) });
     await useProjectStore.getState().loadProject('google', 'id-1', 'Bracket');
-    expect(useProjectStore.getState().dirty).toBe(false);
+    expect(isCloudDirty()).toBe(false);
 
     await useProjectStore.getState().save();
     expect(update).not.toHaveBeenCalled();
@@ -275,7 +298,7 @@ describe('projectStore.createProject', () => {
     expect(useModelerStore.getState().tree).toBeNull();
     expect(useModelerStore.getState().projectName).toBe('Untitled');
     // And clean, so an untouched new document is not offered for saving.
-    expect(s.dirty).toBe(false);
+    expect(isCloudDirty()).toBe(false);
   });
 });
 

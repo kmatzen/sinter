@@ -1,8 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
-import { isDirty, markClean } from '../../store/localPersist';
 import { useModelerStore } from '../../store/modelerStore';
 import { useAuthStore } from '../../store/authStore';
-import { useProjectStore } from '../../store/projectStore';
+import { isCloudDirty, useProjectStore } from '../../store/projectStore';
 import { workerBridge, isCancelled } from '../../engine/workerBridge';
 import { triggerDownload } from '../../utils/download';
 import { useChatStore } from '../../store/chatStore';
@@ -42,15 +41,18 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
   const [exporting, setExporting] = useState<string | null>(null);
   const [exportProgress, setExportProgress] = useState<{ stage: string; percent: number } | null>(null);
   const [exportPreview, setExportPreview] = useState<{ blob: Blob; name: string; triangles: number; size: number } | null>(null);
-  const [dirty, setDirty] = useState(false);
+  const [dirty, setDirty] = useState(() => isCloudDirty());
   const overflowRef = useRef<HTMLDivElement>(null);
 
-  // Track dirty state
+  // Cloud dirtiness is distinct from the browser backup. A successful local
+  // autosave must never disable retrying a failed or not-yet-attempted cloud
+  // save.
   useEffect(() => {
-    const check = () => setDirty(isDirty());
-    const unsub = useModelerStore.subscribe(check);
+    const check = () => setDirty(isCloudDirty());
+    const unsubModel = useModelerStore.subscribe(check);
+    const unsubProject = useProjectStore.subscribe(check);
     check();
-    return unsub;
+    return () => { unsubModel(); unsubProject(); };
   }, []);
 
   // Close overflow menu on outside click
@@ -138,7 +140,7 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
     }
   };
 
-  const handleSaveCloud = async () => { await save(); markClean(); setDirty(false); };
+  const handleSaveCloud = async () => { await save(); };
 
   return (
     <>

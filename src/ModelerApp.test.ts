@@ -11,7 +11,7 @@ describe('modeler save shortcut', () => {
 
   for (const modifier of ['metaKey', 'ctrlKey'] as const) {
     it(`routes ${modifier === 'metaKey' ? 'Cmd' : 'Ctrl'}+S to the application save`, () => {
-      const save = vi.fn(async () => {});
+      const save = vi.fn(async () => true);
       useProjectStore.setState({ save });
       const event = new KeyboardEvent('keydown', {
         key: 's',
@@ -27,7 +27,7 @@ describe('modeler save shortcut', () => {
   }
 
   it('wins over browser save while a text field has focus', () => {
-    const save = vi.fn(async () => {});
+    const save = vi.fn(async () => true);
     useProjectStore.setState({ save });
     const event = new KeyboardEvent('keydown', { key: 'S', metaKey: true, cancelable: true });
     Object.defineProperty(event, 'target', { value: document.createElement('input') });
