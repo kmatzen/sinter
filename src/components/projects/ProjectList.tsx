@@ -6,6 +6,7 @@ import { useProjectStore, deleteCloudProject, requestDocumentReplacement } from 
 import { getStorageProvider, type ProviderName, type ProjectMeta } from '../../storage';
 import { getThumbnail } from '../../storage/thumbnailCache';
 import { deleteLocalBackup, readLocalBackupJSON, useLocalBackupStore, writeLocalBackupJSON } from '../../store/localPersist';
+import { moveCloudProjectToLocal } from '../../storage/projectTransfer';
 
 interface CloudProject extends ProjectMeta {
   source: 'cloud';
@@ -163,20 +164,42 @@ export function ProjectList({ onClose, onLoaded, onImport }: Props) {
     }
   };
 
-  const handleMoveToLocal = async (p: CloudProject, e: React.MouseEvent) => {
-    e.stopPropagation();
+  const moveToLocal = async (p: CloudProject, replaceExisting: boolean) => {
     try {
-      const accessToken = await useAuthStore.getState().getAccessToken();
-      const body = await getStorageProvider(p.provider).read(accessToken, p.externalId);
-      const json = JSON.stringify({ projectName: p.name, tree: body?.tree ?? null });
-      await writeLocalBackupJSON(json);
-      await deleteCloudProject(p.provider, p.externalId);
-      setCloudProjects((prev) => prev.filter((x) => x.externalId !== p.externalId));
+      const result = await moveCloudProjectToLocal({
+        destination: {
+          read: readLocalBackupJSON,
+          write: writeLocalBackupJSON,
+          clear: deleteLocalBackup,
+        },
+        projectName: p.name,
+        replaceExisting,
+        readSource: async () => {
+          const accessToken = await useAuthStore.getState().getAccessToken();
+          return getStorageProvider(p.provider).read(accessToken, p.externalId);
+        },
+        deleteSource: () => deleteCloudProject(p.provider, p.externalId),
+      });
+      if (result.status === 'moved') setCloudProjects((prev) => prev.filter((x) => x.externalId !== p.externalId));
       setLocalProjectList(await getLocalProjects());
-      showToast(`Moved "${p.name}" to browser`);
+      showToast(result.status === 'moved'
+        ? `Moved "${p.name}" to browser`
+        : `Copied "${p.name}" to browser; cloud deletion failed, so both copies were kept`);
     } catch (err: unknown) {
       showToast(err instanceof Error ? err.message : 'Move failed');
     }
+  };
+
+  const handleMoveToLocal = async (p: CloudProject, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (await readLocalBackupJSON() !== null) {
+      useModalStore.getState().showConfirm(
+        `Replace the existing browser project with "${p.name}"? The current browser project will be overwritten.`,
+        () => { void moveToLocal(p, true); },
+      );
+      return;
+    }
+    void moveToLocal(p, false);
   };
 
   const handleMoveToCloud = async (e: React.MouseEvent) => {

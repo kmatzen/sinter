@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { renderHook, cleanup } from '@testing-library/react';
 import type { SDFNodeUI } from '../types/operations';
+import type { SDFDisplayData } from '../store/modelerStore';
 
 /**
  * Regression tests for the mount-time evaluation in `useEvaluator`.
@@ -41,7 +42,7 @@ const box = (width = 100): SDFNodeUI => ({
 });
 
 /** A plausible evaluate result — only its identity matters here. */
-const display = { glsl: 'float sdf(vec3 p){return 1.0;}', paramCount: 0, paramValues: [], textures: [], bbMin: [-1, -1, -1], bbMax: [1, 1, 1], hasWarn: false };
+const display: SDFDisplayData = { glsl: 'float sdf(vec3 p){return 1.0;}', paramCount: 0, paramValues: [], textures: [], bbMin: [-1, -1, -1], bbMax: [1, 1, 1], hasWarn: false };
 
 /** Let the hook's setTimeout(0) and the promise continuation run. */
 const flush = () => new Promise((r) => setTimeout(r, 0));
