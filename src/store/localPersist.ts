@@ -3,6 +3,7 @@ import { openBrowserDB, LOCAL_BACKUP_STORE } from '../storage/browserDb';
 import { useModelerStore } from './modelerStore';
 import { ensureConsent, hasConsent } from './consent';
 import { decodeProjectDocument, MAX_PROJECT_JSON_CHARS } from '../types/documentDecoder';
+import { useViewportStore } from './viewportStore';
 
 const LEGACY_STORAGE_KEY = 'sinter_local_project';
 const CURRENT_KEY = 'current';
@@ -93,7 +94,7 @@ const indexedDBBackend: LocalBackupBackend = {
 
 let backend: LocalBackupBackend = indexedDBBackend;
 let debounceTimer: ReturnType<typeof setTimeout> | null = null;
-let unsub: (() => void) | null = null;
+let unsubscribers: (() => void)[] = [];
 let consentRequested = false;
 let startGeneration = 0;
 
@@ -214,19 +215,25 @@ export async function deleteLocalBackup(): Promise<void> {
 }
 
 export async function startLocalAutoSave(): Promise<void> {
-  if (unsub) return;
+  if (unsubscribers.length) return;
   const generation = ++startGeneration;
   await loadFromLocal();
-  if (generation !== startGeneration || unsub) return;
-  unsub = useModelerStore.subscribe(() => {
+  if (generation !== startGeneration || unsubscribers.length) return;
+  const schedule = () => {
     if (debounceTimer) clearTimeout(debounceTimer);
     debounceTimer = setTimeout(() => { void saveToLocal(); }, 1000);
+  };
+  const unsubModeler = useModelerStore.subscribe(schedule);
+  const unsubViewport = useViewportStore.subscribe((state, previous) => {
+    if (state.namedViews !== previous.namedViews) schedule();
   });
+  unsubscribers = [unsubModeler, unsubViewport];
 }
 
 export function stopLocalAutoSave() {
   startGeneration++;
-  if (unsub) { unsub(); unsub = null; }
+  unsubscribers.forEach((unsubscribe) => unsubscribe());
+  unsubscribers = [];
   if (debounceTimer) { clearTimeout(debounceTimer); debounceTimer = null; }
 }
 

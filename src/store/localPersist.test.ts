@@ -1,10 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useConsentStore } from './consent';
 import { useModelerStore } from './modelerStore';
+import { useViewportStore } from './viewportStore';
+import { decodeProjectDocument } from '../types/documentDecoder';
 import {
   loadFromLocal,
   saveToLocal,
   setLocalBackupBackendForTests,
+  startLocalAutoSave,
+  stopLocalAutoSave,
   useLocalBackupStore,
   type LocalBackupBackend,
   type LocalBackupRecord,
@@ -43,6 +47,7 @@ describe('IndexedDB local recovery', () => {
   const local = new Map<string, string>();
 
   beforeEach(() => {
+    stopLocalAutoSave();
     backend = new MemoryBackend();
     setLocalBackupBackendForTests(backend);
     local.clear();
@@ -56,6 +61,7 @@ describe('IndexedDB local recovery', () => {
     });
     useConsentStore.setState({ granted: true, pendingReason: null });
     useModelerStore.getState().resetDocument(null, 'Untitled');
+    useViewportStore.getState().setNamedViews([]);
   });
 
   it('stores projects larger than typical localStorage limits', async () => {
@@ -116,5 +122,39 @@ describe('IndexedDB local recovery', () => {
 
     expect(useLocalBackupStore.getState().status).toBe('failed');
     expect(useLocalBackupStore.getState().error).toMatch(/IndexedDB unavailable/i);
+  });
+
+  it('backs up view-only changes and coalesces them with model edits', async () => {
+    vi.useFakeTimers();
+    const write = vi.spyOn(backend, 'write');
+    await startLocalAutoSave();
+    useModelerStore.getState().setProjectName('Views');
+    useViewportStore.getState().addNamedView({
+      id: 'front', name: 'Front', createdAt: '2026-09-06T00:00:00.000Z',
+      position: [0, 0, 10], target: [0, 0, 0], up: [0, 1, 0],
+      projection: 'orthographic', verticalSpan: 40,
+      clipping: { enabled: false, axis: 'x', position: 0, flip: false },
+    });
+
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    expect(write).toHaveBeenCalledOnce();
+    expect(decodeProjectDocument(JSON.parse(backend.current!.json)).views).toHaveLength(1);
+    stopLocalAutoSave();
+    vi.useRealTimers();
+  });
+
+  it('stops listening to both project and named-view changes', async () => {
+    vi.useFakeTimers();
+    const write = vi.spyOn(backend, 'write');
+    await startLocalAutoSave();
+    stopLocalAutoSave();
+    useModelerStore.getState().setProjectName('Not saved');
+    useViewportStore.getState().setNamedViews([]);
+
+    await vi.advanceTimersByTimeAsync(2_000);
+
+    expect(write).not.toHaveBeenCalled();
+    vi.useRealTimers();
   });
 });
