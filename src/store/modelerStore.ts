@@ -27,6 +27,11 @@ interface ModelerState {
   // History
   history: (SDFNodeUI | null)[];
   historyIndex: number;
+  historyTransaction: {
+    tree: SDFNodeUI | null;
+    selectedNodeId: string | null;
+    expandedNodes: Set<string>;
+  } | null;
 
   // Actions
   setTree: (tree: SDFNodeUI | null) => void;
@@ -57,6 +62,9 @@ interface ModelerState {
   simplifyTree: () => void;
   undo: () => void;
   redo: () => void;
+  beginHistoryTransaction: () => void;
+  commitHistoryTransaction: () => void;
+  cancelHistoryTransaction: () => void;
   toJSON: () => string;
   fromJSON: (json: string) => void;
 }
@@ -106,6 +114,10 @@ function commit(
   tree: SDFNodeUI | null,
   extra: Partial<ModelerState> = {},
 ): Partial<ModelerState> {
+  if (state.historyTransaction) {
+    const wanted = 'selectedNodeId' in extra ? extra.selectedNodeId ?? null : state.selectedNodeId;
+    return { ...extra, selectedNodeId: surviving(tree, wanted), tree };
+  }
   const history = state.history.slice(0, state.historyIndex + 1);
   history.push(tree ? cloneTree(tree) : null);
   // Clamp the selection to a node that still exists. `surviving` was already
@@ -256,6 +268,7 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
   expandedNodes: new Set<string>(),
   history: [null],
   historyIndex: 0,
+  historyTransaction: null,
 
   setTree: (tree) => {
     set(commit(get(), tree, { selectedNodeId: null }));
@@ -711,6 +724,41 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
     }
 
     set(commit(get(), result, { selectedNodeId: null }));
+  },
+
+  beginHistoryTransaction: () => {
+    const state = get();
+    if (state.historyTransaction) return;
+    set({
+      historyTransaction: {
+        tree: state.tree ? cloneTree(state.tree) : null,
+        selectedNodeId: state.selectedNodeId,
+        expandedNodes: new Set(state.expandedNodes),
+      },
+    });
+  },
+
+  commitHistoryTransaction: () => {
+    const state = get();
+    const transaction = state.historyTransaction;
+    if (!transaction) return;
+    if (JSON.stringify(transaction.tree) === JSON.stringify(state.tree)) {
+      set({ historyTransaction: null });
+      return;
+    }
+    const withoutTransaction = { ...state, historyTransaction: null };
+    set({ ...commit(withoutTransaction, state.tree), historyTransaction: null });
+  },
+
+  cancelHistoryTransaction: () => {
+    const transaction = get().historyTransaction;
+    if (!transaction) return;
+    set({
+      tree: transaction.tree ? cloneTree(transaction.tree) : null,
+      selectedNodeId: transaction.selectedNodeId,
+      expandedNodes: new Set(transaction.expandedNodes),
+      historyTransaction: null,
+    });
   },
 
   undo: () => {
