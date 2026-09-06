@@ -21,16 +21,16 @@ function validAnchors(tree: ReturnType<typeof useModelerStore.getState>['tree'],
 
 function measurementText(
   tree: ReturnType<typeof useModelerStore.getState>['tree'], anchors: MeasurementAnchor[],
-  unit: DisplayUnit, precision: number,
+  unit: DisplayUnit, precision: number, denominator: 2 | 4 | 8 | 16 | 32 | 64,
 ) {
   const points = resolveMeasurementAnchors(tree, anchors);
   if (!points) return '';
   const result = measurePoints(points);
   const lines = result.points.map((point, index) =>
-    `Point ${index + 1}: ${point.map((value) => formatMeasurement(value, unit, precision)).join(', ')}`,
+    `Point ${index + 1}: ${point.map((value) => formatMeasurement(value, unit, precision, denominator)).join(', ')}`,
   );
-  if (result.distance !== undefined) lines.push(`Distance: ${formatMeasurement(result.distance, unit, precision)}`);
-  if (result.delta) lines.push(`Delta: ${result.delta.map((value) => formatMeasurement(value, unit, precision)).join(', ')}`);
+  if (result.distance !== undefined) lines.push(`Distance: ${formatMeasurement(result.distance, unit, precision, denominator)}`);
+  if (result.delta) lines.push(`Delta: ${result.delta.map((value) => formatMeasurement(value, unit, precision, denominator)).join(', ')}`);
   if (result.angle !== undefined) lines.push(`Angle: ${result.angle.toFixed(precision)}°`);
   return lines.join('\n');
 }
@@ -47,6 +47,7 @@ export function MeasurementOverlay() {
   const pinned = useViewportStore((state) => state.pinnedMeasurements);
   const unit = useViewportStore((state) => state.measurementUnit);
   const precision = useViewportStore((state) => state.measurementPrecision);
+  const denominator = useViewportStore((state) => state.measurementFractionalDenominator);
   const clear = useViewportStore((state) => state.clearMeasurement);
   const undo = useViewportStore((state) => state.removeMeasurementPoint);
   const pin = useViewportStore((state) => state.pinMeasurement);
@@ -54,6 +55,7 @@ export function MeasurementOverlay() {
   const addPoint = useViewportStore((state) => state.addMeasurementPoint);
   const setUnit = useViewportStore((state) => state.setMeasurementUnit);
   const setPrecision = useViewportStore((state) => state.setMeasurementPrecision);
+  const setDenominator = useViewportStore((state) => state.setMeasurementFractionalDenominator);
   const toggleMode = useViewportStore((state) => state.toggleMeasurementMode);
   const [copied, setCopied] = useState(false);
 
@@ -85,7 +87,7 @@ export function MeasurementOverlay() {
   };
   const copy = async () => {
     if (!currentValid || anchors.length === 0) return;
-    await navigator.clipboard.writeText(measurementText(tree, anchors, unit, precision));
+    await navigator.clipboard.writeText(measurementText(tree, anchors, unit, precision, denominator));
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1200);
   };
@@ -107,11 +109,11 @@ export function MeasurementOverlay() {
             <p role="alert" className="mb-2" style={{ color: 'var(--accent-red)' }}>A target was deleted. Clear and pick it again.</p>
           ) : (
             <div className="space-y-1 mb-2">
-              {current.points.map((point, index) => <Metric key={index} label={`P${index + 1}`} value={point.map((v) => formatMeasurement(v, unit, precision)).join(', ')} />)}
-              {current.distance !== undefined && <Metric label="Distance" value={formatMeasurement(current.distance, unit, precision)} />}
-              {current.delta && <Metric label="Δ X / Y / Z" value={current.delta.map((v) => formatMeasurement(v, unit, precision)).join(' / ')} />}
+              {current.points.map((point, index) => <Metric key={index} label={`P${index + 1}`} value={point.map((v) => formatMeasurement(v, unit, precision, denominator)).join(', ')} />)}
+              {current.distance !== undefined && <Metric label="Distance" value={formatMeasurement(current.distance, unit, precision, denominator)} />}
+              {current.delta && <Metric label="Δ X / Y / Z" value={current.delta.map((v) => formatMeasurement(v, unit, precision, denominator)).join(' / ')} />}
               {current.angle !== undefined && <Metric label="Angle" value={`${current.angle.toFixed(precision)}°`} />}
-              {radial && <Metric label={`${radial.label} diameter*`} value={formatMeasurement(radial.diameter, unit, precision)} />}
+              {radial && <Metric label={`${radial.label} diameter*`} value={formatMeasurement(radial.diameter, unit, precision, denominator)} />}
             </div>
           )}
           <p className="mb-2 leading-relaxed" style={{ color: 'var(--text-muted)' }}>
@@ -129,8 +131,14 @@ export function MeasurementOverlay() {
             <button onClick={clear} disabled={!anchors.length} aria-label="Clear measurement" className="p-1.5 rounded disabled:opacity-40" style={{ background: 'var(--bg-elevated)' }}><Trash2 size={12} /></button>
             <button onClick={pin} disabled={!anchors.length || !currentValid} className="px-2 py-1 rounded flex items-center gap-1 disabled:opacity-40" style={{ background: 'var(--bg-elevated)' }}><Pin size={12} /> Pin</button>
             <button onClick={() => void copy()} disabled={!anchors.length || !currentValid} className="px-2 py-1 rounded flex items-center gap-1 disabled:opacity-40" style={{ background: 'var(--bg-elevated)' }}><Copy size={12} /> {copied ? 'Copied' : 'Copy'}</button>
-            <select aria-label="Measurement units" value={unit} onChange={(event) => setUnit(event.target.value as 'mm' | 'in')} className="rounded px-1" style={{ background: 'var(--bg-elevated)' }}><option value="mm">mm</option><option value="in">in</option></select>
-            <select aria-label="Measurement precision" value={precision} onChange={(event) => setPrecision(Number(event.target.value))} className="rounded px-1" style={{ background: 'var(--bg-elevated)' }}>{[0,1,2,3,4,5,6].map((n) => <option key={n} value={n}>{n} decimals</option>)}</select>
+            <select aria-label="Measurement units" value={unit} onChange={(event) => setUnit(event.target.value as DisplayUnit)} className="rounded px-1" style={{ background: 'var(--bg-elevated)' }}>
+              <option value="mm">mm</option><option value="cm">cm</option><option value="m">m</option><option value="in">in</option><option value="ft-in">ft / in</option>
+            </select>
+            {unit === 'ft-in' ? (
+              <select aria-label="Measurement fraction precision" value={denominator} onChange={(event) => setDenominator(Number(event.target.value) as 2 | 4 | 8 | 16 | 32 | 64)} className="rounded px-1" style={{ background: 'var(--bg-elevated)' }}>
+                {[2,4,8,16,32,64].map((n) => <option key={n} value={n}>nearest 1/{n}″</option>)}
+              </select>
+            ) : <select aria-label="Measurement precision" value={precision} onChange={(event) => setPrecision(Number(event.target.value))} className="rounded px-1" style={{ background: 'var(--bg-elevated)' }}>{[0,1,2,3,4,5,6].map((n) => <option key={n} value={n}>{n} decimals</option>)}</select>}
           </div>
         </>
       )}
@@ -142,8 +150,8 @@ export function MeasurementOverlay() {
           const result = points ? measurePoints(points) : null;
           const radial = valid ? exactRadialMeasurement(findMeasurementNode(tree, item.anchors[item.anchors.length - 1]?.nodeId)) : null;
           const summary = result?.distance !== undefined
-            ? formatMeasurement(result.distance, unit, precision)
-            : radial ? `${radial.label} ⌀ ${formatMeasurement(radial.diameter, unit, precision)}` : 'Point saved';
+            ? formatMeasurement(result.distance, unit, precision, denominator)
+            : radial ? `${radial.label} ⌀ ${formatMeasurement(radial.diameter, unit, precision, denominator)}` : 'Point saved';
           return <div key={item.id} className="flex items-center justify-between gap-2 rounded px-2 py-1.5" style={{ background: 'var(--bg-elevated)' }}>
             <span>{valid ? `#${index + 1}: ${summary}` : `#${index + 1}: target deleted — re-pick`}</span>
             <button aria-label={`Remove pinned measurement ${index + 1}`} onClick={() => removePinned(item.id)}><X size={12} /></button>
