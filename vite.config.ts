@@ -4,6 +4,9 @@ import tailwindcss from '@tailwindcss/vite';
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  define: {
+    'import.meta.env.PACKAGE_VERSION': JSON.stringify(process.env.npm_package_version ?? 'development'),
+  },
   worker: {
     format: 'es',
   },

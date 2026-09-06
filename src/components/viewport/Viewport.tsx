@@ -7,10 +7,10 @@ import { SelectionOverlay } from './SelectionOverlay';
 import { SelectionBreadcrumb } from './SelectionBreadcrumb';
 import { useModelerStore } from '../../store/modelerStore';
 import { setEngineRef } from '../../engine/engineRef';
+import { ModelErrorNotice } from './ModelErrorNotice';
 
 export function Viewport() {
   const evaluating = useModelerStore((s) => s.evaluating);
-  const error = useModelerStore((s) => s.error);
   const containerRef = useRef<HTMLDivElement>(null);
   const [engine, setEngine] = useState<ThreeEngine | null>(null);
 
@@ -44,11 +44,7 @@ export function Viewport() {
                style={{ borderColor: 'var(--accent)', borderTopColor: 'transparent' }} />
         </div>
       )}
-      {error && (
-        <div className="absolute bottom-3 left-3 right-60 bg-red-900/90 px-3 py-2 rounded text-sm text-red-200">
-          {error}
-        </div>
-      )}
+      <ModelErrorNotice />
     </div>
   );
 }
