@@ -33,6 +33,20 @@ describe('document decoder', () => {
     expect(() => decodeTree({ ...box(), group: 'x'.repeat(257) })).toThrow(/at most 256/);
   });
 
+  it('migrates missing units and strictly validates current project preferences', () => {
+    expect(decodeProjectDocument({ version: 2, tree: box() }).units).toEqual({
+      displayUnit: 'mm', decimalPrecision: 2, fractionalDenominator: 16,
+    });
+    const units = { displayUnit: 'in' as const, decimalPrecision: 3, fractionalDenominator: 32 as const };
+    expect(decodeProjectDocument({ version: 2, tree: box(), units }).units).toEqual(units);
+    expect(decodeProjectDocument({ version: 1, tree: box(), units }).units.displayUnit).toBe('mm');
+    expect(() => decodeProjectDocument({ version: 2, tree: box(), units: { ...units, displayUnit: 'yards' } })).toThrow(/displayUnit/);
+    expect(() => decodeProjectDocument({ version: 2, tree: box(), units: { ...units, decimalPrecision: 7 } })).toThrow(/decimalPrecision/);
+    expect(() => decodeProjectDocument({ version: 2, tree: box(), units: { ...units, fractionalDenominator: 3 } })).toThrow(/fractionalDenominator/);
+    const checkpoint = { id: 'u', name: 'Units', createdAt: '2026-09-06T12:00:00Z', tree: box(), units };
+    expect(decodeProjectDocument({ version: 2, tree: box(), checkpoints: [checkpoint] }).checkpoints[0].units).toEqual(units);
+  });
+
   it('validates and loads bounded version checkpoints', () => {
     const decoded = decodeProjectDocument({
       version: 2, tree: box(), thumbnail: null,
