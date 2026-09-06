@@ -46,6 +46,8 @@ function deferred<T>() {
 function artifact(size: number, triangleCount: number): ExportArtifact {
   return {
     blob: { size } as Blob, vertexCount: triangleCount * 3, triangleCount,
+    achievedTolerance: 0.025,
+    componentCount: 2,
     diagnostics: {
       watertight: true, boundaryEdges: 0, nonManifoldEdges: 0, inconsistentEdges: 0,
       degenerateTriangles: 0, invalidIndices: 0, nonFiniteVertices: 0, zeroAreaTriangles: 0,
@@ -88,6 +90,9 @@ describe('Toolbar export cancellation', () => {
     await waitFor(() => expect(screen.getByText('Download')).toBeInTheDocument());
     expect(screen.getByText('Watertight')).toBeInTheDocument();
     expect(screen.getByText('10.0 × 20.0 × 30.0 mm')).toBeInTheDocument();
+    expect(screen.getByText('≤ 0.0250 mm')).toBeInTheDocument();
+    expect(screen.getByText('Verified components')).toBeInTheDocument();
+    expect(screen.getByText('2')).toBeInTheDocument();
   });
 
   // The regression. The cancel button is on screen for the whole of

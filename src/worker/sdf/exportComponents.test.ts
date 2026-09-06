@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { computeBounds } from './bounds';
 import { evaluateSDF } from './evaluate';
-import { partitionExportComponents } from './exportComponents';
+import { partitionExportComponents, planComponentSampling } from './exportComponents';
 import type { SDFNode } from './types';
 import { evaluateCPUWithProgress } from './gridEval';
 import { dualContour } from './dualContour';
@@ -46,5 +46,25 @@ describe('export component partitioning', () => {
     const cut: SDFNode = { kind: 'subtract', a: movedSphere(-500), b: movedSphere(500), k: 0 };
     expect(partitionExportComponents(smooth)).toEqual([smooth]);
     expect(partitionExportComponents(cut)).toEqual([cut]);
+  });
+
+  it('automatically refines for a small cutter within the bounded grid budget', () => {
+    const cut: SDFNode = { kind: 'subtract', a: { kind: 'box', size: [100, 100, 100] }, b: { kind: 'sphere', radius: 0.5 }, k: 0 };
+    const plan = planComponentSampling(cut, { min: [-51, -51, -51], max: [51, 51, 51] }, 128, 384);
+    expect(plan.resolution).toBe(204);
+    expect(plan.voxel).toEqual([0.5, 0.5, 0.5]);
+    expect(plan.tolerance).toBe(0.5);
+  });
+
+  it('fails before meshing when a thin shell cannot be resolved safely', () => {
+    const shell: SDFNode = { kind: 'shell', child: { kind: 'box', size: [100, 100, 100] }, thickness: 0.1 };
+    expect(() => planComponentSampling(shell, { min: [-51, -51, -51], max: [51, 51, 51] }, 128, 384))
+      .toThrow(/cannot resolve a 0\.1000 mm source feature.*384³ grid limit/i);
+  });
+
+  it('detects narrow walls left by a large internal cutter', () => {
+    const hollow: SDFNode = { kind: 'subtract', a: { kind: 'box', size: [100, 100, 100] }, b: { kind: 'box', size: [99.9, 99.9, 99.9] }, k: 0 };
+    expect(() => planComponentSampling(hollow, { min: [-51, -51, -51], max: [51, 51, 51] }, 256, 384))
+      .toThrow(/cannot resolve a 0\.05000 mm source feature/i);
   });
 });

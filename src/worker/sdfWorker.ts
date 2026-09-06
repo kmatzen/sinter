@@ -21,7 +21,7 @@ import { simplifyMesh } from './sdf/simplify';
 import { CLUSTER_ERROR_VOXELS, SIMPLIFY_ERROR_VOXELS, PROJECT_TOLERANCE_VOXELS } from './sdf/budgets';
 import { analyzeMesh, removeDegenerateTriangles, projectVerticesToSurface } from './sdf/meshRepair';
 import { validateModelingEnvelope } from './sdf/modelingEnvelope';
-import { partitionExportComponents } from './sdf/exportComponents';
+import { partitionExportComponents, planComponentSampling } from './sdf/exportComponents';
 import type { MeshResult } from './sdf/marchingCubes';
 
 self.postMessage({ type: 'ready' });
@@ -88,28 +88,28 @@ function evaluateAndMeshWithProgress(tree: SDFNodeUI | null, resolution: number,
 
   const components = partitionExportComponents(root);
   const meshes: MeshResult[] = [];
+  let achievedTolerance = 0;
   const report = (index: number, stage: string, localPercent: number) =>
     progress(components.length > 1 ? `${stage} (${index + 1}/${components.length})` : stage,
       ((index + localPercent / 95) / components.length) * 95);
   for (let index = 0; index < components.length; index++) {
     const component = components[index];
     const bbox = prepareBBox(component);
-    const voxel = Math.max(
-      (bbox.max[0] - bbox.min[0]) / resolution,
-      (bbox.max[1] - bbox.min[1]) / resolution,
-      (bbox.max[2] - bbox.min[2]) / resolution,
-    );
+    const plan = planComponentSampling(component, bbox, resolution, MAX_EXPORT_RESOLUTION);
+    const componentResolution = plan.resolution;
+    const voxel = Math.max(...plan.voxel);
+    achievedTolerance = Math.max(achievedTolerance, plan.tolerance);
     report(index, 'Evaluating SDF grid', 0);
-    const { grid, active } = evaluateCPUWithProgress(component, bbox, resolution, (pct) => report(index, 'Evaluating SDF grid', pct));
+    const { grid, active } = evaluateCPUWithProgress(component, bbox, componentResolution, (pct) => report(index, 'Evaluating SDF grid', pct));
     report(index, 'Generating mesh', 60);
-    const raw = dualContour(grid, resolution, bbox, component, (pct) => report(index, 'Generating mesh', 60 + pct * 0.2), active, voxel * CLUSTER_ERROR_VOXELS);
+    const raw = dualContour(grid, componentResolution, bbox, component, (pct) => report(index, 'Generating mesh', 60 + pct * 0.2), active, voxel * CLUSTER_ERROR_VOXELS);
     if (raw.indices.length === 0) throw new Error(`Export could not resolve component ${index + 1} of ${components.length} at ${voxel.toPrecision(4)} mm per voxel; increase export quality or enlarge the feature`);
     report(index, 'Simplifying mesh', 80);
     const simplified = simplifyMesh(removeDegenerateTriangles(raw), { maxError: voxel * SIMPLIFY_ERROR_VOXELS }, (pct) => report(index, 'Simplifying mesh', 80 + pct * 0.12));
     report(index, 'Refining surface', 92);
     meshes.push(projectVerticesToSurface(simplified, component, voxel * PROJECT_TOLERANCE_VOXELS));
   }
-  if (meshes.length === 1) return meshes[0];
+  if (meshes.length === 1) return { mesh: meshes[0], achievedTolerance, componentCount: components.length };
   const positionCount = meshes.reduce((sum, mesh) => sum + mesh.positions.length, 0);
   const normalCount = meshes.reduce((sum, mesh) => sum + mesh.normals.length, 0);
   const indexCount = meshes.reduce((sum, mesh) => sum + mesh.indices.length, 0);
@@ -120,7 +120,7 @@ function evaluateAndMeshWithProgress(tree: SDFNodeUI | null, resolution: number,
     for (let i = 0; i < mesh.indices.length; i++) indices[indexOffset + i] = mesh.indices[i] + vertexOffset;
     positionOffset += mesh.positions.length; normalOffset += mesh.normals.length; indexOffset += mesh.indices.length; vertexOffset += mesh.positions.length / 3;
   }
-  return { positions, normals, indices };
+  return { mesh: { positions, normals, indices }, achievedTolerance, componentCount: components.length };
 }
 
 /**
@@ -204,13 +204,14 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
         const progress: ProgressFn = (stage, percent) => {
           self.postMessage({ type: 'progress', rid, stage, percent: Math.round(percent) });
         };
-        const mesh = evaluateAndMeshWithProgress(req.tree, exportResolution(req.resolution), progress);
-        if (!mesh) { self.postMessage({ type: 'error', rid, message: 'No geometry to export' }); return; }
+        const result = evaluateAndMeshWithProgress(req.tree, exportResolution(req.resolution), progress);
+        if (!result) { self.postMessage({ type: 'error', rid, message: 'No geometry to export' }); return; }
+        const { mesh, achievedTolerance, componentCount } = result;
         progress('Encoding STL', 95);
         const data = exportBinarySTL(mesh);
         const diagnostics = analyzeMesh(mesh);
         self.postMessage({ type: 'exportResult', rid, format: 'stl' as const, data,
-          vertexCount: mesh.positions.length / 3, triangleCount: mesh.indices.length / 3, diagnostics }, [data]);
+          vertexCount: mesh.positions.length / 3, triangleCount: mesh.indices.length / 3, diagnostics, achievedTolerance, componentCount }, [data]);
         break;
       }
 
@@ -221,13 +222,14 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
         const progress: ProgressFn = (stage, percent) => {
           self.postMessage({ type: 'progress', rid, stage, percent: Math.round(percent) });
         };
-        const mesh = evaluateAndMeshWithProgress(req.tree, exportResolution(req.resolution), progress);
-        if (!mesh) { self.postMessage({ type: 'error', rid, message: 'No geometry to export' }); return; }
+        const result = evaluateAndMeshWithProgress(req.tree, exportResolution(req.resolution), progress);
+        if (!result) { self.postMessage({ type: 'error', rid, message: 'No geometry to export' }); return; }
+        const { mesh, achievedTolerance, componentCount } = result;
         progress('Encoding 3MF', 95);
         const data = export3MF(mesh);
         const diagnostics = analyzeMesh(mesh);
         self.postMessage({ type: 'exportResult', rid, format: '3mf' as const, data,
-          vertexCount: mesh.positions.length / 3, triangleCount: mesh.indices.length / 3, diagnostics }, [data]);
+          vertexCount: mesh.positions.length / 3, triangleCount: mesh.indices.length / 3, diagnostics, achievedTolerance, componentCount }, [data]);
         break;
       }
     }

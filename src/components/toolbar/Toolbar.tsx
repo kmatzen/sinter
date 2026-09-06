@@ -70,7 +70,7 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
   const [avatarFailed, setAvatarFailed] = useState(false);
   const [exporting, setExporting] = useState<string | null>(null);
   const [exportProgress, setExportProgress] = useState<{ stage: string; percent: number } | null>(null);
-  const [exportPreview, setExportPreview] = useState<{ blob: Blob; name: string; triangles: number; size: number; diagnostics: ExportDiagnostics; approximateSource: boolean } | null>(null);
+  const [exportPreview, setExportPreview] = useState<{ blob: Blob; name: string; triangles: number; size: number; diagnostics: ExportDiagnostics; approximateSource: boolean; achievedTolerance?: number; componentCount?: number } | null>(null);
   const [dirty, setDirty] = useState(() => isCloudDirty());
   const overflowRef = useRef<HTMLDivElement>(null);
 
@@ -136,9 +136,9 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
     setExporting('STL');
     setExportProgress({ stage: 'Starting', percent: 0 });
     try {
-      const { blob, triangleCount: triangles, diagnostics } = await workerBridge.exportSTL(tree, onProgress, exportResolution);
+      const { blob, triangleCount: triangles, diagnostics, achievedTolerance, componentCount } = await workerBridge.exportSTL(tree, onProgress, exportResolution);
       if (exportEpoch.current !== epoch) return;
-      setExportPreview({ blob, name: `${projectName}.stl`, triangles, size: blob.size, diagnostics, approximateSource: hasImportedMesh(tree) });
+      setExportPreview({ blob, name: `${projectName}.stl`, triangles, size: blob.size, diagnostics, approximateSource: hasImportedMesh(tree), achievedTolerance, componentCount });
     } catch (err: any) {
       if (!isCancelled(err)) setError(`STL export failed: ${err?.message || String(err)}`);
     } finally {
@@ -153,9 +153,9 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
     setExporting('3MF');
     setExportProgress({ stage: 'Starting', percent: 0 });
     try {
-      const { blob, triangleCount: triangles, diagnostics } = await workerBridge.export3MF(tree, onProgress, exportResolution);
+      const { blob, triangleCount: triangles, diagnostics, achievedTolerance, componentCount } = await workerBridge.export3MF(tree, onProgress, exportResolution);
       if (exportEpoch.current !== epoch) return;
-      setExportPreview({ blob, name: `${projectName}.3mf`, triangles, size: blob.size, diagnostics, approximateSource: hasImportedMesh(tree) });
+      setExportPreview({ blob, name: `${projectName}.3mf`, triangles, size: blob.size, diagnostics, approximateSource: hasImportedMesh(tree), achievedTolerance, componentCount });
     } catch (err: any) {
       if (!isCancelled(err)) setError(`3MF export failed: ${err?.message || String(err)}`);
     } finally {
@@ -489,6 +489,8 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
         name={exportPreview.name}
         diagnostics={exportPreview.diagnostics}
         approximateSource={exportPreview.approximateSource}
+        achievedTolerance={exportPreview.achievedTolerance}
+        componentCount={exportPreview.componentCount}
         onDownload={() => { triggerDownload(exportPreview.blob, exportPreview.name); setExportPreview(null); }}
         onCancel={() => setExportPreview(null)}
       />
@@ -590,10 +592,12 @@ function formatTriangles(n: number): string {
   return `${(n / 1_000_000).toFixed(1)}M`;
 }
 
-function ExportPreview({ triangles, size, name, diagnostics, approximateSource, onDownload, onCancel }: {
+function ExportPreview({ triangles, size, name, diagnostics, approximateSource, achievedTolerance, componentCount, onDownload, onCancel }: {
   triangles: number; size: number; name: string;
   diagnostics: ExportDiagnostics;
   approximateSource: boolean;
+  achievedTolerance?: number;
+  componentCount?: number;
   onDownload: () => void; onCancel: () => void;
 }) {
   const surface = useRef<HTMLDivElement>(null);
@@ -609,6 +613,14 @@ function ExportPreview({ triangles, size, name, diagnostics, approximateSource, 
             <span style={{ color: 'var(--text-muted)' }}>File</span>
             <span className="font-mono" style={{ color: 'var(--text-primary)' }}>{name}</span>
           </div>
+          {achievedTolerance !== undefined && <div className="flex justify-between text-[12px]">
+            <span style={{ color: 'var(--text-muted)' }}>Surface tolerance</span>
+            <span className="font-mono" style={{ color: 'var(--text-primary)' }}>≤ {achievedTolerance.toPrecision(3)} mm</span>
+          </div>}
+          {componentCount !== undefined && componentCount > 1 && <div className="flex justify-between text-[12px]">
+            <span style={{ color: 'var(--text-muted)' }}>Verified components</span>
+            <span className="font-mono" style={{ color: 'var(--text-primary)' }}>{componentCount}</span>
+          </div>}
           <div className="flex justify-between text-[12px]">
             <span style={{ color: 'var(--text-muted)' }}>Dimensions</span>
             <span className="font-mono" style={{ color: 'var(--text-primary)' }}>

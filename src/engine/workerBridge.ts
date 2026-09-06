@@ -219,6 +219,8 @@ class WorkerBridge {
       vertexCount: msg.vertexCount,
       triangleCount: msg.triangleCount,
       diagnostics: msg.diagnostics,
+      achievedTolerance: msg.achievedTolerance,
+      componentCount: msg.componentCount,
     } satisfies ExportArtifact);
   }
 
