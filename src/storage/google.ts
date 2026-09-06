@@ -1,10 +1,12 @@
-import type { StorageProvider, ProjectMeta } from './types';
+import type { StorageProvider, ProjectMeta, ProjectFileBody } from './types';
 
 const DRIVE_API = 'https://www.googleapis.com';
 const FOLDER_NAME = 'Sinter';
 const FOLDER_MIME = 'application/vnd.google-apps.folder';
 const FOLDER_MARKER_KEY = 'sinterFolder';
 const FOLDER_MARKER_VALUE = 'projects-v1';
+const PROJECT_MARKER_KEY = 'sinterProject';
+const PROJECT_MARKER_VALUE = 'document-v1';
 const MAX_FOLDER_CACHE_ENTRIES = 4;
 
 // A provider token identifies the signed-in account for this in-memory cache.
@@ -29,6 +31,53 @@ function authHeaders(token: string): Record<string, string> {
 interface DriveFolder {
   id: string;
   createdTime?: string;
+}
+
+interface DriveFile {
+  id: string;
+  name: string;
+  createdTime: string;
+  modifiedTime: string;
+  mimeType?: string;
+  appProperties?: Record<string, string>;
+}
+
+function isMarkedProject(file: Pick<DriveFile, 'appProperties'>): boolean {
+  return file.appProperties?.[PROJECT_MARKER_KEY] === PROJECT_MARKER_VALUE;
+}
+
+function isProjectBody(value: unknown): value is ProjectFileBody {
+  if (!value || typeof value !== 'object') return false;
+  const body = value as Record<string, unknown>;
+  return body.version === 1 && Object.prototype.hasOwnProperty.call(body, 'tree') &&
+    (body.thumbnail === null || typeof body.thumbnail === 'string');
+}
+
+async function readFileBody(token: string | null, externalId: string, signal?: AbortSignal): Promise<unknown> {
+  const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+  const res = await fetch(`${DRIVE_API}/drive/v3/files/${externalId}?alt=media`, { headers, signal });
+  if (!res.ok) throw new Error(`Drive read failed (${res.status})`);
+  return JSON.parse(await res.text());
+}
+
+async function markProject(token: string, externalId: string, signal?: AbortSignal): Promise<void> {
+  const res = await fetch(`${DRIVE_API}/drive/v3/files/${externalId}`, {
+    method: 'PATCH', headers: authHeaders(token), signal,
+    body: JSON.stringify({ appProperties: { [PROJECT_MARKER_KEY]: PROJECT_MARKER_VALUE } }),
+  });
+  if (!res.ok) throw new Error(`Drive project adoption failed (${res.status})`);
+}
+
+async function assertMarkedProject(token: string, externalId: string): Promise<void> {
+  const res = await fetch(
+    `${DRIVE_API}/drive/v3/files/${externalId}?fields=id,trashed,appProperties`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  );
+  if (!res.ok) throw new Error(`Drive project verification failed (${res.status})`);
+  const file = await res.json();
+  if (file.trashed === true || !isMarkedProject(file)) {
+    throw new Error('Drive file is not a verified Sinter project');
+  }
 }
 
 function folderOrder(a: DriveFolder, b: DriveFolder): number {
@@ -132,12 +181,12 @@ export const googleStorage: StorageProvider = {
   async list(token, signal) {
     const folderId = await getOrCreateFolder(token, signal);
     const q = encodeURIComponent(`'${folderId}' in parents and trashed=false`);
-    const files: Array<{ id: string; name: string; createdTime: string; modifiedTime: string }> = [];
+    const files: DriveFile[] = [];
     let pageToken: string | undefined;
     do {
       const tokenParam = pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : '';
       const res = await fetch(
-        `${DRIVE_API}/drive/v3/files?q=${q}&fields=nextPageToken,files(id,name,createdTime,modifiedTime)&orderBy=modifiedTime desc&pageSize=200${tokenParam}`,
+        `${DRIVE_API}/drive/v3/files?q=${q}&fields=nextPageToken,files(id,name,createdTime,modifiedTime,mimeType,appProperties)&orderBy=modifiedTime desc&pageSize=200${tokenParam}`,
         { headers: { Authorization: `Bearer ${token}` }, signal },
       );
       if (!res.ok) throw new Error(`Drive list failed (${res.status})`);
@@ -146,8 +195,32 @@ export const googleStorage: StorageProvider = {
       pageToken = data.nextPageToken;
     } while (pageToken);
 
-    return files.map(
-      (f: { id: string; name: string; createdTime: string; modifiedTime: string }): ProjectMeta => ({
+    const projects: DriveFile[] = [];
+    for (const file of files) {
+      if (isMarkedProject(file)) {
+        projects.push(file);
+        continue;
+      }
+      // Legacy projects predate the marker. Only inspect plausible JSON files,
+      // validate their envelope, and mark them before exposing any action.
+      if (file.mimeType !== 'application/json' || !file.name.endsWith('.json')) continue;
+      let body: unknown;
+      try {
+        body = await readFileBody(token, file.id, signal);
+      } catch (error) {
+        if (signal?.aborted) throw error;
+        // An unrelated or unreadable folder entry is not a project.
+        continue;
+      }
+      if (!isProjectBody(body)) continue;
+      // A validated legacy project must be marked before it is actionable.
+      // Surface migration failures instead of silently making real work vanish.
+      await markProject(token, file.id, signal);
+      projects.push(file);
+    }
+
+    return projects.map(
+      (f): ProjectMeta => ({
         externalId: f.id,
         name: stripJsonExt(f.name),
         createdAt: f.createdTime,
@@ -157,11 +230,9 @@ export const googleStorage: StorageProvider = {
   },
 
   async read(token, externalId) {
-    const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
-    const res = await fetch(`${DRIVE_API}/drive/v3/files/${externalId}?alt=media`, { headers });
-    if (!res.ok) throw new Error(`Drive read failed (${res.status})`);
-    const text = await res.text();
-    return JSON.parse(text);
+    const body = await readFileBody(token, externalId);
+    if (!isProjectBody(body)) throw new Error('Drive file is not a valid Sinter project');
+    return body;
   },
 
   async create(token, name, body) {
@@ -170,6 +241,7 @@ export const googleStorage: StorageProvider = {
       name: `${name}.json`,
       mimeType: 'application/json',
       parents: [folderId],
+      appProperties: { [PROJECT_MARKER_KEY]: PROJECT_MARKER_VALUE },
     };
     const boundary = '---sinter-boundary';
     const reqBody =
@@ -190,6 +262,7 @@ export const googleStorage: StorageProvider = {
   },
 
   async update(token, externalId, body) {
+    await assertMarkedProject(token, externalId);
     const res = await fetch(
       `${DRIVE_API}/upload/drive/v3/files/${externalId}?uploadType=media`,
       {
@@ -202,6 +275,7 @@ export const googleStorage: StorageProvider = {
   },
 
   async rename(token, externalId, name) {
+    await assertMarkedProject(token, externalId);
     const res = await fetch(`${DRIVE_API}/drive/v3/files/${externalId}`, {
       method: 'PATCH',
       headers: authHeaders(token),
@@ -211,6 +285,7 @@ export const googleStorage: StorageProvider = {
   },
 
   async delete(token, externalId) {
+    await assertMarkedProject(token, externalId);
     const res = await fetch(`${DRIVE_API}/drive/v3/files/${externalId}`, {
       method: 'DELETE',
       headers: { Authorization: `Bearer ${token}` },
@@ -221,6 +296,7 @@ export const googleStorage: StorageProvider = {
   },
 
   async setPublic(token, externalId, isPublic) {
+    await assertMarkedProject(token, externalId);
     if (isPublic) {
       const res = await fetch(`${DRIVE_API}/drive/v3/files/${externalId}/permissions`, {
         method: 'POST',
@@ -259,6 +335,7 @@ export const googleStorage: StorageProvider = {
   },
 
   async isPublic(token, externalId) {
+    await assertMarkedProject(token, externalId);
     const res = await fetch(
       `${DRIVE_API}/drive/v3/files/${externalId}/permissions?fields=permissions(type)`,
       { headers: authHeaders(token) },

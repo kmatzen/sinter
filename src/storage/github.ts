@@ -31,16 +31,28 @@ function nameFromGist(gist: { description?: string | null; files?: Record<string
   return 'Untitled';
 }
 
-async function getGistFilename(token: string | null, externalId: string): Promise<{ filename: string; raw: any }> {
+interface GistFile {
+  content?: string;
+  truncated?: boolean;
+  raw_url?: string;
+}
+
+function selectProjectFile(files: Record<string, GistFile> | undefined): { filename: string; file: GistFile } {
+  const matches = Object.entries(files ?? {}).filter(([name]) => name.startsWith(FILE_PREFIX));
+  if (matches.length === 0) throw new Error('Gist does not contain a Sinter project file');
+  if (matches.length > 1) throw new Error('Gist contains multiple Sinter project files; remove the duplicate before continuing');
+  const [filename, file] = matches[0];
+  return { filename, file };
+}
+
+async function getGistProject(token: string | null, externalId: string): Promise<{ filename: string; file: GistFile }> {
   const headers = token
     ? authHeaders(token)
     : { Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' };
   const res = await fetch(`${API}/gists/${externalId}`, { headers });
   if (!res.ok) throw new Error(`GitHub API error (${res.status}): ${await res.text()}`);
   const data = await res.json();
-  const filename = Object.keys(data.files || {})[0];
-  if (!filename) throw new Error('Gist has no files');
-  return { filename, raw: data };
+  return selectProjectFile(data.files);
 }
 
 export const githubStorage: StorageProvider = {
@@ -75,9 +87,7 @@ export const githubStorage: StorageProvider = {
   },
 
   async read(token, externalId) {
-    const { raw } = await getGistFilename(token, externalId);
-    const file = Object.values(raw.files || {})[0] as { content?: string; truncated?: boolean; raw_url?: string };
-    if (!file) throw new Error('Project file not found in gist');
+    const { file } = await getGistProject(token, externalId);
     let content = file.content || '';
     if (file.truncated && file.raw_url) {
       const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
@@ -105,7 +115,7 @@ export const githubStorage: StorageProvider = {
   },
 
   async update(token, externalId, body) {
-    const { filename } = await getGistFilename(token, externalId);
+    const { filename } = await getGistProject(token, externalId);
     const res = await fetch(`${API}/gists/${externalId}`, {
       method: 'PATCH',
       headers: authHeaders(token),
