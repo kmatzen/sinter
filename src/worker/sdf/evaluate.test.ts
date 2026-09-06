@@ -3,6 +3,61 @@ import { evaluateSDF } from './evaluate';
 import type { SDFNode, Vec3 } from './types';
 
 describe('evaluateSDF', () => {
+  describe('world-space modifier dimensions', () => {
+    const scaledBox: SDFNode = {
+      kind: 'transform', child: { kind: 'box', size: [20, 20, 20] },
+      tx: 0, ty: 0, tz: 0, rx: 0, ry: 0, rz: 0, sx: 6, sy: 1, sz: 2,
+    };
+
+    it.each([
+      ['X', [62, 0, 0] as Vec3],
+      ['Y', [0, 12, 0] as Vec3],
+      ['Z', [0, 0, 22] as Vec3],
+    ])('keeps a 2 mm round at 2 mm on the %s face', (_axis, point) => {
+      expect(evaluateSDF({ kind: 'round', child: scaledBox, radius: 2 }, point)).toBeCloseTo(0, 3);
+    });
+
+    it('keeps offset and shell thickness physical under non-uniform scale', () => {
+      expect(evaluateSDF({ kind: 'offset', child: scaledBox, distance: 2 }, [62, 0, 0])).toBeCloseTo(0, 3);
+      const shell: SDFNode = { kind: 'shell', child: scaledBox, thickness: 4 };
+      expect(evaluateSDF(shell, [62, 0, 0])).toBeCloseTo(0, 3);
+      expect(evaluateSDF(shell, [58, 0, 0])).toBeCloseTo(0, 3);
+    });
+
+    it('composes nested physical modifiers', () => {
+      const nested: SDFNode = { kind: 'round', radius: 2, child: { kind: 'offset', distance: 1, child: scaledBox } };
+      expect(evaluateSDF(nested, [63, 0, 0])).toBeCloseTo(0, 2);
+    });
+
+    it('corrects ellipsoid fields on differently oriented principal surfaces', () => {
+      const rounded: SDFNode = { kind: 'round', radius: 2, child: { kind: 'ellipsoid', size: [10, 20, 30] } };
+      expect(evaluateSDF(rounded, [7, 0, 0])).toBeCloseTo(0, 2);
+      expect(evaluateSDF(rounded, [0, 12, 0])).toBeCloseTo(0, 2);
+      expect(evaluateSDF(rounded, [0, 0, 17])).toBeCloseTo(0, 2);
+    });
+
+    it.each(['union', 'subtract', 'intersect'] as const)('supports %s children', (kind) => {
+      const other: SDFNode = kind === 'intersect'
+        ? { kind: 'box', size: [200, 200, 200] }
+        : kind === 'subtract'
+          ? { kind: 'sphere', radius: 3 }
+          : { kind: 'transform', child: { kind: 'sphere', radius: 3 }, tx: 0, ty: 100, tz: 0, rx: 0, ry: 0, rz: 0, sx: 1, sy: 1, sz: 1 };
+      const child: SDFNode = { kind, a: scaledBox, b: other, k: 0 };
+      expect(evaluateSDF({ kind: 'round', child, radius: 2 }, [62, 0, 0])).toBeCloseTo(0, 2);
+    });
+
+    it('supports smooth booleans and patterns', () => {
+      const smooth: SDFNode = {
+        kind: 'union', a: scaledBox,
+        b: { kind: 'transform', child: { kind: 'sphere', radius: 5 }, tx: 0, ty: 30, tz: 0, rx: 0, ry: 0, rz: 0, sx: 1, sy: 1, sz: 1 },
+        k: 1,
+      };
+      expect(evaluateSDF({ kind: 'offset', child: smooth, distance: 2 }, [62, 0, 0])).toBeCloseTo(0, 2);
+      const pattern: SDFNode = { kind: 'linearPattern', child: scaledBox, axis: [0, 1, 0], count: 2, spacing: 100 };
+      expect(evaluateSDF({ kind: 'round', child: pattern, radius: 2 }, [62, 100, 0])).toBeCloseTo(0, 2);
+    });
+  });
+
   describe('primitives', () => {
     it('box: center is inside', () => {
       const box: SDFNode = { kind: 'box', size: [10, 10, 10] };

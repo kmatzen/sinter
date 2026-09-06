@@ -2,6 +2,7 @@ import type { SDFNode, Vec3 } from './types';
 import { hasGlyphOutlines } from './types';
 import { sampleMeshField } from './meshField';
 import { linearWindow, circularWindow } from './patternWindow';
+import { fieldScale } from './bounds';
 
 /**
  * Evaluate the field at a point.
@@ -19,6 +20,27 @@ import { linearWindow, circularWindow } from './patternWindow';
  */
 export function evaluateSDF(node: SDFNode, p: Vec3): number {
   return evalAt(node, p[0], p[1], p[2]);
+}
+
+const scaleCache = new WeakMap<object, number>();
+function cachedFieldScale(node: SDFNode): number {
+  let scale = scaleCache.get(node);
+  if (scale === undefined) { scale = fieldScale(node); scaleCache.set(node, scale); }
+  return scale;
+}
+
+/** Convert a conservative implicit field into a local world-space distance. */
+function localDistance(node: SDFNode, px: number, py: number, pz: number): number {
+  const raw = evalAt(node, px, py, pz);
+  const maxCorrection = cachedFieldScale(node);
+  if (maxCorrection <= 1 + 1e-9) return raw;
+  const e = 1e-3;
+  const gx = (evalAt(node, px + e, py, pz) - evalAt(node, px - e, py, pz)) / (2 * e);
+  const gy = (evalAt(node, px, py + e, pz) - evalAt(node, px, py - e, pz)) / (2 * e);
+  const gz = (evalAt(node, px, py, pz + e) - evalAt(node, px, py, pz - e)) / (2 * e);
+  const gradient = Math.hypot(gx, gy, gz);
+  const correction = Math.max(1, Math.min(maxCorrection, 1 / Math.max(gradient, 1e-9)));
+  return raw * correction;
 }
 
 /**
@@ -144,11 +166,13 @@ export function evalAt(node: SDFNode, px: number, py: number, pz: number): numbe
       return Math.max(a, b);
     }
     case 'shell':
-      return Math.abs(evalAt(node.child, px, py, pz)) - node.thickness / 2;
+      return (Math.abs(localDistance(node.child, px, py, pz)) - node.thickness / 2) / cachedFieldScale(node.child);
     case 'offset':
-      return evalAt(node.child, px, py, pz) - node.distance;
+      if (node.distance === 0) return evalAt(node.child, px, py, pz);
+      return (localDistance(node.child, px, py, pz) - node.distance) / cachedFieldScale(node.child);
     case 'round':
-      return evalAt(node.child, px, py, pz) - node.radius;
+      if (node.radius === 0) return evalAt(node.child, px, py, pz);
+      return (localDistance(node.child, px, py, pz) - node.radius) / cachedFieldScale(node.child);
     case 'transform': {
       // Inverse transform the point: R^-1((p - t) / s).
       let qx = (px - node.tx) / node.sx;

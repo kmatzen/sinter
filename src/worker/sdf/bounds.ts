@@ -47,10 +47,10 @@ export function computeBounds(node: SDFNode): BBox {
       };
       return expandBounds(result, node.k);
     }
-    // The level-set modifiers move the surface out by `r` only when the child
-    // reports true Euclidean distance.  Where it underestimates — most sharply
-    // under a non-uniform scale — the surface lands proportionally further out,
-    // so the margin is scaled by the child's field factor.  See fieldScale.
+    // Surface evaluation re-distances in world space. These are computational
+    // safety bounds, so they retain the maximum correction factor: finite
+    // gradient sampling can land a fraction beyond the analytic Minkowski box
+    // off principal axes, and clipping is worse than a conservative margin.
     case 'shell':
       return expandBounds(computeBounds(node.child), (node.thickness / 2) * fieldScale(node.child));
     case 'offset':

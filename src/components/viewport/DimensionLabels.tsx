@@ -4,6 +4,7 @@ import { useModelerStore } from '../../store/modelerStore';
 import { useViewportStore } from '../../store/viewportStore';
 import { nodeWorldBounds } from '../../engine/nodeBounds';
 import type { ThreeEngine } from '../../engine/ThreeEngine';
+import type { SDFNodeUI } from '../../types/operations';
 
 function project(point: THREE.Vector3, camera: THREE.PerspectiveCamera, w: number, h: number) {
   const v = point.clone().project(camera);
@@ -13,6 +14,31 @@ function project(point: THREE.Vector3, camera: THREE.PerspectiveCamera, w: numbe
 /** SVG attribute setter shorthand */
 function setAttrs(el: SVGElement, attrs: Record<string, string | number>) {
   for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, String(v));
+}
+
+function usesConservativeModifierBounds(node: SDFNodeUI | null): boolean {
+  if (!node) return false;
+  const inexactChild = (child: typeof node): boolean => {
+    if (!child) return false;
+    if (child.kind === 'ellipsoid') return true;
+    if (child.kind === 'scale') {
+      const s = [child.params.x ?? 1, child.params.y ?? 1, child.params.z ?? 1];
+      if (Math.max(...s) - Math.min(...s) > 1e-9) return true;
+    }
+    return child.children.some(inexactChild);
+  };
+  if (['round', 'offset', 'shell'].includes(node.kind) && inexactChild(node.children[0])) return true;
+  return node.children.some(usesConservativeModifierBounds);
+}
+
+function findNodeForBounds(tree: SDFNodeUI | null, id: string | null): SDFNodeUI | null {
+  if (!tree || !id) return null;
+  if (tree.id === id) return tree;
+  for (const child of tree.children) {
+    const found = findNodeForBounds(child, id);
+    if (found) return found;
+  }
+  return null;
 }
 
 /**
@@ -71,6 +97,10 @@ export function DimensionLabels({ engine }: { engine: ThreeEngine | null }) {
     () => nodeWorldBounds(tree, selectedId || tree?.id || null),
     [tree, selectedId],
   );
+  const conservative = useMemo(
+    () => usesConservativeModifierBounds(findNodeForBounds(tree, selectedId || tree?.id || null)),
+    [tree, selectedId],
+  );
 
   // Ensure we have exactly 3 dim groups in the SVG (X, Y, Z)
   useEffect(() => {
@@ -102,19 +132,19 @@ export function DimensionLabels({ engine }: { engine: ThreeEngine | null }) {
         s: new THREE.Vector3(x0, y0 - oy, z1 + oz),
         e: new THREE.Vector3(x1, y0 - oy, z1 + oz),
         m: new THREE.Vector3((x0 + x1) / 2, y0 - oy, z1 + oz),
-        label: w.toFixed(1),
+        label: `${conservative ? '≤' : ''}${w.toFixed(1)}`,
       },
       { // Y — right front edge
         s: new THREE.Vector3(x1 + ox, y0, z1 + oz),
         e: new THREE.Vector3(x1 + ox, y1, z1 + oz),
         m: new THREE.Vector3(x1 + ox, (y0 + y1) / 2, z1 + oz),
-        label: h.toFixed(1),
+        label: `${conservative ? '≤' : ''}${h.toFixed(1)}`,
       },
       { // Z — bottom right edge
         s: new THREE.Vector3(x1 + ox, y0 - oy, z0),
         e: new THREE.Vector3(x1 + ox, y0 - oy, z1),
         m: new THREE.Vector3(x1 + ox, y0 - oy, (z0 + z1) / 2),
-        label: d.toFixed(1),
+        label: `${conservative ? '≤' : ''}${d.toFixed(1)}`,
       },
     ];
 
@@ -159,7 +189,7 @@ export function DimensionLabels({ engine }: { engine: ThreeEngine | null }) {
       off();
       for (const dg of dimGroupsRef.current) dg.group.style.display = 'none';
     };
-  }, [engine, nodeBounds, showDimensions]);
+  }, [engine, nodeBounds, showDimensions, conservative]);
 
   return (
     <svg ref={svgRef} className="absolute inset-0 w-full h-full pointer-events-none z-10" style={{ overflow: 'visible' }}>

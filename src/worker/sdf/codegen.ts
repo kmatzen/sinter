@@ -1,6 +1,7 @@
 import type { SDFNode } from './types';
 import { hasGlyphOutlines } from './types';
 import { linearWindow, circularWindow } from './patternWindow';
+import { fieldScale } from './bounds';
 
 let varCounter = 0;
 let paramIndex = 0;
@@ -102,6 +103,27 @@ function emitAsFunction(node: SDFNode): string {
   helperFunctions.push(
     `float ${fnName}(vec3 hp) {\n  ${fnLines.join('\n  ')}\n  return ${childResult};\n}`
   );
+  return fnName;
+}
+
+/** Emit the CPU evaluator's bounded local gradient re-distancing. */
+function emitDistanceFunction(node: SDFNode): string {
+  const childFn = emitAsFunction(node);
+  const scale = fieldScale(node);
+  if (scale <= 1 + 1e-9) return childFn;
+  const fnName = `sdf_distance_${helperCounter++}`;
+  const s = up(scale);
+  helperFunctions.push(`float ${fnName}(vec3 rp) {
+  float raw = ${childFn}(rp);
+  float e = 0.001;
+  vec3 grad = vec3(
+    ${childFn}(rp + vec3(e, 0.0, 0.0)) - ${childFn}(rp - vec3(e, 0.0, 0.0)),
+    ${childFn}(rp + vec3(0.0, e, 0.0)) - ${childFn}(rp - vec3(0.0, e, 0.0)),
+    ${childFn}(rp + vec3(0.0, 0.0, e)) - ${childFn}(rp - vec3(0.0, 0.0, e))
+  ) / (2.0 * e);
+  float correction = clamp(1.0 / max(length(grad), 1e-9), 1.0, ${s});
+  return raw * correction;
+}`);
   return fnName;
 }
 
@@ -461,18 +483,20 @@ function emitNode(node: SDFNode, pVar: string, lines: string[]): string {
       return result;
     }
     case 'shell': {
-      const child = emitNode(node.child, pVar, lines);
-      lines.push(`float ${result} = abs(${child}) - ${up(node.thickness / 2)};`);
+      const child = emitDistanceFunction(node.child);
+      lines.push(`float ${result} = (abs(${child}(${pVar})) - ${up(node.thickness / 2)}) / ${up(fieldScale(node.child))};`);
       return result;
     }
     case 'offset': {
-      const child = emitNode(node.child, pVar, lines);
-      lines.push(`float ${result} = ${child} - ${up(node.distance)};`);
+      if (node.distance === 0) return emitNode(node.child, pVar, lines);
+      const child = emitDistanceFunction(node.child);
+      lines.push(`float ${result} = (${child}(${pVar}) - ${up(node.distance)}) / ${up(fieldScale(node.child))};`);
       return result;
     }
     case 'round': {
-      const child = emitNode(node.child, pVar, lines);
-      lines.push(`float ${result} = ${child} - ${up(node.radius)};`);
+      if (node.radius === 0) return emitNode(node.child, pVar, lines);
+      const child = emitDistanceFunction(node.child);
+      lines.push(`float ${result} = (${child}(${pVar}) - ${up(node.radius)}) / ${up(fieldScale(node.child))};`);
       return result;
     }
     case 'transform': {
