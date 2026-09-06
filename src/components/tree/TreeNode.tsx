@@ -23,9 +23,10 @@ interface Props {
   depth: number;
   isLast?: boolean;
   incompleteIds?: Set<string>;
+  forceExpanded?: boolean;
 }
 
-export function TreeNode({ node, depth, isLast = true, incompleteIds: incompleteIdsProp }: Props) {
+export function TreeNode({ node, depth, isLast = true, incompleteIds: incompleteIdsProp, forceExpanded = false }: Props) {
   // Only subscribe to tree at the root level (when incompleteIdsProp is not provided)
   const tree = useModelerStore((s) => incompleteIdsProp ? null : s.tree);
   const selectedId = useModelerStore((s) => s.selectedNodeId);
@@ -37,6 +38,7 @@ export function TreeNode({ node, depth, isLast = true, incompleteIds: incomplete
   const duplicateSelected = useModelerStore((s) => s.duplicateSelected);
   const moveNode = useModelerStore((s) => s.moveNode);
   const addNodeFromData = useModelerStore((s) => s.addNodeFromData);
+  const renameNode = useModelerStore((s) => s.renameNode);
   // Subscribe to booleans so only rows whose hover state changes re-render.
   const isHovered = useViewportStore((s) => s.hoveredNodeId === node.id);
   const setHoveredNode = useViewportStore((s) => s.setHoveredNode);
@@ -44,6 +46,8 @@ export function TreeNode({ node, depth, isLast = true, incompleteIds: incomplete
   const beginMove = useTreeUiStore((s) => s.beginMove);
   const cancelMove = useTreeUiStore((s) => s.cancelMove);
   const [dragOver, setDragOver] = useState(false);
+  const [renaming, setRenaming] = useState(false);
+  const [draftLabel, setDraftLabel] = useState(node.label);
 
   // Compute incomplete IDs once at the root, pass down to children
   const incompleteIds = useMemo(
@@ -58,17 +62,20 @@ export function TreeNode({ node, depth, isLast = true, incompleteIds: incomplete
   const isSelected = selectedId === node.id;
   const expected = expectedChildren(node.kind);
   const hasChildren = node.children.length > 0 || expected > 0;
-  const isExpanded = expandedNodes.has(node.id) || isIncomplete;
+  const isExpanded = forceExpanded || expandedNodes.has(node.id) || isIncomplete;
   const missingSlots = Math.max(0, expected - node.children.length);
   const summary = nodeSummary(node);
   const color = KIND_COLORS[node.kind] || '#888';
+  const kindLabel = NODE_LABELS[node.kind] || node.kind;
+  const displayLabel = node.label || kindLabel;
+  const accessibleLabel = displayLabel === kindLabel ? kindLabel : `${displayLabel}, ${kindLabel}`;
   const visualDepth = Math.min(depth, MAX_VISUAL_DEPTH);
   const leftPad = visualDepth * INDENT + 6;
 
   // Scroll selected node into view (e.g. after viewport pick)
   useEffect(() => {
     if (isSelected && rowRef.current) {
-      rowRef.current.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      rowRef.current.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' });
     }
   }, [isSelected]);
 
@@ -108,7 +115,7 @@ export function TreeNode({ node, depth, isLast = true, incompleteIds: incomplete
         tabIndex={isSelected || (!selectedId && depth === 0) ? 0 : -1}
         aria-selected={isSelected}
         aria-expanded={hasChildren ? isExpanded : undefined}
-        aria-label={`${NODE_LABELS[node.kind] || node.kind}${isIncomplete ? ', incomplete' : ''}${node.enabled ? '' : ', disabled'}`}
+        aria-label={`${accessibleLabel}${isIncomplete ? ', incomplete' : ''}${node.enabled ? '' : ', disabled'}`}
         className="flex items-center gap-1 pr-1.5 h-[26px] tap-h cursor-pointer relative"
         style={{
           paddingLeft: `${leftPad}px`,
@@ -156,7 +163,7 @@ export function TreeNode({ node, depth, isLast = true, incompleteIds: incomplete
         }}
         onMouseEnter={() => setHoveredNode(node.id)}
         onMouseLeave={() => setHoveredNode(null)}
-        draggable
+        draggable={!renaming}
         onDragStart={(e) => {
           e.dataTransfer.setData('text/plain', node.id);
           e.dataTransfer.effectAllowed = 'move';
@@ -205,12 +212,33 @@ export function TreeNode({ node, depth, isLast = true, incompleteIds: incomplete
         />
 
         {/* Label */}
-        <span
-          className="text-[11px] font-medium truncate shrink-0"
-          style={{ color: isIncomplete ? '#d45a5a' : isSelected ? 'var(--text-primary)' : 'var(--text-secondary)' }}
-        >
-          {NODE_LABELS[node.kind] || node.kind}
-        </span>
+        {renaming ? (
+          <input
+            autoFocus
+            aria-label={`Rename ${node.label}`}
+            value={draftLabel}
+            maxLength={256}
+            className="min-w-0 w-28 h-5 px-1 rounded text-[11px]"
+            style={{ background: 'var(--bg-deep)', color: 'var(--text-primary)', border: '1px solid var(--accent)' }}
+            onClick={(event) => event.stopPropagation()}
+            onChange={(event) => setDraftLabel(event.target.value)}
+            onBlur={() => { renameNode(node.id, draftLabel); setRenaming(false); }}
+            onKeyDown={(event) => {
+              event.stopPropagation();
+              if (event.key === 'Enter') event.currentTarget.blur();
+              if (event.key === 'Escape') { setDraftLabel(node.label); setRenaming(false); rowRef.current?.focus(); }
+            }}
+          />
+        ) : (
+          <span
+            className="text-[11px] font-medium truncate shrink-0 max-w-28"
+            style={{ color: isIncomplete ? '#d45a5a' : isSelected ? 'var(--text-primary)' : 'var(--text-secondary)' }}
+            title={`${displayLabel} (${kindLabel})`}
+            onDoubleClick={(event) => { event.stopPropagation(); setDraftLabel(node.label); setRenaming(true); }}
+          >
+            {displayLabel}
+          </span>
+        )}
 
         {/* Incomplete warning */}
         {isIncomplete && (
@@ -239,6 +267,15 @@ export function TreeNode({ node, depth, isLast = true, incompleteIds: incomplete
             restructure a tree at all — only add to it and delete from it.
             Picking up here arms the tap-to-place handler on every other row.
           */}
+          <button
+            onClick={(e) => { e.stopPropagation(); setDraftLabel(node.label); setRenaming(true); }}
+            className="w-5 h-5 tap flex items-center justify-center rounded text-[10px]"
+            style={{ color: 'var(--text-muted)' }}
+            title="Rename"
+            aria-label={`Rename ${node.label}`}
+          >
+            {'✎'}
+          </button>
           <button
             onClick={(e) => {
               e.stopPropagation();
@@ -305,6 +342,7 @@ export function TreeNode({ node, depth, isLast = true, incompleteIds: incomplete
                 depth={depth + 1}
                 isLast={i === node.children.length - 1 && missingSlots === 0}
                 incompleteIds={incompleteIds}
+                forceExpanded={forceExpanded}
               />
             )
           ))}

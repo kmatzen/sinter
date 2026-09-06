@@ -53,6 +53,7 @@ interface ModelerState {
   setNamedParameters: (parameters: NamedParameter[]) => void;
   promoteNodeParam: (id: string, key: string, name: string, unit?: ParameterUnit) => void;
   updateNodeData: (id: string, data: Record<string, string>) => void;
+  renameNode: (id: string, label: string) => void;
   changeNodeKind: (id: string, kind: string) => void;
   removeNode: (id: string) => void;
   replaceNode: (id: string, replacement: SDFNodeUI) => void;
@@ -422,6 +423,16 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
       data: { ...node.data, ...data },
     }));
     set(commit(get(), newTree));
+  },
+
+  renameNode: (id, label) => {
+    const state = get();
+    if (!state.tree) return;
+    const current = findNode(state.tree, id);
+    if (!current) return;
+    const nextLabel = label.trim().slice(0, 256) || NODE_LABELS[current.kind] || current.kind;
+    if (nextLabel === current.label) return;
+    set(commit(state, updateInTree(state.tree, id, (node) => ({ ...node, label: nextLabel }))));
   },
 
   changeNodeKind: (id, kind) => {

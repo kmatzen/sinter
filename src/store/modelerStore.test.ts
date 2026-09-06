@@ -49,6 +49,31 @@ describe('Modeler editing scenarios', () => {
       getState().addPrimitive('box');
       expect(getState().selectedNodeId).toBe(getState().tree!.id);
     });
+
+    it('renames nodes as an undoable document change that round-trips', () => {
+      getState().addPrimitive('box');
+      const id = getState().tree!.id;
+      getState().renameNode(id, '  Main enclosure  ');
+      expect(getState().tree!.label).toBe('Main enclosure');
+
+      getState().undo();
+      expect(getState().tree!.label).toBe('Box');
+      getState().redo();
+      const json = getState().toJSON();
+      reset();
+      getState().fromJSON(json);
+      expect(getState().tree!.label).toBe('Main enclosure');
+      expect(getState().tree!.kind).toBe('box');
+    });
+
+    it('restores the type label for an empty rename and avoids no-op history', () => {
+      getState().addPrimitive('box');
+      const id = getState().tree!.id;
+      const before = getState().historyIndex;
+      getState().renameNode(id, '   ');
+      expect(getState().tree!.label).toBe('Box');
+      expect(getState().historyIndex).toBe(before);
+    });
   });
 
   describe('Scenario: parameter invariants', () => {
