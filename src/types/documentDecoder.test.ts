@@ -95,6 +95,11 @@ describe('document decoder', () => {
     let binary = '';
     for (const byte of new Uint8Array(values.buffer)) binary += String.fromCharCode(byte);
     expect(() => decodeTree(mesh(btoa(binary)))).toThrow(/non-finite/);
+
+    const openTriangle = new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]);
+    binary = '';
+    for (const byte of new Uint8Array(openTriangle.buffer)) binary += String.fromCharCode(byte);
+    expect(() => decodeTree(mesh(btoa(binary)))).toThrow(/not a valid solid.*boundary edge/);
   });
 
   it('validates text outline containers, metrics, tags, coordinates, and count', () => {

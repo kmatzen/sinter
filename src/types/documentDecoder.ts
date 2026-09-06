@@ -3,6 +3,7 @@ import { normalizeNodeParams } from './parameterSchema';
 import type { ProjectCheckpoint, ProjectFileBody } from '../storage/types';
 import type { NamedParameter } from './operations';
 import { FormulaError, resolveNamedParameters, resolveTreeFormulas } from './formulas';
+import { STLParseError, validateSTLTopology } from '../worker/sdf/stl';
 
 export const CURRENT_DOCUMENT_VERSION = 2;
 export const MAX_PROJECT_CHECKPOINTS = 10;
@@ -77,6 +78,14 @@ function validateMeshPayload(value: string, path: string): void {
     if (!Number.isFinite(values[i]) || Math.abs(values[i]) > 1e6) {
       throw new DocumentDecodeError(`${path} mesh coordinate ${i} is non-finite or outside the supported range`);
     }
+  }
+  try {
+    validateSTLTopology(values);
+  } catch (error) {
+    if (error instanceof STLParseError) {
+      throw new DocumentDecodeError(`${path} imported mesh is not a valid solid: ${error.message}`);
+    }
+    throw error;
   }
 }
 
