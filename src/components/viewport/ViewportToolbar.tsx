@@ -1,6 +1,6 @@
 import { useViewportStore } from '../../store/viewportStore';
 import { triggerDownload } from '../../utils/download';
-import { Move, RotateCcw, Magnet, Camera, Ruler, Scissors, Scaling, Crosshair, Plus, Trash2 } from 'lucide-react';
+import { Move, RotateCcw, Magnet, Camera, Ruler, Scissors, Scaling, Crosshair, Plus, Trash2, Scan } from 'lucide-react';
 import type { ThreeEngine } from '../../engine/ThreeEngine';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import * as THREE from 'three';
@@ -129,6 +129,9 @@ export function ViewportToolbar({ engine }: { engine: ThreeEngine | null }) {
   const toggleSnap = useViewportStore((s) => s.toggleSnap);
   const snapSize = useViewportStore((s) => s.snapSize);
   const setSnapSize = useViewportStore((s) => s.setSnapSize);
+  const objectSnapEnabled = useViewportStore((s) => s.objectSnapEnabled);
+  const toggleObjectSnap = useViewportStore((s) => s.toggleObjectSnap);
+  const snapIndicator = useViewportStore((s) => s.snapIndicator);
   const displayUnit = useViewportStore((s) => s.measurementUnit);
   const decimalPrecision = useViewportStore((s) => s.measurementPrecision);
   const fractionalDenominator = useViewportStore((s) => s.measurementFractionalDenominator);
@@ -168,6 +171,15 @@ export function ViewportToolbar({ engine }: { engine: ThreeEngine | null }) {
             {gizmoSpace === 'world' ? 'W' : 'L'}
           </SmallBtn>
         </BtnGroup>
+
+        <VpBtn active={objectSnapEnabled} onClick={toggleObjectSnap} title="Snap to objects, bounds, and world origin">
+          <Scan size={ICON} />
+        </VpBtn>
+        {snapIndicator && (
+          <div role="status" className="tap-h flex items-center rounded-lg px-2 text-[10px]" style={{ background: 'var(--accent)', color: 'var(--bg-deep)' }}>
+            Snapped to {snapIndicator.label}
+          </div>
+        )}
 
         <BtnGroup>
           <select
