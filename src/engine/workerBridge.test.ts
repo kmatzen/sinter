@@ -58,7 +58,7 @@ function sdfResponse(rid: number, glsl: string) {
 }
 
 const exportResult = (rid: number) => ({
-  type: 'exportResult', rid, format: 'stl', data: new ArrayBuffer(8),
+  type: 'exportResult', rid, format: 'stl', data: new ArrayBuffer(8), vertexCount: 6, triangleCount: 2,
 });
 
 let bridge: typeof import('./workerBridge').workerBridge;
@@ -107,7 +107,8 @@ describe('WorkerBridge channels', () => {
     // And the export still completes afterwards.
     exportWorker.emit(exportResult(exportWorker.sent[0].rid));
     await flush();
-    expect(exported.value).toBeInstanceOf(Blob);
+    expect(exported.value?.blob).toBeInstanceOf(Blob);
+    expect(exported.value?.triangleCount).toBe(2);
   });
 
   it('routes both export formats to the export worker, one at a time', async () => {
@@ -141,7 +142,7 @@ describe('WorkerBridge channels', () => {
 
     exportWorker.emit(exportResult(exportWorker.sent[0].rid));
     await flush();
-    expect(exported.value).toBeInstanceOf(Blob);
+    expect(exported.value?.blob).toBeInstanceOf(Blob);
   });
 
   it('rejects queued requests on a crashed worker too', async () => {
@@ -209,7 +210,7 @@ describe('WorkerBridge correlation ids', () => {
 
     // The old design left this pending forever — Toolbar's await never returned.
     expect(exported.settled).toBe(true);
-    expect(exported.value).toBeInstanceOf(Blob);
+    expect(exported.value?.blob).toBeInstanceOf(Blob);
 
     evalWorker.emit(sdfResponse(evalWorker.sent[0].rid, 'GLSL'));
     await flush();
@@ -326,7 +327,7 @@ describe('WorkerBridge admission control (#51)', () => {
     expect(queuedExport.settled).toBe(false);
     exportWorker.emit(exportResult(exportWorker.sent[0].rid));
     await flush();
-    expect(exported.value).toBeInstanceOf(Blob);
+    expect(exported.value?.blob).toBeInstanceOf(Blob);
     expect(exportWorker.sent).toHaveLength(2);
   });
 });
@@ -409,7 +410,7 @@ describe('WorkerBridge export cancellation (#51)', () => {
 
     fresh.emit(exportResult(fresh.sent[0].rid));
     await flush();
-    expect(next.value).toBeInstanceOf(Blob);
+    expect(next.value?.blob).toBeInstanceOf(Blob);
   });
 
   it('is a no-op when nothing is exporting', async () => {

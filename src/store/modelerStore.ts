@@ -646,13 +646,15 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
     if (!tree) return;
 
     function simplify(node: SDFNodeUI): SDFNodeUI | null {
+      if (node.kind === '_empty') return node;
       // Remove disabled nodes
       if (!node.enabled) return null;
 
       // Recursively simplify children first
-      const children = node.children
-        .map(simplify)
-        .filter((c): c is SDFNodeUI => c !== null);
+      const isBoolean = ['union', 'subtract', 'intersect'].includes(node.kind);
+      const children = isBoolean
+        ? node.children.map((child) => simplify(child) ?? emptySlot())
+        : node.children.map(simplify).filter((c): c is SDFNodeUI => c !== null);
 
       const simplified = { ...node, children };
 
@@ -676,14 +678,12 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
         }
       }
 
-      // Collapse single-child booleans
-      if (['union', 'subtract', 'intersect'].includes(simplified.kind) && children.length === 1) {
-        return children[0];
-      }
-
-      // Remove booleans with no children
-      if (['union', 'subtract', 'intersect'].includes(simplified.kind) && children.length === 0) {
-        return null;
+      const realChildren = children.filter((child) => child.enabled && child.kind !== '_empty');
+      // Union has a true one-child identity. Subtract and intersect do not:
+      // retaining their slots preserves operand roles and keeps them visibly
+      // incomplete instead of silently changing the model.
+      if (simplified.kind === 'union' && realChildren.length < 2) {
+        return realChildren[0] || null;
       }
 
       // Remove modifiers/patterns with no children
@@ -692,20 +692,9 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
       }
 
       // Collapse nested transforms of the same kind
-      if (['translate', 'rotate', 'scale'].includes(simplified.kind) && children.length === 1 && children[0].kind === simplified.kind) {
+      if (['translate', 'scale'].includes(simplified.kind) && children.length === 1 && children[0].kind === simplified.kind) {
         const inner = children[0];
         if (simplified.kind === 'translate') {
-          return {
-            ...simplified,
-            params: {
-              x: (simplified.params.x || 0) + (inner.params.x || 0),
-              y: (simplified.params.y || 0) + (inner.params.y || 0),
-              z: (simplified.params.z || 0) + (inner.params.z || 0),
-            },
-            children: inner.children,
-          };
-        }
-        if (simplified.kind === 'rotate') {
           return {
             ...simplified,
             params: {
@@ -720,9 +709,9 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
           return {
             ...simplified,
             params: {
-              x: (simplified.params.x || 1) * (inner.params.x || 1),
-              y: (simplified.params.y || 1) * (inner.params.y || 1),
-              z: (simplified.params.z || 1) * (inner.params.z || 1),
+              x: (simplified.params.x ?? 1) * (inner.params.x ?? 1),
+              y: (simplified.params.y ?? 1) * (inner.params.y ?? 1),
+              z: (simplified.params.z ?? 1) * (inner.params.z ?? 1),
             },
             children: inner.children,
           };

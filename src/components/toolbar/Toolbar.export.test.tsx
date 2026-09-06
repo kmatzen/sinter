@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, cleanup, act } from '@testing-library/react';
 import type { SDFNodeUI } from '../../types/operations';
+import type { ExportArtifact } from '../../types/geometry';
 
 /**
  * The bridge is a module-level singleton that spawns two real Workers on
@@ -41,23 +42,13 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
-/**
- * A blob whose header read is a promise we control. The real component reads
- * the STL triangle count with `await blob.slice(80, 84).arrayBuffer()`, and
- * that await is the window this suite is about — see the `exportEpoch` comment
- * in Toolbar.tsx.
- */
-function pendingBlob(size: number, header: Promise<ArrayBuffer>) {
-  return { size, slice: () => ({ arrayBuffer: () => header }) } as unknown as Blob;
+function artifact(size: number, triangleCount: number): ExportArtifact {
+  return { blob: { size } as Blob, vertexCount: triangleCount * 3, triangleCount };
 }
 
-function triangleHeader(count: number): ArrayBuffer {
-  const buf = new ArrayBuffer(4);
-  new DataView(buf).setUint32(0, count, true);
-  return buf;
-}
-
-const BOX: SDFNodeUI = { id: 'n1', kind: 'box', params: { w: 10, h: 10, d: 10 }, children: [] } as unknown as SDFNodeUI;
+const BOX: SDFNodeUI = {
+  id: 'n1', kind: 'box', label: 'Box', params: { width: 10, height: 10, depth: 10 }, children: [], enabled: true,
+};
 
 /** Let queued microtasks run and React commit whatever they scheduled. */
 const flush = () => act(async () => { await new Promise((r) => setTimeout(r, 0)); });
@@ -80,11 +71,11 @@ describe('Toolbar export cancellation', () => {
   }
 
   it('offers the download when an export completes untouched', async () => {
-    const job = deferred<Blob>();
+    const job = deferred<ExportArtifact>();
     exportSTL.mockReturnValue(job.promise);
     await startExport();
 
-    job.resolve(pendingBlob(1024, Promise.resolve(triangleHeader(12))));
+    job.resolve(artifact(1024, 12));
     await waitFor(() => expect(screen.getByText('Download')).toBeInTheDocument());
   });
 
@@ -96,22 +87,17 @@ describe('Toolbar export cancellation', () => {
   // is handed the download they just declined. This is the exact interleaving
   // that failed in CI.
   it('suppresses the preview when cancelled after the worker replied', async () => {
-    const job = deferred<Blob>();
-    const header = deferred<ArrayBuffer>();
+    const job = deferred<ExportArtifact>();
     exportSTL.mockReturnValue(job.promise);
     await startExport();
 
-    // Worker replies. The component resumes and blocks on the header read.
-    job.resolve(pendingBlob(603_996, header.promise));
-    await flush();
-
-    // The window is real: cancel is still offered, and nothing is in flight.
+    // Resolve and cancel in the same turn, before React commits the preview.
+    job.resolve(artifact(603_996, 11_800));
     const cancel = screen.getByTitle('Cancel export');
     expect(cancel).toBeInTheDocument();
     fireEvent.click(cancel);
     expect(cancelExport).toHaveBeenCalledTimes(1);
 
-    header.resolve(triangleHeader(11_800));
     await flush();
 
     expect(screen.queryByText('Download')).not.toBeInTheDocument();
@@ -119,7 +105,7 @@ describe('Toolbar export cancellation', () => {
   });
 
   it('suppresses the preview when the bridge rejects the export', async () => {
-    const job = deferred<Blob>();
+    const job = deferred<ExportArtifact>();
     exportSTL.mockReturnValue(job.promise);
     const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
     await startExport();
@@ -139,7 +125,7 @@ describe('Toolbar export cancellation', () => {
   // The epoch is per-cancel, not a latch: a cancelled export must not poison
   // the next one.
   it('still offers the download for the export started after a cancel', async () => {
-    const first = deferred<Blob>();
+    const first = deferred<ExportArtifact>();
     exportSTL.mockReturnValue(first.promise);
     await startExport();
 
@@ -149,12 +135,12 @@ describe('Toolbar export cancellation', () => {
     first.reject(cancelled);
     await flush();
 
-    const second = deferred<Blob>();
+    const second = deferred<ExportArtifact>();
     exportSTL.mockReturnValue(second.promise);
     fireEvent.click(screen.getByTitle('Export STL'));
     await waitFor(() => expect(screen.getByTitle('Cancel export')).toBeInTheDocument());
 
-    second.resolve(pendingBlob(2048, Promise.resolve(triangleHeader(40))));
+    second.resolve(artifact(2048, 40));
     await waitFor(() => expect(screen.getByText('Download')).toBeInTheDocument());
   });
 
@@ -167,20 +153,20 @@ describe('Toolbar export cancellation', () => {
    */
   it('exports at the resolution the user picked', async () => {
     useViewportStore.getState().setResolution(128);
-    const job = deferred<Blob>();
+    const job = deferred<ExportArtifact>();
     exportSTL.mockReturnValue(job.promise);
     await startExport();
 
     expect(exportSTL).toHaveBeenCalledWith(BOX, expect.any(Function), 128);
 
-    job.resolve(pendingBlob(1024, Promise.resolve(triangleHeader(12))));
+    job.resolve(artifact(1024, 12));
     await flush();
     useViewportStore.getState().setResolution(256);
   });
 
   it('exports 3MF at the resolution the user picked', async () => {
     useViewportStore.getState().setResolution(384);
-    const job = deferred<Blob>();
+    const job = deferred<ExportArtifact>();
     export3MF.mockReturnValue(job.promise);
     render(<Toolbar />);
     fireEvent.click(screen.getByTitle('Export 3MF'));
@@ -188,20 +174,20 @@ describe('Toolbar export cancellation', () => {
 
     expect(export3MF).toHaveBeenCalledWith(BOX, expect.any(Function), 384);
 
-    job.resolve({ size: 2048 } as Blob);
-    await flush();
+    job.resolve(artifact(2048, 7));
+    await waitFor(() => expect(screen.getByText('7')).toBeInTheDocument());
     useViewportStore.getState().setResolution(256);
   });
 
   it('suppresses the 3MF preview when cancelled after the worker replied', async () => {
-    const job = deferred<Blob>();
+    const job = deferred<ExportArtifact>();
     export3MF.mockReturnValue(job.promise);
     render(<Toolbar />);
     fireEvent.click(screen.getByTitle('Export 3MF'));
     await waitFor(() => expect(screen.getByTitle('Cancel export')).toBeInTheDocument());
 
     fireEvent.click(screen.getByTitle('Cancel export'));
-    job.resolve({ size: 4096 } as Blob);
+    job.resolve(artifact(4096, 31));
     await flush();
 
     expect(screen.queryByText('Download')).not.toBeInTheDocument();

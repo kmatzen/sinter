@@ -1,4 +1,4 @@
-import type { WorkerRequest, WorkerResponse, ClipPlane, MeshFitResult } from '../types/geometry';
+import type { WorkerRequest, WorkerResponse, ClipPlane, MeshFitResult, ExportArtifact } from '../types/geometry';
 import type { SDFNodeUI } from '../types/operations';
 import type { SDFDisplayData } from '../store/modelerStore';
 
@@ -214,7 +214,11 @@ class WorkerBridge {
       req.reject(new Error(`Unexpected '${msg.type}' response for export request`));
       return;
     }
-    req.resolve(new Blob([msg.data], { type: req.mime }));
+    req.resolve({
+      blob: new Blob([msg.data], { type: req.mime }),
+      vertexCount: msg.vertexCount,
+      triangleCount: msg.triangleCount,
+    } satisfies ExportArtifact);
   }
 
   private issue<T>(
@@ -269,16 +273,16 @@ class WorkerBridge {
     });
   }
 
-  async exportSTL(tree: SDFNodeUI | null, onProgress?: ProgressHandler, resolution?: number): Promise<Blob> {
-    return this.issue<Blob>(
+  async exportSTL(tree: SDFNodeUI | null, onProgress?: ProgressHandler, resolution?: number): Promise<ExportArtifact> {
+    return this.issue<ExportArtifact>(
       this.exportChannel,
       (rid) => ({ type: 'exportSTL', rid, tree, resolution }),
       { kind: 'export', seq: 0, mime: 'application/octet-stream', onProgress },
     );
   }
 
-  async export3MF(tree: SDFNodeUI | null, onProgress?: ProgressHandler, resolution?: number): Promise<Blob> {
-    return this.issue<Blob>(
+  async export3MF(tree: SDFNodeUI | null, onProgress?: ProgressHandler, resolution?: number): Promise<ExportArtifact> {
+    return this.issue<ExportArtifact>(
       this.exportChannel,
       (rid) => ({ type: 'export3MF', rid, tree, resolution }),
       { kind: 'export', seq: 0, mime: 'application/vnd.ms-package.3dmanufacturing-3dmodel+xml', onProgress },

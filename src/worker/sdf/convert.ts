@@ -55,7 +55,11 @@ export function toSDFNode(ui: SDFNodeUI): SDFNode | null {
   if (!ui.enabled) return null;
 
   const p = ui.params;
-  const children = ui.children.map(toSDFNode).filter((c): c is SDFNode => c !== null);
+  // Keep child positions: for subtract, slot A and slot B are not
+  // interchangeable. Filtering nulls used to turn a lone cutter into a
+  // positive solid while the UI correctly called the tree incomplete.
+  const compiledChildren = ui.children.map(toSDFNode);
+  const children = compiledChildren.filter((c): c is SDFNode => c !== null);
 
   switch (ui.kind) {
     case 'box': return { kind: 'box', size: [p.width, p.height, p.depth] };
@@ -95,10 +99,18 @@ export function toSDFNode(ui: SDFNodeUI): SDFNode | null {
     }
 
     case 'union':
-    case 'subtract':
-    case 'intersect':
-      if (children.length < 2) return children[0] ? markWarn(children[0]) : null;
-      return { kind: ui.kind as 'union' | 'subtract' | 'intersect', a: children[0], b: children[1], k: p.smooth || 0 };
+    case 'intersect': {
+      const [a, b] = compiledChildren;
+      if (!a || !b) return a || b ? markWarn((a || b)!) : null;
+      return { kind: ui.kind, a, b, k: p.smooth || 0 };
+    }
+
+    case 'subtract': {
+      const [a, b] = compiledChildren;
+      if (!a) return null;
+      if (!b) return markWarn(a);
+      return { kind: 'subtract', a, b, k: p.smooth || 0 };
+    }
 
     case 'shell':
       if (children.length < 1) return null;

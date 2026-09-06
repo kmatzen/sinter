@@ -28,6 +28,26 @@ export class STLParseError extends Error {
 /** Header is 80 bytes of comment, then a uint32 triangle count. */
 const BINARY_HEADER = 84;
 const BINARY_TRIANGLE = 50;
+const MAX_ABS_COORDINATE = 1e9;
+
+function validatePositions(positions: ArrayLike<number>): void {
+  if (positions.length === 0) throw new STLParseError('No triangles found — is this an STL file?');
+  const min = [Infinity, Infinity, Infinity];
+  const max = [-Infinity, -Infinity, -Infinity];
+  for (let i = 0; i < positions.length; i++) {
+    const value = positions[i];
+    if (!Number.isFinite(value)) throw new STLParseError(`Vertex coordinate ${i + 1} is not finite`);
+    if (Math.abs(value) > MAX_ABS_COORDINATE) {
+      throw new STLParseError(`Vertex coordinate ${i + 1} exceeds the supported range`);
+    }
+    const axis = i % 3;
+    min[axis] = Math.min(min[axis], value);
+    max[axis] = Math.max(max[axis], value);
+  }
+  if (min.every((value, axis) => value === max[axis])) {
+    throw new STLParseError('All vertices coincide; the STL has no usable geometry');
+  }
+}
 
 export function isBinarySTL(buffer: ArrayBuffer): boolean {
   if (buffer.byteLength < BINARY_HEADER) return false;
@@ -73,6 +93,7 @@ function parseBinary(buffer: ArrayBuffer): RawMesh {
     }
     off += 2; // attribute byte count, unused
   }
+  validatePositions(positions);
   return { positions, normals, triangleCount: count };
 }
 
@@ -109,7 +130,6 @@ function parseAscii(buffer: ArrayBuffer): RawMesh {
     i++;
   }
 
-  if (positions.length === 0) throw new STLParseError('No triangles found — is this an STL file?');
   if (positions.length % 9 !== 0) {
     throw new STLParseError(`Truncated final facet: ${positions.length / 3} vertices is not a whole number of triangles`);
   }
@@ -118,9 +138,7 @@ function parseAscii(buffer: ArrayBuffer): RawMesh {
   const outNormals = new Float32Array(triangleCount * 3);
   outNormals.set(normals.slice(0, triangleCount * 3));
 
-  for (const v of positions) {
-    if (!Number.isFinite(v)) throw new STLParseError('File contains a non-numeric vertex coordinate');
-  }
+  validatePositions(positions);
 
   return { positions: new Float32Array(positions), normals: outNormals, triangleCount };
 }

@@ -771,6 +771,30 @@ describe('Modeler editing scenarios', () => {
       expect(result.children[0].kind).toBe('box');
     });
 
+    it('retains nested rotations because component-wise addition changes geometry', () => {
+      const box: SDFNodeUI = { id: 'box', kind: 'box', label: 'Box', params: { width: 10, height: 20, depth: 30 }, children: [], enabled: true };
+      const inner: SDFNodeUI = { id: 'inner', kind: 'rotate', label: 'Rotate', params: { x: 0, y: 90, z: 0 }, children: [box], enabled: true };
+      const outer: SDFNodeUI = { id: 'outer', kind: 'rotate', label: 'Rotate', params: { x: 90, y: 0, z: 0 }, children: [inner], enabled: true };
+      useModelerStore.setState({ tree: outer });
+      getState().simplifyTree();
+      expect(getState().tree!.kind).toBe('rotate');
+      expect(getState().tree!.children[0].kind).toBe('rotate');
+    });
+
+    it('does not promote a lone subtract cutter into positive geometry', () => {
+      const cutter: SDFNodeUI = { id: 'cutter', kind: 'sphere', label: 'Sphere', params: { radius: 5 }, children: [], enabled: true };
+      const root: SDFNodeUI = {
+        id: 'subtract', kind: 'subtract', label: 'Subtract', params: { smooth: 0 },
+        children: [{ id: 'empty', kind: '_empty', label: '', params: {}, children: [], enabled: false }, cutter], enabled: true,
+      };
+      useModelerStore.setState({ tree: root });
+      getState().simplifyTree();
+      expect(getState().tree!.kind).toBe('subtract');
+      expect(getState().tree!.children[0].kind).toBe('_empty');
+      expect(getState().tree!.children[1].id).toBe('cutter');
+      expect(isTreeValid(getState().tree)).toBe(false);
+    });
+
     it('is a no-op with no tree', () => {
       getState().simplifyTree();
       expect(getState().tree).toBeNull();

@@ -3,6 +3,7 @@ declare const self: DedicatedWorkerGlobalScope;
 
 import type { WorkerRequest } from '../types/geometry';
 import type { SDFNodeUI } from '../types/operations';
+import { isTreeExportable } from '../types/operations';
 import type { SDFNode, BBox } from './sdf/types';
 import { computeBounds } from './sdf/bounds';
 import { verifiedBounds } from './sdf/interval';
@@ -186,6 +187,9 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
       }
 
       case 'exportSTL': {
+        if (!isTreeExportable(req.tree)) {
+          self.postMessage({ type: 'error', rid, message: 'Complete every enabled operation before exporting' }); return;
+        }
         const progress: ProgressFn = (stage, percent) => {
           self.postMessage({ type: 'progress', rid, stage, percent: Math.round(percent) });
         };
@@ -193,11 +197,15 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
         if (!mesh) { self.postMessage({ type: 'error', rid, message: 'No geometry to export' }); return; }
         progress('Encoding STL', 95);
         const data = exportBinarySTL(mesh);
-        self.postMessage({ type: 'exportResult', rid, format: 'stl' as const, data }, [data]);
+        self.postMessage({ type: 'exportResult', rid, format: 'stl' as const, data,
+          vertexCount: mesh.positions.length / 3, triangleCount: mesh.indices.length / 3 }, [data]);
         break;
       }
 
       case 'export3MF': {
+        if (!isTreeExportable(req.tree)) {
+          self.postMessage({ type: 'error', rid, message: 'Complete every enabled operation before exporting' }); return;
+        }
         const progress: ProgressFn = (stage, percent) => {
           self.postMessage({ type: 'progress', rid, stage, percent: Math.round(percent) });
         };
@@ -205,7 +213,8 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
         if (!mesh) { self.postMessage({ type: 'error', rid, message: 'No geometry to export' }); return; }
         progress('Encoding 3MF', 95);
         const data = export3MF(mesh);
-        self.postMessage({ type: 'exportResult', rid, format: '3mf' as const, data }, [data]);
+        self.postMessage({ type: 'exportResult', rid, format: '3mf' as const, data,
+          vertexCount: mesh.positions.length / 3, triangleCount: mesh.indices.length / 3 }, [data]);
         break;
       }
     }

@@ -2,6 +2,7 @@ import type { SDFNodeUI } from '../types/operations';
 import type { Vec3 } from '../worker/sdf/types';
 import { toSDFNode } from '../worker/sdf/convert';
 import { evaluateSDF } from '../worker/sdf/evaluate';
+import { circularWindow, linearWindow } from '../worker/sdf/patternWindow';
 
 /** Inverse-transform a point through a UI transform node. */
 function inverseTransform(ui: SDFNodeUI, p: Vec3): Vec3 {
@@ -173,27 +174,18 @@ function attribute(ui: SDFNodeUI, p: Vec3, out: string[], cache: Compiled): bool
   // Linear pattern: find nearest copy, undo repetition
   if (ui.kind === 'linearPattern') {
     if (enabledChildren.length === 0) return false;
-    const params = ui.params;
-    const hasAxis = (params.axisX || 0) !== 0 || (params.axisY || 0) !== 0 || (params.axisZ || 0) !== 0;
-    const ax: Vec3 = hasAxis ? [params.axisX || 0, params.axisY || 0, params.axisZ || 0] : [1, 0, 0];
-    const axLen = Math.sqrt(ax[0] ** 2 + ax[1] ** 2 + ax[2] ** 2);
-    if (axLen < 1e-8) return descend(enabledChildren[0], p, out, cache);
-    const nax: Vec3 = [ax[0] / axLen, ax[1] / axLen, ax[2] / axLen];
+    const pattern = compile(cache, ui);
+    if (!pattern || pattern.kind !== 'linearPattern') return false;
+    const { axis: nax, hi, width } = linearWindow(pattern);
     const dot = p[0] * nax[0] + p[1] * nax[1] + p[2] * nax[2];
-    const count = params.count || 2;
-    const spacing = params.spacing || 10;
-    const totalLen = spacing * (count - 1);
-    const clamped = Math.max(0, Math.min(totalLen, dot));
-    const idx = Math.round(clamped / spacing);
+    const base = Math.min(Math.max(Math.floor((dot - hi) / pattern.spacing) - 1, 0), pattern.count - width);
 
     const sdfChild = compile(cache, enabledChildren[0]);
     if (!sdfChild) return false;
     let bestDist = Infinity;
     let bestP: Vec3 = p;
-    for (let di = -1; di <= 1; di++) {
-      const i = idx + di;
-      if (i < 0 || i >= count) continue;
-      const offset = i * spacing;
+    for (let j = 0; j < width; j++) {
+      const offset = (base + j) * pattern.spacing;
       const lp: Vec3 = [p[0] - nax[0] * offset, p[1] - nax[1] * offset, p[2] - nax[2] * offset];
       const d = evaluateSDF(sdfChild, lp);
       if (d < bestDist) { bestDist = d; bestP = lp; }
@@ -204,12 +196,9 @@ function attribute(ui: SDFNodeUI, p: Vec3, out: string[], cache: Compiled): bool
   // Circular pattern: find nearest sector, undo rotation
   if (ui.kind === 'circularPattern') {
     if (enabledChildren.length === 0) return false;
-    const params = ui.params;
-    const hasAxis = (params.axisX || 0) !== 0 || (params.axisY || 0) !== 0 || (params.axisZ || 0) !== 0;
-    const ax: Vec3 = hasAxis ? [params.axisX || 0, params.axisY || 0, params.axisZ || 0] : [0, 1, 0];
-    const isX = Math.abs(ax[0]) > Math.abs(ax[1]) && Math.abs(ax[0]) > Math.abs(ax[2]);
-    const isZ = !isX && Math.abs(ax[2]) > Math.abs(ax[1]);
-    const count = params.count || 4;
+    const pattern = compile(cache, ui);
+    if (!pattern || pattern.kind !== 'circularPattern') return false;
+    const { isX, isZ, hiAng, sector, width } = circularWindow(pattern);
 
     let angle: number, radius: number;
     if (isX) {
@@ -222,15 +211,14 @@ function attribute(ui: SDFNodeUI, p: Vec3, out: string[], cache: Compiled): bool
       angle = Math.atan2(p[2], p[0]);
       radius = Math.sqrt(p[0] ** 2 + p[2] ** 2);
     }
-    const sector = (2 * Math.PI) / count;
-    const sect = Math.round(angle / sector);
+    const base = Math.floor((angle - hiAng) / sector) - 1;
 
     const sdfChild = compile(cache, enabledChildren[0]);
     if (!sdfChild) return false;
     let bestDist = Infinity;
     let bestP: Vec3 = p;
-    for (let di = -1; di <= 1; di++) {
-      const a = angle - (sect + di) * sector;
+    for (let j = 0; j < width; j++) {
+      const a = angle - (base + j) * sector;
       const c = Math.cos(a), s = Math.sin(a);
       let cp: Vec3;
       if (isX) cp = [p[0], radius * c, radius * s];

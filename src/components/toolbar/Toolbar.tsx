@@ -12,6 +12,7 @@ import { ImportMesh } from '../projects/ImportMesh';
 import { SettingsPage } from '../settings/SettingsPage';
 import { FolderOpen, Save, Undo2, Redo2, MessageSquare, FileDown, FilePlus, Share2, Link, List, SlidersHorizontal, MoreHorizontal, Upload, Settings } from 'lucide-react';
 import { useLocalBackupStore } from '../../store/localPersist';
+import { isTreeExportable } from '../../types/operations';
 
 export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => void; onMobileProps?: () => void } = {}) {
   const projectName = useModelerStore((s) => s.projectName);
@@ -90,9 +91,7 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
    * `finally` below — so it is still on screen during the stretch between the
    * worker returning the blob and React committing the preview. A cancel in
    * that window finds nothing in flight, no-ops, and the user gets the
-   * download dialog they just declined. The gap is not hypothetical: reading
-   * the triangle count off the blob is itself an await, and this is what made
-   * the e2e cancel test fail on CI.
+   * download dialog they just declined.
    */
   const exportEpoch = useRef(0);
   const exportResolution = useViewportStore((s) => s.resolution);
@@ -112,8 +111,7 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
     setExporting('STL');
     setExportProgress({ stage: 'Starting', percent: 0 });
     try {
-      const blob = await workerBridge.exportSTL(tree, onProgress, exportResolution);
-      const triangles = new DataView(await blob.slice(80, 84).arrayBuffer()).getUint32(0, true);
+      const { blob, triangleCount: triangles } = await workerBridge.exportSTL(tree, onProgress, exportResolution);
       if (exportEpoch.current !== epoch) return;
       setExportPreview({ blob, name: `${projectName}.stl`, triangles, size: blob.size });
     } catch (err: any) {
@@ -130,10 +128,7 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
     setExporting('3MF');
     setExportProgress({ stage: 'Starting', percent: 0 });
     try {
-      const blob = await workerBridge.export3MF(tree, onProgress, exportResolution);
-      // 3MF is a zip — estimate triangles from the uncompressed mesh size
-      // STL: 50 bytes/tri. 3MF XML is ~120 bytes/tri on average.
-      const triangles = Math.round(blob.size / 120);
+      const { blob, triangleCount: triangles } = await workerBridge.export3MF(tree, onProgress, exportResolution);
       if (exportEpoch.current !== epoch) return;
       setExportPreview({ blob, name: `${projectName}.3mf`, triangles, size: blob.size });
     } catch (err: any) {
@@ -233,8 +228,8 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
           <option value={256}>Standard</option>
           <option value={384}>Fine</option>
         </select>
-        <IconBtn icon={<FileDown size={14} />} label={exporting === 'STL' && exportProgress ? `${Math.round(exportProgress.percent)}%` : 'STL'} title="Export STL" onClick={handleExportSTL} disabled={evaluating || !tree || !!exporting} />
-        <IconBtn icon={<FileDown size={14} />} label={exporting === '3MF' && exportProgress ? `${Math.round(exportProgress.percent)}%` : '3MF'} title="Export 3MF" onClick={handleExport3MF} disabled={evaluating || !tree || !!exporting} />
+        <IconBtn icon={<FileDown size={14} />} label={exporting === 'STL' && exportProgress ? `${Math.round(exportProgress.percent)}%` : 'STL'} title="Export STL" onClick={handleExportSTL} disabled={evaluating || !isTreeExportable(tree) || !!exporting} />
+        <IconBtn icon={<FileDown size={14} />} label={exporting === '3MF' && exportProgress ? `${Math.round(exportProgress.percent)}%` : '3MF'} title="Export 3MF" onClick={handleExport3MF} disabled={evaluating || !isTreeExportable(tree) || !!exporting} />
         <div className="w-px h-4 mx-1" style={{ background: 'var(--border-default)' }} />
       </div>
 
@@ -289,8 +284,8 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
                 <option value={384}>Fine</option>
               </select>
             </div>
-            <OverflowItem label={exporting === 'STL' && exportProgress ? `Exporting ${exportProgress.percent}%` : 'Export STL'} onClick={() => { handleExportSTL(); setShowOverflow(false); }} disabled={evaluating || !tree || !!exporting} />
-            <OverflowItem label={exporting === '3MF' && exportProgress ? `Exporting ${exportProgress.percent}%` : 'Export 3MF'} onClick={() => { handleExport3MF(); setShowOverflow(false); }} disabled={evaluating || !tree || !!exporting} />
+            <OverflowItem label={exporting === 'STL' && exportProgress ? `Exporting ${exportProgress.percent}%` : 'Export STL'} onClick={() => { handleExportSTL(); setShowOverflow(false); }} disabled={evaluating || !isTreeExportable(tree) || !!exporting} />
+            <OverflowItem label={exporting === '3MF' && exportProgress ? `Exporting ${exportProgress.percent}%` : 'Export 3MF'} onClick={() => { handleExport3MF(); setShowOverflow(false); }} disabled={evaluating || !isTreeExportable(tree) || !!exporting} />
             {projectId && (
               <>
                 <OverflowDivider />

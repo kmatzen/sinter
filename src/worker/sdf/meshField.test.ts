@@ -247,6 +247,26 @@ endsolid test`;
     expect(() => parseSTL(buf)).toThrow(STLParseError);
   });
 
+  it('rejects non-finite coordinates in binary files', () => {
+    const triangle = [...TRI];
+    triangle[4] = Number.NaN;
+    expect(() => parseSTL(binarySTL([triangle]))).toThrow(/not finite/);
+  });
+
+  it('rejects unsafe coordinate magnitudes', () => {
+    const triangle = [...TRI];
+    triangle[3] = 2e9;
+    expect(() => parseSTL(binarySTL([triangle]))).toThrow(/supported range/);
+  });
+
+  it('rejects meshes whose vertices all coincide', () => {
+    expect(() => parseSTL(binarySTL([[1, 2, 3, 1, 2, 3, 1, 2, 3]]))).toThrow(/coincide/);
+  });
+
+  it('rejects a zero-triangle binary file', () => {
+    expect(() => parseSTL(binarySTL([]))).toThrow(/No triangles/);
+  });
+
   it('rejects a file with no triangles in it', () => {
     const buf = new TextEncoder().encode('this is not an STL at all').buffer as ArrayBuffer;
     expect(() => parseSTL(buf)).toThrow(STLParseError);
