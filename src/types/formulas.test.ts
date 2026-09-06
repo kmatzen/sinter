@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { FormulaError, resolveNamedParameters, resolveTreeFormulas } from './formulas';
+import { evaluateLengthExpression, FormulaError, resolveNamedParameters, resolveTreeFormulas } from './formulas';
 import type { SDFNodeUI } from './operations';
 
 const box = (): SDFNodeUI => ({
@@ -8,6 +8,13 @@ const box = (): SDFNodeUI => ({
 });
 
 describe('persistent formulas', () => {
+  it('accepts fractions, compact suffixes, and mixed physical units as canonical millimeters', () => {
+    expect(evaluateLengthExpression('1/4 in')).toBeCloseTo(6.35);
+    expect(evaluateLengthExpression('12.7mm + 0.5 in')).toBeCloseTo(25.4);
+    expect(evaluateLengthExpression('2 * 3 cm + 0.04 m')).toBeCloseTo(100);
+    expect(() => evaluateLengthExpression('2 mm + 1 deg')).toThrow(FormulaError);
+  });
+
   it('resolves deterministic dependencies independent of declaration order', () => {
     const result = resolveNamedParameters([
       { name: 'outer', expression: 'inner + 2 * wall', unit: 'mm' },
