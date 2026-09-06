@@ -11,6 +11,7 @@ beforeEach(() => {
   });
   useViewportStore.setState({
     hoveredNodeId: null, hoverSource: null, gizmoSpace: 'world', measurementMode: false,
+    gizmoPivot: 'selection-center', customPivot: [0, 0, 0],
     measurementPoints: [], pinnedMeasurements: [], measurementUnit: 'mm', measurementPrecision: 2,
     measurementFractionalDenominator: 16,
   });
@@ -70,6 +71,16 @@ describe('gizmo space', () => {
     useViewportStore.getState().toggleGizmoSpace();
     expect(useViewportStore.getState().gizmoSpace).toBe('world');
     expect(localStorage.getItem('sinter_gizmo_space')).toBe('world');
+  });
+});
+
+describe('gizmo pivot', () => {
+  it('persists the pivot mode and sanitizes custom coordinates', () => {
+    useViewportStore.getState().setGizmoPivot('custom');
+    useViewportStore.getState().setCustomPivot([12, Number.NaN, -4]);
+    expect(useViewportStore.getState()).toMatchObject({ gizmoPivot: 'custom', customPivot: [12, 0, -4] });
+    expect(localStorage.getItem('sinter_gizmo_pivot')).toBe('custom');
+    expect(localStorage.getItem('sinter_custom_pivot')).toBe('[12,0,-4]');
   });
 });
 

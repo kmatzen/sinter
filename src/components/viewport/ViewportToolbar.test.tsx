@@ -6,7 +6,7 @@ import { ViewportToolbar } from './ViewportToolbar';
 
 describe('ViewportToolbar camera controls', () => {
   beforeEach(() => {
-    useViewportStore.setState({ clipEnabled: false, measurementMode: false, showDimensions: false, projection: 'perspective', namedViews: [] });
+    useViewportStore.setState({ clipEnabled: false, measurementMode: false, showDimensions: false, projection: 'perspective', namedViews: [], gizmoPivot: 'selection-center', customPivot: [0, 0, 0] });
   });
 
   it('saves, recalls, and removes named project views from the compact control', () => {
@@ -43,6 +43,17 @@ describe('ViewportToolbar camera controls', () => {
     render(<ViewportToolbar engine={null} />);
     expect(screen.getByRole('combobox', { name: 'Standard view' })).toHaveClass('tap-h');
     expect(screen.getByRole('combobox', { name: 'Named view' })).toHaveClass('tap-h');
+  });
+
+  it('exposes every pivot mode and editable custom coordinates', () => {
+    render(<ViewportToolbar engine={null} />);
+    const pivot = screen.getByRole('combobox', { name: 'Transform pivot' });
+    for (const name of ['Object origin', 'Primary bounds', 'Selection center', 'Custom pivot']) {
+      expect(screen.getByRole('option', { name })).toBeInTheDocument();
+    }
+    fireEvent.change(pivot, { target: { value: 'custom' } });
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Custom pivot X' }), { target: { value: '12.5' } });
+    expect(useViewportStore.getState()).toMatchObject({ gizmoPivot: 'custom', customPivot: [12.5, 0, 0] });
   });
 
   it('exposes frame-all and frame-selection commands', () => {

@@ -4,12 +4,31 @@ import type { NamedProjectView } from '../types/view';
 import { normalizeUnitPreferences, type DisplayUnit, type UnitPreferences } from '../types/units';
 
 const GIZMO_SPACE_KEY = 'sinter_gizmo_space';
+const GIZMO_PIVOT_KEY = 'sinter_gizmo_pivot';
+const CUSTOM_PIVOT_KEY = 'sinter_custom_pivot';
 const MEASUREMENT_UNIT_KEY = 'sinter_measurement_unit';
 const MEASUREMENT_PRECISION_KEY = 'sinter_measurement_precision';
 
 function initialGizmoSpace(): 'world' | 'local' {
   try { return localStorage.getItem(GIZMO_SPACE_KEY) === 'local' ? 'local' : 'world'; }
   catch { return 'world'; }
+}
+
+export type GizmoPivotMode = 'object-origin' | 'bounds-center' | 'selection-center' | 'custom';
+
+function initialGizmoPivot(): GizmoPivotMode {
+  try {
+    const value = localStorage.getItem(GIZMO_PIVOT_KEY);
+    return value === 'object-origin' || value === 'bounds-center' || value === 'custom' ? value : 'selection-center';
+  } catch { return 'selection-center'; }
+}
+
+function initialCustomPivot(): [number, number, number] {
+  try {
+    const value = JSON.parse(localStorage.getItem(CUSTOM_PIVOT_KEY) ?? 'null');
+    return Array.isArray(value) && value.length === 3 && value.every(Number.isFinite)
+      ? value as [number, number, number] : [0, 0, 0];
+  } catch { return [0, 0, 0]; }
 }
 
 function initialMeasurementUnit(): DisplayUnit {
@@ -38,6 +57,10 @@ interface ViewportState {
   setGizmoMode: (mode: 'none' | 'translate' | 'rotate' | 'scale') => void;
   gizmoSpace: 'world' | 'local';
   toggleGizmoSpace: () => void;
+  gizmoPivot: GizmoPivotMode;
+  setGizmoPivot: (mode: GizmoPivotMode) => void;
+  customPivot: [number, number, number];
+  setCustomPivot: (pivot: [number, number, number]) => void;
   dragging: boolean;
   setDragging: (v: boolean) => void;
   snapEnabled: boolean;
@@ -130,6 +153,17 @@ export const useViewportStore = create<ViewportState>((set) => ({
     const gizmoSpace = s.gizmoSpace === 'world' ? 'local' : 'world';
     try { localStorage.setItem(GIZMO_SPACE_KEY, gizmoSpace); } catch { /* preference persistence is best effort */ }
     return { gizmoSpace };
+  }),
+  gizmoPivot: initialGizmoPivot(),
+  setGizmoPivot: (gizmoPivot) => set(() => {
+    try { localStorage.setItem(GIZMO_PIVOT_KEY, gizmoPivot); } catch { /* preference persistence is best effort */ }
+    return { gizmoPivot };
+  }),
+  customPivot: initialCustomPivot(),
+  setCustomPivot: (input) => set(() => {
+    const customPivot: [number, number, number] = input.map((value) => Number.isFinite(value) ? value : 0) as [number, number, number];
+    try { localStorage.setItem(CUSTOM_PIVOT_KEY, JSON.stringify(customPivot)); } catch { /* preference persistence is best effort */ }
+    return { customPivot };
   }),
   dragging: false,
   setDragging: (v) => set({ dragging: v }),
