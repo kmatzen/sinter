@@ -3,6 +3,7 @@ import { MAX_HISTORY_ENTRIES, useModelerStore } from './modelerStore';
 import { isTreeValid } from '../types/operations';
 import type { SDFNodeUI } from '../types/operations';
 import { useViewportStore } from './viewportStore';
+import { toSDFNode } from '../worker/sdf/convert';
 
 // Reset store between tests
 function reset() {
@@ -73,6 +74,39 @@ describe('Modeler editing scenarios', () => {
       getState().renameNode(id, '   ');
       expect(getState().tree!.label).toBe('Box');
       expect(getState().historyIndex).toBe(before);
+    });
+
+    it('persists non-geometric groups and makes assignment undoable', () => {
+      getState().addPrimitive('box');
+      const id = getState().tree!.id;
+      const geometry = toSDFNode(getState().tree!);
+      getState().setNodeGroup(id, '  Enclosure  ');
+      expect(getState().tree!.group).toBe('Enclosure');
+      expect(toSDFNode(getState().tree!)).toEqual(geometry);
+
+      getState().undo();
+      expect(getState().tree).not.toHaveProperty('group');
+      getState().redo();
+      const json = getState().toJSON();
+      reset();
+      getState().fromJSON(json);
+      expect(getState().tree!.group).toBe('Enclosure');
+    });
+
+    it('renames every group member in one history entry', () => {
+      getState().resetDocument({
+        id: 'root', kind: 'union', label: 'Assembly', params: { smooth: 0 }, enabled: true,
+        children: [
+          { id: 'a', kind: 'box', label: 'A', group: 'Shell', params: { width: 1, height: 1, depth: 1 }, children: [], enabled: true },
+          { id: 'b', kind: 'sphere', label: 'B', group: 'Shell', params: { radius: 1 }, children: [], enabled: true },
+        ],
+      });
+      const before = getState().historyIndex;
+      getState().renameGroup('Shell', 'Exterior');
+      expect(getState().tree!.children.map((node) => node.group)).toEqual(['Exterior', 'Exterior']);
+      expect(getState().historyIndex).toBe(before + 1);
+      getState().undo();
+      expect(getState().tree!.children.map((node) => node.group)).toEqual(['Shell', 'Shell']);
     });
   });
 

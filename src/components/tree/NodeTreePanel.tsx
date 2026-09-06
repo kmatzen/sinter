@@ -4,19 +4,72 @@ import { TreeNode } from './TreeNode';
 import { PartsPalette } from './PartsPalette';
 import { NODE_LABELS } from '../../types/operations';
 import { Sparkles, ChevronsDownUp, ChevronsUpDown, X } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { SDFNodeUI } from '../../types/operations';
 
 export function filterNodeTree(node: SDFNodeUI | null, query: string): SDFNodeUI | null {
   if (!node) return null;
   const terms = query.toLocaleLowerCase().trim().split(/\s+/).filter(Boolean);
   if (!terms.length) return node;
-  const searchable = `${node.label} ${NODE_LABELS[node.kind] ?? node.kind} ${node.kind}`.toLocaleLowerCase();
+  const searchable = `${node.label} ${NODE_LABELS[node.kind] ?? node.kind} ${node.kind} ${node.group ?? ''}`.toLocaleLowerCase();
   const ownMatch = terms.every((term) => searchable.includes(term));
   const children = node.children
     .map((child) => filterNodeTree(child, query))
     .filter((child): child is SDFNodeUI => child !== null);
   return ownMatch || children.length ? { ...node, children: ownMatch ? node.children : children } : null;
+}
+
+export function groupedNodes(tree: SDFNodeUI | null): Map<string, SDFNodeUI[]> {
+  const groups = new Map<string, SDFNodeUI[]>();
+  const visit = (node: SDFNodeUI) => {
+    if (node.group) groups.set(node.group, [...(groups.get(node.group) ?? []), node]);
+    node.children.forEach(visit);
+  };
+  if (tree) visit(tree);
+  return new Map([...groups.entries()].sort(([a], [b]) => a.localeCompare(b)));
+}
+
+function NodeGroupFolder({ name, nodes }: { name: string; nodes: SDFNodeUI[] }) {
+  const renameGroup = useModelerStore((state) => state.renameGroup);
+  const selectNode = useModelerStore((state) => state.selectNode);
+  const [draft, setDraft] = useState(name);
+  useEffect(() => setDraft(name), [name]);
+  return (
+    <details className="group rounded" style={{ background: 'var(--bg-surface)' }}>
+      <summary role="button" aria-label={`Group ${name}, ${nodes.length} ${nodes.length === 1 ? 'node' : 'nodes'}`} className="tap-h cursor-pointer px-2 py-1 text-[10px] font-medium" style={{ color: 'var(--text-secondary)' }}>
+        {name} <span style={{ color: 'var(--text-muted)' }}>({nodes.length})</span>
+      </summary>
+      <div className="px-2 pb-2">
+        <input
+          aria-label={`Rename group ${name}`}
+          value={draft}
+          maxLength={256}
+          onChange={(event) => setDraft(event.target.value)}
+          onBlur={() => { renameGroup(name, draft); setDraft(draft.trim() || name); }}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') {
+              renameGroup(name, event.currentTarget.value);
+              setDraft(event.currentTarget.value.trim() || name);
+              event.currentTarget.blur();
+            }
+            if (event.key === 'Escape') {
+              event.preventDefault();
+              setDraft(name);
+            }
+          }}
+          className="w-full tap-h rounded px-1 text-[11px]"
+          style={{ background: 'var(--bg-deep)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}
+        />
+        <div className="mt-1 flex flex-wrap gap-1">
+          {nodes.map((node) => (
+            <button key={node.id} onClick={() => selectNode(node.id)} className="tap-h rounded px-2 text-[10px]" style={{ color: 'var(--accent-blue)', border: '1px solid var(--border-subtle)' }}>
+              {node.label || NODE_LABELS[node.kind] || node.kind}
+            </button>
+          ))}
+        </div>
+      </div>
+    </details>
+  );
 }
 
 /**
@@ -51,6 +104,7 @@ export function NodeTreeContent({ onClose }: { onClose?: () => void } = {}) {
     return find(tree);
   })();
   const filteredTree = useMemo(() => filterNodeTree(tree, query), [tree, query]);
+  const groups = useMemo(() => groupedNodes(tree), [tree]);
 
   return (
     <>
@@ -125,6 +179,12 @@ export function NodeTreeContent({ onClose }: { onClose?: () => void } = {}) {
             {filteredTree ? 'Matching nodes shown with their context' : 'No matching nodes'}
           </div>}
         </div>
+      )}
+
+      {groups.size > 0 && (
+        <section aria-label="Node groups" className="px-2 py-1.5 space-y-1" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+          {[...groups].map(([name, nodes]) => <NodeGroupFolder key={name} name={name} nodes={nodes} />)}
+        </section>
       )}
 
       {/*

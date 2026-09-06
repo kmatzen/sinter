@@ -37,7 +37,8 @@ describe('node naming and search workflow', () => {
 
   it('renames from the accessible row action and commits once on Enter', () => {
     render(<NodeTreeContent />);
-    fireEvent.click(screen.getByRole('button', { name: 'Rename Assembly' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Actions for Assembly' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Rename' }));
     const input = screen.getByRole('textbox', { name: 'Rename Assembly' });
     fireEvent.change(input, { target: { value: 'Printer enclosure' } });
     fireEvent.keyDown(input, { key: 'Enter' });
@@ -50,16 +51,37 @@ describe('node naming and search workflow', () => {
     render(<NodeTreeContent />);
     fireEvent.click(screen.getByRole('treeitem', { name: /Assembly/ }));
     const historyLength = useModelerStore.getState().history.length;
-    fireEvent.click(screen.getByRole('button', { name: 'Lock node' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Actions for Assembly' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Lock' }));
 
     expect(useModelerStore.getState().selectedNodeId).toBeNull();
     fireEvent.click(screen.getByRole('treeitem', { name: /Assembly, Union, locked/ }));
     expect(useModelerStore.getState().selectedNodeId).toBeNull();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Hide node in viewport' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Isolate node in viewport' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Actions for Assembly' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Hide in viewport' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Actions for Assembly' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Isolate in viewport' }));
     expect(useModelerStore.getState().history).toHaveLength(historyLength);
     expect(JSON.parse(useModelerStore.getState().toJSON()).tree).not.toHaveProperty('locked');
     expect(screen.getByRole('button', { name: /Show all/ })).toBeInTheDocument();
+  });
+
+  it('groups nodes, exposes folder shortcuts, and renames a group atomically', () => {
+    render(<NodeTreeContent />);
+    fireEvent.click(screen.getByRole('button', { name: 'Expand' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Actions for Main body' }));
+    fireEvent.change(screen.getByRole('combobox', { name: 'Group Main body' }), { target: { value: '__new' } });
+
+    expect(screen.getByRole('region', { name: 'Node groups' })).toHaveTextContent('Main body group (1)');
+    fireEvent.click(screen.getByRole('button', { name: 'Group Main body group, 1 node' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Main body' }));
+    expect(useModelerStore.getState().selectedNodeId).toBe('body');
+
+    const input = screen.getByRole('textbox', { name: 'Rename group Main body group' });
+    fireEvent.change(input, { target: { value: 'Shell' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(useModelerStore.getState().tree?.children[0].group).toBe('Shell');
+    expect(screen.getByRole('button', { name: 'Group Shell, 1 node' })).toBeInTheDocument();
   });
 });

@@ -57,6 +57,8 @@ interface ModelerState {
   promoteNodeParam: (id: string, key: string, name: string, unit?: ParameterUnit) => void;
   updateNodeData: (id: string, data: Record<string, string>) => void;
   renameNode: (id: string, label: string) => void;
+  setNodeGroup: (id: string, group: string | null) => void;
+  renameGroup: (group: string, nextName: string) => void;
   changeNodeKind: (id: string, kind: string) => void;
   removeNode: (id: string) => void;
   replaceNode: (id: string, replacement: SDFNodeUI) => void;
@@ -442,6 +444,34 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
     const nextLabel = label.trim().slice(0, 256) || NODE_LABELS[current.kind] || current.kind;
     if (nextLabel === current.label) return;
     set(commit(state, updateInTree(state.tree, id, (node) => ({ ...node, label: nextLabel }))));
+  },
+
+  setNodeGroup: (id, group) => {
+    const { tree } = get();
+    if (!tree) return;
+    const normalized = group?.trim().slice(0, 256) || undefined;
+    const current = findNode(tree, id);
+    if (!current || current.group === normalized) return;
+    set(commit(get(), updateInTree(tree, id, (node) => {
+      if (normalized) return { ...node, group: normalized };
+      const next = { ...node };
+      delete next.group;
+      return next;
+    })));
+  },
+
+  renameGroup: (group, nextName) => {
+    const { tree } = get();
+    const normalized = nextName.trim().slice(0, 256);
+    if (!tree || !group || !normalized || normalized === group) return;
+    const visit = (node: SDFNodeUI): SDFNodeUI => {
+      const children = node.children.map(visit);
+      const changedChildren = children.some((child, index) => child !== node.children[index]);
+      if (node.group === group) return { ...node, group: normalized, children };
+      return changedChildren ? { ...node, children } : node;
+    };
+    const next = visit(tree);
+    if (next !== tree) set(commit(get(), next));
   },
 
   changeNodeKind: (id, kind) => {

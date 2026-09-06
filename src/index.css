@@ -220,6 +220,7 @@ button, a, input {
 /* Tree node: show actions on row hover */
 .group-hover-actions { opacity: 0; transition: opacity 0.1s; }
 div:hover > .group-hover-actions { opacity: 1; }
+div:focus-within > .group-hover-actions { opacity: 1; }
 
 /*
  * Hover is not a thing a finger can do, so on touch the row actions are always
