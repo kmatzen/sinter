@@ -42,7 +42,7 @@ function KindSwitcher({ kinds, current, onChange }: { kinds: string[]; current: 
           aria-checked={k === current}
           onClick={() => onChange(k)}
           title={NODE_LABELS[k]}
-          className="flex-1 text-[11px] py-1 transition-colors"
+          className="flex-1 text-[11px] py-1 tap-h transition-colors"
           style={{
             background: k === current ? 'var(--bg-elevated)' : 'transparent',
             color: k === current ? 'var(--text-primary)' : 'var(--text-muted)',
@@ -70,7 +70,7 @@ function AxisCheckboxes({ params, onUpdate }: { params: Record<string, number>; 
             title={`Mirror ${axis} axis`}
             aria-label={`Mirror ${axis} axis`}
             aria-pressed={active}
-            className="flex-1 h-7 rounded text-[11px] font-medium transition-colors"
+            className="flex-1 h-7 tap-h rounded text-[11px] font-medium transition-colors"
             style={{
               background: active ? 'var(--accent-subtle)' : 'var(--bg-surface)',
               color: active ? 'var(--accent)' : 'var(--text-muted)',
@@ -98,7 +98,7 @@ function XYZPicker({ label, value, onChange }: { label: string; value: 'x' | 'y'
             aria-checked={active}
             onClick={() => onChange(axis)}
             title={`${label}: ${axis.toUpperCase()}`}
-            className="flex-1 h-7 rounded text-[11px] font-medium transition-colors"
+            className="flex-1 h-7 tap-h rounded text-[11px] font-medium transition-colors"
             style={{
               background: active ? 'var(--accent-subtle)' : 'var(--bg-surface)',
               color: active ? 'var(--accent)' : 'var(--text-muted)',
@@ -169,7 +169,7 @@ export function PropertyPanel() {
 
   if (!node) {
     return (
-      <div className="hidden md:flex w-72 items-center justify-center" style={{ background: 'var(--bg-panel)', borderLeft: '1px solid var(--border-subtle)' }}>
+      <div className="hidden lg:flex w-72 items-center justify-center" style={{ background: 'var(--bg-panel)', borderLeft: '1px solid var(--border-subtle)' }}>
         <p className="text-[11px] text-center px-8 leading-relaxed" style={{ color: 'var(--text-muted)' }}>
           Select a node to<br />edit its properties
         </p>
@@ -178,7 +178,7 @@ export function PropertyPanel() {
   }
 
   return (
-    <div className="hidden md:block w-72 overflow-y-auto" style={{ background: 'var(--bg-panel)', borderLeft: '1px solid var(--border-subtle)' }}>
+    <div className="hidden lg:block w-72 overflow-y-auto" style={{ background: 'var(--bg-panel)', borderLeft: '1px solid var(--border-subtle)' }}>
       <div className="px-3 py-2.5" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
         <span className="font-mono text-[10px] tracking-[0.15em] uppercase" style={{ color: 'var(--text-muted)' }}>
           Properties
@@ -235,7 +235,7 @@ function FitPrimitive({ node }: { node: SDFNodeUI }) {
         <button
           onClick={run}
           disabled={busy}
-          className="w-full h-7 rounded text-[11px] font-medium"
+          className="w-full h-7 tap-h rounded text-[11px] font-medium"
           style={{ background: 'var(--bg-elevated)', color: 'var(--text-secondary)', border: '1px solid var(--border-default)', opacity: busy ? 0.6 : 1 }}
         >
           {busy ? 'Fitting…' : 'Find best primitive'}
@@ -264,7 +264,7 @@ function FitPrimitive({ node }: { node: SDFNodeUI }) {
                 </div>
                 <button
                   onClick={apply}
-                  className="w-full h-7 rounded text-[11px] font-medium mt-2"
+                  className="w-full h-7 tap-h rounded text-[11px] font-medium mt-2"
                   style={{ background: 'var(--accent)', color: 'var(--bg-deep)' }}
                 >
                   Replace with {fit.kind}
@@ -445,7 +445,7 @@ function NodeEditor({ node, onUpdate, onUpdateStr }: { node: SDFNodeUI; onUpdate
               onChange={(e) => onUpdateStr({ text: e.target.value })}
               onBlur={(e) => onUpdateStr({ text: e.target.value })}
               aria-label="Text content"
-              className="w-full rounded h-7 px-2 text-[12px] focus:outline-none"
+              className="w-full rounded h-7 tap-h px-2 text-[12px] focus:outline-none"
               style={{
                 background: 'var(--bg-surface)',
                 color: 'var(--text-primary)',
@@ -487,7 +487,7 @@ function NodeEditor({ node, onUpdate, onUpdateStr }: { node: SDFNodeUI; onUpdate
                   title={desc}
                   aria-label={desc}
                   onClick={() => onUpdate({ flip: val })}
-                  className="flex-1 h-7 rounded text-[11px] font-medium transition-colors"
+                  className="flex-1 h-7 tap-h rounded text-[11px] font-medium transition-colors"
                   style={{
                     background: active ? 'var(--accent-subtle)' : 'var(--bg-surface)',
                     color: active ? 'var(--accent)' : 'var(--text-muted)',

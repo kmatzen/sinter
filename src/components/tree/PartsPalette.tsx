@@ -75,7 +75,7 @@ function OpPill({ kind, color }: { kind: string; color: string }) {
       onClick={() => addNodeFromData(selectedId, JSON.parse(simpleNodeData(kind)))}
       role="button"
       aria-label={`Add ${NODE_LABELS[kind]}`}
-      className="flex items-center gap-1 px-1.5 py-1 rounded cursor-grab active:cursor-grabbing select-none transition-colors"
+      className="flex items-center gap-1 px-1.5 py-1 tap-h rounded cursor-grab active:cursor-grabbing select-none transition-colors"
       style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)' }}
       onMouseEnter={(e) => { e.currentTarget.style.borderColor = color; }}
       onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--border-subtle)'; }}
@@ -110,7 +110,7 @@ function PresetCard({ name, size, desc, dragData }: { name: string; size: string
       role="button"
       aria-label={`Add ${name} preset, ${size}: ${desc}`}
       title={`Add ${name} — ${size}: ${desc}`}
-      className="flex items-start gap-1.5 px-2 py-1.5 rounded cursor-grab active:cursor-grabbing select-none transition-colors"
+      className="flex items-start gap-1.5 px-2 py-1.5 tap-h rounded cursor-grab active:cursor-grabbing select-none transition-colors"
       style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)' }}
       onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--border-default)'; e.currentTarget.style.background = 'var(--bg-elevated)'; }}
       onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--border-subtle)'; e.currentTarget.style.background = 'var(--bg-surface)'; }}
@@ -204,7 +204,7 @@ export function PartsPalette() {
             role="tab"
             aria-selected={tab === key}
             onClick={() => setTab(key)}
-            className="flex-1 text-[10px] py-1 font-medium transition-colors"
+            className="flex-1 text-[10px] py-1 tap-h font-medium transition-colors"
             style={{
               background: tab === key ? 'var(--bg-elevated)' : 'transparent',
               color: tab === key ? 'var(--text-primary)' : 'var(--text-muted)',

@@ -15,7 +15,7 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
           <span className="font-mono text-[11px] tracking-[0.15em] uppercase" style={{ color: 'var(--text-muted)' }}>Settings</span>
-          <button onClick={onClose} className="text-sm" style={{ color: 'var(--text-muted)' }}>{'\u2715'}</button>
+          <button onClick={onClose} aria-label="Close settings" className="text-sm tap flex items-center justify-center" style={{ color: 'var(--text-muted)' }}>{'\u2715'}</button>
         </div>
 
         <div className="px-6 py-5 space-y-8">

@@ -212,6 +212,17 @@ export class ThreeEngine {
    * selection could be overwritten by the first click's late answer.
    */
   private pickSeq = 0;
+  /**
+   * How far a pointer may travel between down and up and still count as a tap
+   * rather than an orbit.
+   *
+   * A mouse does not move while clicking, so 4px was plenty. A fingertip is a
+   * soft contact patch whose centroid wanders 5-10px over the course of a
+   * deliberate tap, so the same threshold silently discarded a large share of
+   * real selection taps — and the failure is invisible, indistinguishable from
+   * having missed the model. 10px for touch still separates a tap from any
+   * orbit gesture, which covers far more ground than that.
+   */
   /** Hover's own sequence, so a slow hover read cannot clobber a click. */
   private hoverSeq = 0;
   private lastHoverAt = 0;
@@ -225,6 +236,8 @@ export class ThreeEngine {
    * not be wrong. Hover yields; it gets another sample 50ms later.
    */
   private clickPending = false;
+  private static readonly TAP_SLOP_MOUSE = 4;
+  private static readonly TAP_SLOP_TOUCH = 10;
 
   /**
    * How often a pointer move is allowed to trigger a pick.
@@ -289,10 +302,13 @@ export class ThreeEngine {
 
   private onPointerUp = async (e: PointerEvent) => {
     this.pointerIsDown = false;
-    // Ignore drags (> 4px movement)
+    // A fingertip's contact centroid wanders farther than a mouse while tapping.
     const dx = e.clientX - this.pointerStart.x;
     const dy = e.clientY - this.pointerStart.y;
-    if (dx * dx + dy * dy > 16) return;
+    const slop = e.pointerType === 'mouse'
+      ? ThreeEngine.TAP_SLOP_MOUSE
+      : ThreeEngine.TAP_SLOP_TOUCH;
+    if (dx * dx + dy * dy > slop * slop) return;
 
     const seq = ++this.pickSeq;
     this.clickPending = true;

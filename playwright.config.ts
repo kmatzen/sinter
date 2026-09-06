@@ -30,7 +30,23 @@ export default defineConfig({
     timeout: 30000,
   },
   projects: [
-    { name: 'chromium', use: { browserName: 'chromium' }, testIgnore: /viewport-golden\.spec\.ts/ },
+    {
+      name: 'chromium',
+      use: { browserName: 'chromium' },
+      testIgnore: [/viewport-golden\.spec\.ts/, /mobile\.spec\.ts/],
+    },
+    {
+      /*
+       * Mobile. Nothing else in the suite runs at a phone viewport with touch
+       * enabled, so every mobile regression — undersized targets, a blank first
+       * run, inputs that zoom iOS on focus — passed CI silently. The device
+       * descriptor is applied per-spec via `test.use`, which keeps the emulated
+       * device next to the assertions that depend on it.
+       */
+      name: 'mobile',
+      testMatch: /mobile\.spec\.ts/,
+      use: { browserName: 'chromium' },
+    },
     {
       // Golden images run against SwiftShader everywhere, not against whatever
       // GPU the machine has. #52 rejected golden images as brittle across GPUs

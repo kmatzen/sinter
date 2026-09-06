@@ -124,7 +124,7 @@ export function SelectionBreadcrumb() {
                 onMouseEnter={() => { if (!previewing) setHoveredNode(crumb.id); }}
                 onMouseLeave={() => { if (!previewing) setHoveredNode(null); }}
                 title={previewing ? undefined : `Select ${crumb.label}`}
-                className="text-[10px] font-mono truncate px-1 rounded disabled:cursor-default"
+                className="tap text-[10px] font-mono truncate px-1 rounded disabled:cursor-default"
                 style={{
                   color: isLast ? 'var(--text-primary)' : 'var(--text-muted)',
                   fontWeight: isLast ? 600 : 400,

@@ -4,7 +4,7 @@ import { Move, RotateCcw, Magnet, Camera, Ruler, Scissors, Scaling } from 'lucid
 import type { ThreeEngine } from '../../engine/ThreeEngine';
 import type { ReactNode } from 'react';
 
-const BTN = 'w-7 h-7 rounded flex items-center justify-center transition-colors';
+const BTN = 'w-7 h-7 tap rounded flex items-center justify-center transition-colors';
 const ICON = 13;
 
 function VpBtn({ active, onClick, title, children }: { active?: boolean; onClick: () => void; title: string; children: ReactNode }) {
@@ -32,7 +32,7 @@ function VpBtn({ active, onClick, title, children }: { active?: boolean; onClick
 function BtnGroup({ children }: { children: ReactNode }) {
   return (
     <div
-      className="flex items-center gap-0.5 rounded-lg px-1 py-0.5"
+      className="flex flex-wrap items-center gap-0.5 rounded-lg px-1 py-0.5"
       style={{ background: 'rgba(16,16,24,0.7)' }}
     >
       {children}
@@ -47,7 +47,7 @@ function SmallBtn({ active, onClick, title, children }: { active?: boolean; onCl
       title={title}
       aria-label={title}
       aria-pressed={active}
-      className="w-7 h-7 rounded flex items-center justify-center text-[10px] font-medium transition-colors"
+      className="w-7 h-7 tap rounded flex items-center justify-center text-[10px] font-medium transition-colors"
       style={{
         background: active ? 'var(--accent)' : 'transparent',
         color: active ? 'var(--bg-deep)' : 'var(--text-muted)',
@@ -80,8 +80,15 @@ export function ViewportToolbar({ engine }: { engine: ThreeEngine | null }) {
 
   return (
     <>
-      {/* Top left — gizmo, snap, dimensions */}
-      <div className="absolute top-3 left-3 flex items-center gap-1.5">
+      {/*
+        Top left — gizmo, snap, dimensions.
+
+        Wraps rather than overflowing: at 44px per button the gizmo triad, the
+        snap group with its three sizes, and the dimensions toggle add up to
+        more than an iPhone SE is wide. `right-3` gives the wrap something to
+        wrap against, and `pl-safe` keeps it clear of a landscape notch.
+      */}
+      <div className="absolute top-3 left-3 right-3 flex flex-wrap items-start gap-1.5 pointer-events-none [&>*]:pointer-events-auto pl-safe">
         <BtnGroup>
           {([['translate', 'Move (W)', Move], ['rotate', 'Rotate (E)', RotateCcw], ['scale', 'Scale (R)', Scaling]] as const).map(([mode, title, Icon]) => (
             <SmallBtn
@@ -116,7 +123,7 @@ export function ViewportToolbar({ engine }: { engine: ThreeEngine | null }) {
       </div>
 
       {/* Bottom right — screenshot */}
-      <div className="absolute bottom-3 right-3">
+      <div className="absolute bottom-3 right-3 pb-safe pr-safe">
         <VpBtn onClick={() => {
           if (!engine) return;
           engine.takeScreenshot((blob) => { if (blob) triggerDownload(blob, 'screenshot.png'); });
@@ -125,8 +132,14 @@ export function ViewportToolbar({ engine }: { engine: ThreeEngine | null }) {
         </VpBtn>
       </div>
 
-      {/* Bottom left — tools + clip */}
-      <div className="absolute bottom-3 left-3 flex items-center gap-1.5">
+      {/*
+        Bottom left — tools + clip.
+
+        `right-16` leaves the screenshot button its corner; without it the
+        expanded clip row (six axis buttons, a slider and a readout) wraps
+        straight under it. `pb-safe` keeps the row off the home indicator.
+      */}
+      <div className="absolute bottom-3 left-3 right-16 flex flex-wrap items-end gap-1.5 pointer-events-none [&>*]:pointer-events-auto pb-safe pl-safe">
         <VpBtn active={clipEnabled} onClick={toggleClip} title="Clipping plane">
           <Scissors size={ICON} />
         </VpBtn>
@@ -157,7 +170,7 @@ export function ViewportToolbar({ engine }: { engine: ThreeEngine | null }) {
               value={clipPosition}
               aria-label="Clip plane position"
               onChange={(e) => setClipPosition(parseFloat(e.target.value))}
-              className="w-20 h-1 ml-1"
+              className="w-20 h-1 ml-1 tap-h"
               style={{ accentColor: 'var(--accent)' }}
             />
             <span className="text-[10px] w-9 text-right font-mono" style={{ color: 'var(--text-muted)' }}>
