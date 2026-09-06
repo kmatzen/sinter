@@ -25,6 +25,7 @@ const setPublic = vi.fn();
 const remove = vi.fn();
 const getAccessToken = vi.fn();
 const getCurrentProvider = vi.fn();
+const putThumbnail = vi.fn();
 
 vi.mock('../storage', () => ({
   StorageConflictError: class StorageConflictError extends Error {},
@@ -39,7 +40,7 @@ vi.mock('./authStore', () => ({
 
 vi.mock('../utils/thumbnail', () => ({ captureCanvasThumbnail: () => 'data:image/webp;base64,THUMB' }));
 vi.mock('../storage/thumbnailCache', () => ({
-  getThumbnail: vi.fn(), putThumbnail: vi.fn(), deleteThumbnail: vi.fn(),
+  getThumbnail: vi.fn(), putThumbnail, deleteThumbnail: vi.fn(),
   thumbnailCacheKey: (provider: string, account: string, id: string) => JSON.stringify([provider, account, id]),
 }));
 
@@ -68,6 +69,7 @@ describe('projectStore.save', () => {
     create.mockResolvedValue({ externalId: 'new-id', revision: 'r1' });
     update.mockResolvedValue({ revision: 'r2' });
     rename.mockResolvedValue({ revision: 'r3' });
+    putThumbnail.mockResolvedValue(undefined);
     resetStores();
   });
 
@@ -210,6 +212,34 @@ describe('projectStore.save', () => {
       expect(update).toHaveBeenCalledTimes(1);
       expect(useProjectStore.getState().saveError).toBeNull();
       logged.mockRestore();
+    });
+
+    it('retains the committed content revision when a following rename fails', async () => {
+      useProjectStore.setState({ projectId: 'existing', provider: 'google', remoteName: 'Old', revision: 'r1' });
+      useModelerStore.setState({ projectName: 'New' });
+      rename.mockRejectedValueOnce(new Error('rename offline'));
+      const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      await expect(useProjectStore.getState().save()).resolves.toBe(false);
+      expect(useProjectStore.getState().revision).toBe('r2');
+
+      update.mockClear();
+      await expect(useProjectStore.getState().save()).resolves.toBe(true);
+      expect(update).toHaveBeenCalledWith('token', 'existing', expect.anything(), 'r2');
+      logged.mockRestore();
+    });
+
+    it('keeps a new cloud identity when thumbnail caching fails after create', async () => {
+      putThumbnail.mockRejectedValueOnce(new Error('IndexedDB unavailable'));
+      const warned = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      await expect(useProjectStore.getState().save()).resolves.toBe(true);
+
+      expect(useProjectStore.getState()).toMatchObject({
+        projectId: 'new-id', provider: 'google', revision: 'r1', saveError: null,
+      });
+      expect(isCloudDirty()).toBe(false);
+      warned.mockRestore();
     });
 
     it('does not let a concurrent caller claim an in-flight save succeeded', async () => {

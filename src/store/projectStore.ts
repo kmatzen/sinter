@@ -134,6 +134,11 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       if (externalId) {
         const updated = await storage.update(accessToken, externalId, body, savedRevision);
         savedRevision = updated?.revision ?? savedRevision;
+        // The content write is already committed remotely. Preserve its new
+        // revision before attempting metadata so a failed rename can retry
+        // against our own latest write instead of reporting a false conflict.
+        if (get().generation !== generation || authIdentity() !== identity) return false;
+        set({ revision: savedRevision });
         if (projectName !== remoteName) {
           const renamed = await storage.rename(accessToken, externalId, projectName, savedRevision);
           savedRevision = renamed?.revision ?? savedRevision;
@@ -143,8 +148,6 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         externalId = result.externalId;
         savedRevision = result.revision ?? '';
       }
-
-      if (thumbnail) await putThumbnail(thumbnailKey(activeProvider, externalId), thumbnail);
 
       // Opening/creating another document or changing accounts invalidates
       // every completion from this operation. The remote copy may exist, but
@@ -162,6 +165,13 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       });
       if (wasNew) useChatStore.getState().bindConversation(cloudConversationKey(activeProvider, externalId));
       announceEdit(activeProvider, externalId, savedRevision);
+      // This is a disposable local cache, not part of the cloud transaction.
+      // Failing to cache a preview must never turn a committed provider write
+      // into a failed save or hide a newly created remote project identity.
+      if (thumbnail) {
+        try { await putThumbnail(thumbnailKey(activeProvider, externalId), thumbnail); }
+        catch (error) { console.warn('Thumbnail cache write failed:', error); }
+      }
       return true;
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Save failed';
