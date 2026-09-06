@@ -1,5 +1,5 @@
 import type { SDFNode, MeshFieldData, Vec3 } from './types';
-import { evaluateSDF } from './evaluate';
+import { evaluateSDF, evalAt } from './evaluate';
 import { sampleMeshField } from './meshField';
 
 /**
@@ -127,24 +127,67 @@ function surfacePoints(field: MeshFieldData): Vec3[] {
   return pts.filter((_, i) => i % stride === 0);
 }
 
-/** Squared field difference over a volume of samples — the optimiser's objective. */
-function volumeCost(field: MeshFieldData, node: SDFNode): number {
+/**
+ * The volume objective's sample points and the mesh field's value at each,
+ * baked once per fit.
+ *
+ * `volumeCost` is called thousands of times — every coordinate-descent trial of
+ * every candidate — always over this same fixed grid, and the only thing that
+ * changes between calls is the candidate node. The mesh side of the difference
+ * (`sampleMeshField`, a trilinear interpolation with a square root) was being
+ * recomputed at identical coordinates on every one of those calls; for a single
+ * fit that ran to millions of redundant interpolations. Precomputing the target
+ * once removes that half of the inner loop wholesale (#123), leaving only the
+ * candidate's own `evalAt`. The `xs/ys/zs` arrays let the loop call `evalAt`
+ * with loose scalars, so it also allocates no per-sample tuple.
+ */
+interface VolumeSamples {
+  xs: Float64Array;
+  ys: Float64Array;
+  zs: Float64Array;
+  /** `sampleMeshField` at each point — the fixed side of the difference. */
+  target: Float64Array;
+}
+
+function sampleVolume(field: MeshFieldData): VolumeSamples {
   const { bbox } = field;
-  let sum = 0;
+  const per = VOLUME_STEPS + 1;
+  const count = per * per * per;
+  const xs = new Float64Array(count);
+  const ys = new Float64Array(count);
+  const zs = new Float64Array(count);
+  const target = new Float64Array(count);
   let n = 0;
+  // Same i/j/k nesting and order as the objective always used, so the sum below
+  // accumulates in the identical sequence — a reproducible fit must not depend
+  // on this being a no-op reordering, and it is not one.
   for (let i = 0; i <= VOLUME_STEPS; i++) {
     const x = bbox.min[0] + ((bbox.max[0] - bbox.min[0]) * i) / VOLUME_STEPS;
     for (let j = 0; j <= VOLUME_STEPS; j++) {
       const y = bbox.min[1] + ((bbox.max[1] - bbox.min[1]) * j) / VOLUME_STEPS;
       for (let k = 0; k <= VOLUME_STEPS; k++) {
         const z = bbox.min[2] + ((bbox.max[2] - bbox.min[2]) * k) / VOLUME_STEPS;
-        const d = evaluateSDF(node, [x, y, z]) - sampleMeshField(field, x, y, z);
-        sum += d * d;
+        xs[n] = x;
+        ys[n] = y;
+        zs[n] = z;
+        target[n] = sampleMeshField(field, x, y, z);
         n++;
       }
     }
   }
-  return sum / n;
+  return { xs, ys, zs, target };
+}
+
+/** Squared field difference over the precomputed volume samples — the optimiser's objective. */
+function volumeCost(vol: VolumeSamples, node: SDFNode): number {
+  const { xs, ys, zs, target } = vol;
+  const count = target.length;
+  let sum = 0;
+  for (let n = 0; n < count; n++) {
+    const d = evalAt(node, xs[n], ys[n], zs[n]) - target[n];
+    sum += d * d;
+  }
+  return sum / count;
 }
 
 /** Surface residual, in millimetres, of `node` against the mesh's own surface. */
@@ -368,9 +411,9 @@ function extentAlong(pts: Vec3[], centre: Vec3, axis: Vec3): { radius: number; h
  * much as just trying the step. Coordinate descent needs no derivative, cannot
  * diverge, and the parameter count is six at most.
  */
-function refine(field: MeshFieldData, c: Candidate, scale: number): number[] {
+function refine(vol: VolumeSamples, c: Candidate, scale: number): number[] {
   let params = [...c.params];
-  let best = volumeCost(field, c.build(params));
+  let best = volumeCost(vol, c.build(params));
   let step = scale * 0.08;
   for (let pass = 0; pass < 24 && step > scale * 1e-4; pass++) {
     let improved = false;
@@ -378,7 +421,7 @@ function refine(field: MeshFieldData, c: Candidate, scale: number): number[] {
       for (const dir of [1, -1]) {
         const trial = [...params];
         trial[i] += dir * step;
-        const cost = volumeCost(field, c.build(trial));
+        const cost = volumeCost(vol, c.build(trial));
         if (cost < best) { best = cost; params = trial; improved = true; break; }
       }
     }
@@ -430,10 +473,11 @@ export function fitPrimitive(field: MeshFieldData): FitResult | null {
   if (!(diag > 0)) return null;
 
   const pts = surfacePoints(field);
+  const vol = sampleVolume(field);
   let best: FitResult | null = null;
 
   for (const c of candidates(extent, pts)) {
-    const params = refine(field, c, diag);
+    const params = refine(vol, c, diag);
     if (c.degenerate?.(params)) continue;
     const node = c.build(params);
     const { rms, max } = surfaceResidual(node, pts);
