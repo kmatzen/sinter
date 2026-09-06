@@ -10,13 +10,14 @@ import { ProjectList } from '../projects/ProjectList';
 import { ImportProject } from '../projects/ImportProject';
 import { ImportMesh } from '../projects/ImportMesh';
 import { SettingsPage } from '../settings/SettingsPage';
-import { FolderOpen, Save, Undo2, Redo2, MessageSquare, FileDown, FilePlus, Share2, Link, List, SlidersHorizontal, MoreHorizontal, Upload, Settings, History, Trash2 } from 'lucide-react';
+import { FolderOpen, Save, Undo2, Redo2, MessageSquare, FileDown, FilePlus, Share2, Link, List, SlidersHorizontal, MoreHorizontal, Upload, Settings, History, Trash2, Search } from 'lucide-react';
 import { useLocalBackupStore } from '../../store/localPersist';
 import { useModalStore } from '../../store/modalStore';
 import { isTreeExportable } from '../../types/operations';
 import { useDialogFocus } from '../ui/useDialogFocus';
 import type { ExportDiagnostics } from '../../types/geometry';
 import { dimensionsOutsideBuildVolume, useManufacturingProfileStore } from '../../store/manufacturingProfile';
+import { commandById, OPEN_COMMAND_PALETTE_EVENT, runEditorCommand, TOOLBAR_COMMAND_EVENT } from '../../commands/editorCommands';
 
 function hasImportedMesh(node: ReturnType<typeof useModelerStore.getState>['tree']): boolean {
   return !!node && (node.kind === 'mesh' || node.children.some(hasImportedMesh));
@@ -30,12 +31,8 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
   const sdfDisplay = useModelerStore((s) => s.sdfDisplay);
   const evaluatedTree = useModelerStore((s) => s.evaluatedTree);
   const setError = useModelerStore((s) => s.setError);
-  const undo = useModelerStore((s) => s.undo);
-  const redo = useModelerStore((s) => s.redo);
   const selectedNodeId = useModelerStore((s) => s.selectedNodeId);
   const clipboard = useModelerStore((s) => s.clipboard);
-  const copySelected = useModelerStore((s) => s.copySelected);
-  const pasteToSelected = useModelerStore((s) => s.pasteToSelected);
   const toggleChat = useChatStore((s) => s.toggleOpen);
   const isChatOpen = useChatStore((s) => s.isOpen);
   const user = useAuthStore((s) => s.user);
@@ -166,6 +163,29 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
 
   const handleSaveCloud = async () => { await save(); };
 
+  useEffect(() => {
+    const handleCommand = (event: Event) => {
+      const id = (event as CustomEvent<string>).detail;
+      if (id === 'new') requestDocumentReplacement(createProject);
+      else if (id === 'open') setShowProjects(true);
+      else if (id === 'import-project') setShowImport(true);
+      else if (id === 'import-mesh') setShowImportMesh(true);
+      else if (id === 'settings') setShowSettings(true);
+      else if (id === 'versions') setShowVersions(true);
+      else if (id === 'export-stl') void handleExportSTL();
+      else if (id === 'export-3mf') void handleExport3MF();
+      else if (id === 'share') {
+        if (shareUrl) void navigator.clipboard.writeText(shareUrl).then(() => {
+          setCopied(true);
+          setTimeout(() => setCopied(false), 2000);
+        });
+        else void handleToggleShare();
+      }
+    };
+    window.addEventListener(TOOLBAR_COMMAND_EVENT, handleCommand);
+    return () => window.removeEventListener(TOOLBAR_COMMAND_EVENT, handleCommand);
+  });
+
   return (
     <>
     <div className="h-11 flex items-center gap-1 lg:gap-2 shrink-0 px-safe-plus"
@@ -228,11 +248,13 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
           <IconBtn icon={<Share2 size={14} />} title="Revoke share link" onClick={handleToggleShare} />
         )}
         <div className="w-px h-4 mx-1" style={{ background: 'var(--border-default)' }} />
-        <IconBtn icon={<Undo2 size={14} />} title="Undo" onClick={undo} />
-        <IconBtn icon={<Redo2 size={14} />} title="Redo" onClick={redo} />
+        <IconBtn icon={<Undo2 size={14} />} title={commandById('edit.undo')!.title} onClick={() => { runEditorCommand('edit.undo'); }} />
+        <IconBtn icon={<Redo2 size={14} />} title={commandById('edit.redo')!.title} onClick={() => { runEditorCommand('edit.redo'); }} />
       </div>
 
       <div className="flex-1" />
+
+      <IconBtn icon={<Search size={14} />} title="Command palette (Ctrl/Command+K)" onClick={() => window.dispatchEvent(new Event(OPEN_COMMAND_PALETTE_EVENT))} />
 
       {/* Desktop-only: export buttons */}
       <div className="hidden lg:contents">
@@ -286,15 +308,15 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
             <OverflowItem label={saving ? 'Saving...' : 'Save'} onClick={() => { handleSaveCloud(); setShowOverflow(false); }} disabled={saving || !dirty} />
             {projectId && <OverflowItem label="Project Versions" onClick={() => { setShowVersions(true); setShowOverflow(false); }} />}
             <OverflowDivider />
-            <OverflowItem label="Undo" onClick={() => { undo(); setShowOverflow(false); }} />
-            <OverflowItem label="Redo" onClick={() => { redo(); setShowOverflow(false); }} />
-            <OverflowItem label={nodeCopied ? 'Node copied!' : 'Copy selected node'} disabled={!selectedNodeId} onClick={() => {
-              copySelected();
+            <OverflowItem label={commandById('edit.undo')!.title} onClick={() => { runEditorCommand('edit.undo'); setShowOverflow(false); }} />
+            <OverflowItem label={commandById('edit.redo')!.title} onClick={() => { runEditorCommand('edit.redo'); setShowOverflow(false); }} />
+            <OverflowItem label={nodeCopied ? 'Node copied!' : commandById('edit.copy')!.title} disabled={!selectedNodeId} onClick={() => {
+              runEditorCommand('edit.copy');
               setNodeCopied(true);
               setTimeout(() => setNodeCopied(false), 1200);
             }} />
-            <OverflowItem label="Paste node" disabled={!clipboard || (!!tree && !selectedNodeId)} onClick={() => {
-              pasteToSelected();
+            <OverflowItem label={commandById('edit.paste')!.title} disabled={!clipboard || (!!tree && !selectedNodeId)} onClick={() => {
+              runEditorCommand('edit.paste');
               setShowOverflow(false);
             }} />
             <OverflowDivider />

@@ -14,6 +14,7 @@ import { startAutoSave } from './store/projectStore';
 import { startLocalAutoSave } from './store/localPersist';
 import { AppModals } from './components/ui/AppModals';
 import { handleModelerKeyDown } from './modelerShortcuts';
+import { CommandPalette } from './components/commands/CommandPalette';
 
 /**
  * The editor, in its own module so it can be loaded on demand.
@@ -108,6 +109,7 @@ function ModelerApp() {
       </div>
       <ChatDrawer />
       <AppModals />
+      <CommandPalette />
 
       {/* No `title` on the panel — NodeTreeContent renders its own header, and
           carries the close button now that the panel no longer duplicates it. */}

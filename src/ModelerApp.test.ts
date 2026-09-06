@@ -3,6 +3,7 @@ import { handleModelerKeyDown } from './modelerShortcuts';
 import { useProjectStore } from './store/projectStore';
 import { setEngineRef } from './engine/engineRef';
 import type { ThreeEngine } from './engine/ThreeEngine';
+import { OPEN_COMMAND_PALETTE_EVENT } from './commands/editorCommands';
 
 describe('modeler save shortcut', () => {
   const originalSave = useProjectStore.getState().save;
@@ -53,5 +54,15 @@ describe('modeler save shortcut', () => {
     expect(selected.defaultPrevented).toBe(true);
     expect(zoomToFit).toHaveBeenCalledOnce();
     expect(frameSelection).toHaveBeenCalledOnce();
+  });
+
+  it('opens the command palette from Cmd/Ctrl+K even while typing', () => {
+    const opened = vi.fn();
+    window.addEventListener(OPEN_COMMAND_PALETTE_EVENT, opened, { once: true });
+    const event = new KeyboardEvent('keydown', { key: 'k', metaKey: true, cancelable: true });
+    Object.defineProperty(event, 'target', { value: document.createElement('input') });
+    handleModelerKeyDown(event);
+    expect(event.defaultPrevented).toBe(true);
+    expect(opened).toHaveBeenCalledOnce();
   });
 });

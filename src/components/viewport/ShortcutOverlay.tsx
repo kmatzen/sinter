@@ -1,24 +1,16 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useDialogFocus } from '../ui/useDialogFocus';
+import { shortcutHelpCommands, TOGGLE_SHORTCUT_HELP_EVENT } from '../../commands/editorCommands';
 
-const SHORTCUTS = [
+const POINTER_SHORTCUTS = [
   ['Click', 'Select the shape under the pointer'],
   ['Alt+Click', 'Select the operation above that shape'],
-  ['W', 'Move tool'],
-  ['E', 'Rotate tool'],
-  ['R', 'Scale tool'],
-  ['F', 'Frame all geometry'],
-  ['Shift+F', 'Frame selected operation'],
-  ['Esc', 'Deselect tool'],
-  ['Delete', 'Remove selected node'],
-  ['Ctrl+C', 'Copy node'],
-  ['Ctrl+V', 'Paste node'],
-  ['Ctrl+D', 'Duplicate node'],
-  ['Ctrl+S', 'Save project'],
   ['Shift (hold)', 'Disable snap while dragging'],
-  ['Ctrl+Z', 'Undo'],
-  ['Ctrl+Shift+Z', 'Redo'],
-  ['?', 'Toggle this help'],
+];
+
+const SHORTCUTS = [
+  ...POINTER_SHORTCUTS,
+  ...shortcutHelpCommands.map((command) => [command.shortcut!.replace(/Mod/g, 'Ctrl/⌘').replace('Escape', 'Esc'), command.shortcutDescription!] as string[]),
 ];
 
 export function ShortcutOverlay() {
@@ -28,12 +20,9 @@ export function ShortcutOverlay() {
   useDialogFocus(surface, close, visible);
 
   useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if ((e.target as HTMLElement)?.tagName === 'INPUT' || (e.target as HTMLElement)?.tagName === 'TEXTAREA') return;
-      if (e.key === '?') setVisible((v) => !v);
-    };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
+    const handler = () => setVisible((v) => !v);
+    window.addEventListener(TOGGLE_SHORTCUT_HELP_EVENT, handler);
+    return () => window.removeEventListener(TOGGLE_SHORTCUT_HELP_EVENT, handler);
   }, []);
 
   if (!visible) return (
