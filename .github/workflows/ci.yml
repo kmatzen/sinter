@@ -136,6 +136,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
+      - run: npm run check:landing-budget
       - uses: actions/upload-artifact@v7
         with:
           name: dist

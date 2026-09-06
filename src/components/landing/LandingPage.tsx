@@ -66,8 +66,16 @@ export function LandingPage({ onLaunch }: { onLaunch: () => void }) {
 
       {/* Hero background */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <img src="/hero-bg.png" alt="" className="w-full h-auto absolute top-0 left-0 opacity-20"
-             style={{ minWidth: '100%', objectFit: 'cover', objectPosition: 'center top', maskImage: 'linear-gradient(to bottom, black 20%, transparent 70%)' }} />
+        <picture>
+          <source
+            type="image/webp"
+            srcSet="/hero-bg-768.webp 768w, /hero-bg-1536.webp 1536w"
+            sizes="100vw"
+          />
+          <img src="/hero-bg.png" alt="" width="1536" height="1024" decoding="async" fetchPriority="high"
+               className="w-full h-auto absolute top-0 left-0 opacity-20"
+               style={{ minWidth: '100%', objectFit: 'cover', objectPosition: 'center top', maskImage: 'linear-gradient(to bottom, black 20%, transparent 70%)' }} />
+        </picture>
       </div>
 
       {/* Hero */}
@@ -158,7 +166,11 @@ export function LandingPage({ onLaunch }: { onLaunch: () => void }) {
                  onMouseLeave={(e) => e.currentTarget.style.borderColor = 'var(--border-subtle)'}>
               {f.image && (
                 <div className="w-full aspect-square overflow-hidden">
-                  <img src={f.image} alt={f.title} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" />
+                  <picture>
+                    <source type="image/webp" srcSet={f.webp} />
+                    <img src={f.image} alt={f.title} width="400" height="400" loading="lazy" decoding="async"
+                         className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" />
+                  </picture>
                 </div>
               )}
               <div className="p-5">
@@ -268,12 +280,12 @@ export function LandingPage({ onLaunch }: { onLaunch: () => void }) {
 }
 
 const FEATURES = [
-  { image: '/feature-ai.png', title: 'AI-Powered Modeling', desc: 'Describe what you need in plain language. The AI builds a parametric SDF model that you can edit, tweak, and iterate on.' },
-  { image: '/feature-preview.png', title: 'Real-Time Preview', desc: 'Every parameter change renders instantly on the GPU. No waiting for mesh rebuilds — what you see is the actual geometry.' },
-  { image: '/feature-printing.png', title: 'Built for Manufacturing', desc: 'Create shell walls and offset surfaces, then export STL and 3MF files for validation in your slicer.' },
-  { image: '/feature-workflow.png', title: 'Non-Destructive Editing', desc: 'A full node tree with undo, redo, and disable. Change any operation at any point in the history without starting over.' },
-  { image: '/feature-booleans.png', title: 'Smooth Booleans', desc: 'Union, subtract, and intersect implicit shapes with an adjustable blend radius.' },
-  { image: '/feature-library.png', title: 'Component Library', desc: 'Start from pre-built parametric parts: standoffs, enclosures, snap-fits, and mechanical fasteners.' },
+  { image: '/feature-ai.png', webp: '/feature-ai.webp', title: 'AI-Powered Modeling', desc: 'Describe what you need in plain language. The AI builds a parametric SDF model that you can edit, tweak, and iterate on.' },
+  { image: '/feature-preview.png', webp: '/feature-preview.webp', title: 'Real-Time Preview', desc: 'Every parameter change renders instantly on the GPU. No waiting for mesh rebuilds — what you see is the actual geometry.' },
+  { image: '/feature-printing.png', webp: '/feature-printing.webp', title: 'Built for Manufacturing', desc: 'Create shell walls and offset surfaces, then export STL and 3MF files for validation in your slicer.' },
+  { image: '/feature-workflow.png', webp: '/feature-workflow.webp', title: 'Non-Destructive Editing', desc: 'A full node tree with undo, redo, and disable. Change any operation at any point in the history without starting over.' },
+  { image: '/feature-booleans.png', webp: '/feature-booleans.webp', title: 'Smooth Booleans', desc: 'Union, subtract, and intersect implicit shapes with an adjustable blend radius.' },
+  { image: '/feature-library.png', webp: '/feature-library.webp', title: 'Component Library', desc: 'Start from pre-built parametric parts: standoffs, enclosures, snap-fits, and mechanical fasteners.' },
 ];
 
 function LegalModal({ kind, onClose }: { kind: LegalDocument; onClose: () => void }) {
