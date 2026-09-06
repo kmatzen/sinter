@@ -142,3 +142,43 @@ jobs:
           name: dist
           path: dist/
           retention-days: 7
+
+  clarity:
+    name: Clarity Legibility
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: build
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist
+      - uses: actions/checkout@v7
+        with:
+          repository: kmatzen/clarity
+          # Pinned revision adding deterministic --init-script/API support.
+          ref: 7e134bc049bc728e706eed41b3a85e9bf9dba152
+          path: .clarity
+      - name: Build pinned Clarity
+        working-directory: .clarity
+        run: npm ci --ignore-scripts && npm run build
+      - name: Install Clarity browser
+        working-directory: .clarity
+        run: npx playwright install chromium --with-deps
+      - name: Audit representative Sinter surfaces
+        env:
+          CLARITY_MODULE: ../.clarity/dist/index.js
+        run: node scripts/check-clarity.mjs
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: clarity-report
+          path: clarity-report.json
+          if-no-files-found: ignore
+          retention-days: 30

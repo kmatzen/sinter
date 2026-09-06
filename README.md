@@ -119,8 +119,19 @@ npm run typecheck     # tsc --noEmit
 npm test              # unit tests
 npm run test:e2e      # Playwright, including CPU/GPU parity and golden images
 npm run bench         # export pipeline timings, per stage
+npm run check:clarity # measured legibility/a11y regression gate (requires ../clarity)
 npm run test:live     # asks a real model for real geometry (needs a credential)
 ```
+
+The Clarity check builds Sinter, audits landing, login, and deterministic editor
+states at desktop and mobile widths, writes `clarity-report.json`, and fails if
+any gating finding increases. For local use, clone
+[`kmatzen/clarity`](https://github.com/kmatzen/clarity) next to this repository,
+run `npm install && npm run build` there once, then run
+`npm run check:clarity` here. CI checks out the reviewed Clarity revision
+recorded in `ci.yml`, uploads the full JSON report, and is part of the CI result
+required by the release guard. Existing contrast findings are explicit ratchet
+baselines; reduce those numbers whenever a UI change fixes them.
 
 `test:live` is the only test that spends money, so it is skipped unless you opt
 in with a credential:
