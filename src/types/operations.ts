@@ -3,9 +3,19 @@ export interface SDFNodeUI {
   kind: string;
   label: string;
   params: Record<string, number>;
+  /** Persistent source expressions; params always contains their last valid resolved numeric snapshot. */
+  expressions?: Record<string, string>;
   data?: Record<string, string>;  // for string params like text content
   children: SDFNodeUI[];
   enabled: boolean;
+}
+
+export type ParameterUnit = 'mm' | 'deg' | 'unitless';
+
+export interface NamedParameter {
+  name: string;
+  expression: string;
+  unit: ParameterUnit;
 }
 
 // All valid node kinds

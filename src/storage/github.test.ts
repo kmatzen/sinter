@@ -19,7 +19,7 @@ describe('GitHub gist storage', () => {
       'sinter-project.json': { content: JSON.stringify(project) },
     } })));
 
-    await expect(githubStorage.read('token', 'gist')).resolves.toEqual({ ...project, version: 2, checkpoints: [], revision: '' });
+    await expect(githubStorage.read('token', 'gist')).resolves.toEqual({ ...project, version: 2, checkpoints: [], parameters: [], revision: '' });
   });
 
   it('updates only the Sinter file in a multi-file gist', async () => {
@@ -72,7 +72,7 @@ describe('GitHub gist storage', () => {
       .mockResolvedValueOnce(json(project));
     vi.stubGlobal('fetch', fetchMock);
 
-    await expect(githubStorage.read('token', 'gist')).resolves.toEqual({ ...project, version: 2, checkpoints: [], revision: '' });
+    await expect(githubStorage.read('token', 'gist')).resolves.toEqual({ ...project, version: 2, checkpoints: [], parameters: [], revision: '' });
     expect(fetchMock.mock.calls[1][0]).toBe('https://gist.example/raw');
   });
 });

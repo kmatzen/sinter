@@ -1,6 +1,8 @@
 import { NODE_DEFAULTS, NODE_LABELS, expectedChildren, type SDFNodeUI } from './operations';
 import { normalizeNodeParams } from './parameterSchema';
 import type { ProjectCheckpoint, ProjectFileBody } from '../storage/types';
+import type { NamedParameter } from './operations';
+import { FormulaError, resolveNamedParameters, resolveTreeFormulas } from './formulas';
 
 export const CURRENT_DOCUMENT_VERSION = 2;
 export const MAX_PROJECT_CHECKPOINTS = 10;
@@ -17,6 +19,8 @@ const MAX_GLYPH_CHARS = 2 * 1024 * 1024;
 const MAX_GLYPH_SEGMENTS = 20_000;
 const MAX_GLYPH_COORDINATE = 1_000_000;
 const MAX_GENERIC_DATA_CHARS = 8 * 1024 * 1024;
+const MAX_NAMED_PARAMETERS = 100;
+const MAX_EXPRESSION_CHARS = 512;
 const KNOWN_KINDS = new Set([...Object.keys(NODE_DEFAULTS), '_empty']);
 
 export class DocumentDecodeError extends Error {
@@ -223,10 +227,24 @@ function decodeNode(input: unknown, path: number[], depth: number, context: Cont
   }
 
   const data = decodeData(kind, raw.data, labelPath, context);
+  let expressions: Record<string, string> | undefined;
+  if (raw.expressions !== undefined) {
+    const input = record(raw.expressions, `${labelPath}.expressions`);
+    expressions = {};
+    for (const [key, value] of Object.entries(input)) {
+      if (!(key in defaults)) throw new DocumentDecodeError(`${labelPath}.expressions.${key} is not a numeric property`);
+      if (typeof value !== 'string' || !value.trim() || value.length > MAX_EXPRESSION_CHARS) {
+        throw new DocumentDecodeError(`${labelPath}.expressions.${key} must be a non-empty expression of at most ${MAX_EXPRESSION_CHARS} characters`);
+      }
+      expressions[key] = value.trim();
+    }
+    if (!Object.keys(expressions).length) expressions = undefined;
+  }
   return {
     id, kind, label,
     params: normalizeNodeParams(kind, params),
     ...(data ? { data } : {}),
+    ...(expressions ? { expressions } : {}),
     children,
     enabled: raw.enabled !== false,
   };
@@ -243,6 +261,24 @@ export interface DecodedProject {
   thumbnail: string | null;
   tree: SDFNodeUI | null;
   checkpoints: Array<ProjectCheckpoint & { tree: SDFNodeUI | null }>;
+  parameters: NamedParameter[];
+}
+
+function decodeNamedParameters(input: unknown, path: string): NamedParameter[] {
+  if (input === undefined) return [];
+  if (!Array.isArray(input) || input.length > MAX_NAMED_PARAMETERS) {
+    throw new DocumentDecodeError(`${path} must contain at most ${MAX_NAMED_PARAMETERS} parameters`);
+  }
+  const definitions = input.map((item, index): NamedParameter => {
+    const raw = record(item, `${path}[${index}]`);
+    if (typeof raw.name !== 'string' || raw.name.length > 64) throw new DocumentDecodeError(`${path}[${index}].name is invalid`);
+    if (typeof raw.expression !== 'string' || raw.expression.length > MAX_EXPRESSION_CHARS) throw new DocumentDecodeError(`${path}[${index}].expression is invalid`);
+    if (raw.unit !== 'mm' && raw.unit !== 'deg' && raw.unit !== 'unitless') throw new DocumentDecodeError(`${path}[${index}].unit is invalid`);
+    return { name: raw.name, expression: raw.expression, unit: raw.unit };
+  });
+  try { resolveNamedParameters(definitions); }
+  catch (error) { throw new DocumentDecodeError(error instanceof FormulaError ? `${path}: ${error.message}` : `${path} is invalid`); }
+  return definitions;
 }
 
 /** Decode current cloud envelopes and migrate legacy exported/local envelopes. */
@@ -261,6 +297,7 @@ export function decodeProjectDocument(input: unknown, fallbackName = 'Untitled')
     throw new DocumentDecodeError('thumbnail is invalid or too large');
   }
   const checkpointInput = raw.version === 2 ? raw.checkpoints ?? [] : [];
+  const parameters = raw.version === 2 ? decodeNamedParameters(raw.parameters, 'project.parameters') : [];
   if (!Array.isArray(checkpointInput) || checkpointInput.length > MAX_PROJECT_CHECKPOINTS) {
     throw new DocumentDecodeError(`project checkpoints must be an array of at most ${MAX_PROJECT_CHECKPOINTS}`);
   }
@@ -280,23 +317,32 @@ export function decodeProjectDocument(input: unknown, fallbackName = 'Untitled')
     if (!Object.prototype.hasOwnProperty.call(checkpoint, 'tree')) {
       throw new DocumentDecodeError(`project.checkpoints[${index}].tree is required`);
     }
+    const checkpointParameters = decodeNamedParameters(checkpoint.parameters, `project.checkpoints[${index}].parameters`);
+    let tree = decodeTree(checkpoint.tree);
+    try { tree = resolveTreeFormulas(tree, checkpointParameters); }
+    catch (error) { throw new DocumentDecodeError(`project.checkpoints[${index}]: ${error instanceof Error ? error.message : 'invalid formulas'}`); }
     return {
       id: checkpoint.id,
       name: checkpoint.name.trim(),
       createdAt: checkpoint.createdAt,
-      tree: decodeTree(checkpoint.tree),
+      tree,
+      parameters: checkpointParameters,
     };
   });
+  let tree = decodeTree(raw.tree, { legacy, repairMissingIds: legacy });
+  try { tree = resolveTreeFormulas(tree, parameters); }
+  catch (error) { throw new DocumentDecodeError(error instanceof Error ? error.message : 'project formulas are invalid'); }
   return {
     version: 2,
     projectName: projectName || fallbackName,
     thumbnail,
-    tree: decodeTree(raw.tree, { legacy, repairMissingIds: legacy }),
+    tree,
     checkpoints,
+    parameters,
   };
 }
 
 export function decodeProjectFileBody(input: unknown): ProjectFileBody {
   const decoded = decodeProjectDocument(input);
-  return { version: 2, thumbnail: decoded.thumbnail, tree: decoded.tree, checkpoints: decoded.checkpoints };
+  return { version: 2, thumbnail: decoded.thumbnail, tree: decoded.tree, checkpoints: decoded.checkpoints, parameters: decoded.parameters };
 }

@@ -1,10 +1,11 @@
 import { create } from 'zustand';
 import { v4 as uuidv4 } from 'uuid';
-import type { SDFNodeUI } from '../types/operations';
+import type { NamedParameter, ParameterUnit, SDFNodeUI } from '../types/operations';
 import { NODE_LABELS, NODE_DEFAULTS, NODE_KINDS, expectedChildren } from '../types/operations';
 import type { TriangulatedMesh } from '../types/geometry';
 import { applyNodeParamPatch, normalizeNodeParams, normalizeTreeParams } from '../types/parameterSchema';
 import { decodeProjectDocument, decodeTree } from '../types/documentDecoder';
+import { FormulaError, parameterUnitFor, resolveTreeFormulas } from '../types/formulas';
 
 export interface SDFDisplayData {
   glsl: string;
@@ -29,21 +30,27 @@ interface ModelerState {
   error: string | null;
   projectName: string;
   expandedNodes: Set<string>;
+  namedParameters: NamedParameter[];
 
   // History
   history: (SDFNodeUI | null)[];
+  parameterHistory: NamedParameter[][];
   historyIndex: number;
   historyTransaction: {
     tree: SDFNodeUI | null;
     selectedNodeId: string | null;
     expandedNodes: Set<string>;
+    namedParameters: NamedParameter[];
   } | null;
 
   // Actions
   setTree: (tree: SDFNodeUI | null) => void;
-  resetDocument: (tree: SDFNodeUI | null, projectName?: string) => void;
+  resetDocument: (tree: SDFNodeUI | null, projectName?: string, namedParameters?: NamedParameter[]) => void;
   selectNode: (id: string | null) => void;
   updateNodeParams: (id: string, params: Record<string, number>) => void;
+  setNodeExpression: (id: string, key: string, expression: string | null) => void;
+  setNamedParameters: (parameters: NamedParameter[]) => void;
+  promoteNodeParam: (id: string, key: string, name: string, unit?: ParameterUnit) => void;
   updateNodeData: (id: string, data: Record<string, string>) => void;
   changeNodeKind: (id: string, kind: string) => void;
   removeNode: (id: string) => void;
@@ -95,6 +102,10 @@ function cloneTree(node: SDFNodeUI): SDFNodeUI {
   return JSON.parse(JSON.stringify(node));
 }
 
+function cloneParameters(parameters: NamedParameter[]): NamedParameter[] {
+  return parameters.map((parameter) => ({ ...parameter }));
+}
+
 /**
  * The selection to keep after the tree is replaced wholesale. Undo/redo can
  * restore a tree in which the selected node no longer exists; leaving the id
@@ -129,12 +140,15 @@ function commit(
     return { ...extra, selectedNodeId: surviving(tree, wanted), tree };
   }
   let history = state.history.slice(0, state.historyIndex + 1);
+  let parameterHistory = (state.parameterHistory ?? [state.namedParameters ?? []]).slice(0, state.historyIndex + 1);
   // Trees are immutable: updateInTree replaces only the edited path. Keeping
   // those references preserves structural sharing, most importantly the large
   // base64 payload on imported-mesh nodes.
   history.push(tree);
+  parameterHistory.push(('namedParameters' in extra ? extra.namedParameters : state.namedParameters) ?? []);
   if (history.length > MAX_HISTORY_ENTRIES) {
     history = history.slice(history.length - MAX_HISTORY_ENTRIES);
+    parameterHistory = parameterHistory.slice(parameterHistory.length - MAX_HISTORY_ENTRIES);
   }
   // Clamp the selection to a node that still exists. `surviving` was already
   // doing this for undo and redo, and nothing else did: removing a node took
@@ -148,6 +162,7 @@ function commit(
     selectedNodeId: surviving(tree, wanted),
     tree,
     history,
+    parameterHistory,
     historyIndex: history.length - 1,
   };
 }
@@ -284,22 +299,28 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
   error: null,
   projectName: 'Untitled',
   expandedNodes: new Set<string>(),
+  namedParameters: [],
   history: [null],
+  parameterHistory: [[]],
   historyIndex: 0,
   historyTransaction: null,
 
   setTree: (tree) => {
-    set(commit(get(), normalizeTreeParams(tree), { selectedNodeId: null }));
+    const state = get();
+    try { set(commit(state, resolveTreeFormulas(normalizeTreeParams(tree), state.namedParameters), { selectedNodeId: null, error: null })); }
+    catch (error) { set({ error: error instanceof Error ? error.message : 'Formula is invalid' }); }
   },
 
-  resetDocument: (tree, projectName = 'Untitled') => {
-    const normalized = normalizeTreeParams(tree);
+  resetDocument: (tree, projectName = 'Untitled', namedParameters = []) => {
+    namedParameters = cloneParameters(namedParameters);
+    const normalized = resolveTreeFormulas(normalizeTreeParams(tree), namedParameters);
     const snapshot = normalized ? cloneTree(normalized) : null;
     set({
       tree: snapshot,
       projectName,
       selectedNodeId: null,
       expandedNodes: new Set<string>(),
+      namedParameters,
       mesh: null,
       sdfDisplay: null,
       evaluatedTree: null,
@@ -307,6 +328,7 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
       evaluating: false,
       error: null,
       history: [snapshot],
+      parameterHistory: [namedParameters],
       historyIndex: 0,
       historyTransaction: null,
       clipboard: null,
@@ -341,16 +363,54 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
   },
 
   updateNodeParams: (id, params) => {
-    const { tree } = get();
+    const { tree, namedParameters } = get();
     if (!tree) return;
     let error: string | undefined;
     const newTree = updateInTree(tree, id, (node) => {
       const result = applyNodeParamPatch(node, params);
       error = result.error;
-      return result.params ? { ...node, params: result.params } : node;
+      if (!result.params) return node;
+      const expressions = Object.fromEntries(Object.entries(node.expressions ?? {}).filter(([key]) => !(key in params)));
+      return { ...node, params: result.params, ...(Object.keys(expressions).length ? { expressions } : { expressions: undefined }) };
     });
     if (error) { set({ error }); return; }
-    set(commit(get(), newTree));
+    try { set(commit(get(), resolveTreeFormulas(newTree, namedParameters), { error: null })); }
+    catch (formulaError) { set({ error: formulaError instanceof Error ? formulaError.message : 'Formula is invalid' }); }
+  },
+
+  setNodeExpression: (id, key, expression) => {
+    const state = get();
+    if (!state.tree) return;
+    const source = updateInTree(state.tree, id, (node) => {
+      const expressions = { ...node.expressions };
+      if (expression?.trim()) expressions[key] = expression.trim();
+      else delete expressions[key];
+      return { ...node, expressions: Object.keys(expressions).length ? expressions : undefined };
+    });
+    try { set(commit(state, resolveTreeFormulas(source, state.namedParameters), { error: null })); }
+    catch (error) { set({ error: error instanceof FormulaError ? error.message : 'Formula is invalid' }); }
+  },
+
+  setNamedParameters: (namedParameters) => {
+    const state = get();
+    try {
+      namedParameters = cloneParameters(namedParameters);
+      const tree = resolveTreeFormulas(state.tree, namedParameters);
+      set(commit(state, tree, { namedParameters, error: null }));
+    } catch (error) {
+      set({ error: error instanceof FormulaError ? error.message : 'Parameters are invalid' });
+    }
+  },
+
+  promoteNodeParam: (id, key, name, unit) => {
+    const state = get();
+    if (!state.tree || state.namedParameters.some((item) => item.name === name)) { set({ error: `Parameter “${name}” already exists` }); return; }
+    const node = findNode(state.tree, id);
+    if (!node || !(key in node.params)) return;
+    const namedParameters = [...state.namedParameters, { name, expression: String(node.params[key]), unit: unit ?? parameterUnitFor(node.kind, key) }];
+    const source = updateInTree(state.tree, id, (current) => ({ ...current, expressions: { ...current.expressions, [key]: name } }));
+    try { set(commit(state, resolveTreeFormulas(source, namedParameters), { namedParameters, error: null })); }
+    catch (error) { set({ error: error instanceof Error ? error.message : 'Parameter is invalid' }); }
   },
 
   updateNodeData: (id, data) => {
@@ -372,6 +432,7 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
       kind,
       label: NODE_LABELS[kind] || kind,
       params: { ...defaults },
+      expressions: undefined,
     }));
     set(commit(get(), newTree));
   },
@@ -518,6 +579,7 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
         kind: data.kind,
         label: data.label || NODE_LABELS[data.kind] || data.kind,
         params: normalizeNodeParams(data.kind, data.params),
+        ...(data.expressions ? { expressions: { ...data.expressions } } : {}),
         // `data` carries what params cannot: a text node's glyph outlines, an
         // imported mesh's geometry. Dropping it here turned an imported STL
         // into an empty node — and had been doing the same to text.
@@ -775,6 +837,7 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
         tree: state.tree,
         selectedNodeId: state.selectedNodeId,
         expandedNodes: new Set(state.expandedNodes),
+        namedParameters: state.namedParameters,
       },
     });
   },
@@ -798,36 +861,37 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
       tree: transaction.tree,
       selectedNodeId: transaction.selectedNodeId,
       expandedNodes: new Set(transaction.expandedNodes),
+      namedParameters: transaction.namedParameters,
       historyTransaction: null,
     });
   },
 
   undo: () => {
-    const { historyIndex, history } = get();
+    const { historyIndex, history, parameterHistory } = get();
     if (historyIndex > 0) {
       const newIndex = historyIndex - 1;
       const restored = history[newIndex];
-      set({ tree: restored, historyIndex: newIndex, selectedNodeId: surviving(restored, get().selectedNodeId) });
+      set({ tree: restored, namedParameters: parameterHistory[newIndex] ?? [], historyIndex: newIndex, selectedNodeId: surviving(restored, get().selectedNodeId) });
     }
   },
 
   redo: () => {
-    const { historyIndex, history } = get();
+    const { historyIndex, history, parameterHistory } = get();
     if (historyIndex < history.length - 1) {
       const newIndex = historyIndex + 1;
       const restored = history[newIndex];
-      set({ tree: restored, historyIndex: newIndex, selectedNodeId: surviving(restored, get().selectedNodeId) });
+      set({ tree: restored, namedParameters: parameterHistory[newIndex] ?? [], historyIndex: newIndex, selectedNodeId: surviving(restored, get().selectedNodeId) });
     }
   },
 
   toJSON: () => {
-    const { tree, projectName } = get();
-    return JSON.stringify({ projectName, tree }, null, 2);
+    const { tree, projectName, namedParameters: parameters } = get();
+    return JSON.stringify({ version: 2, projectName, tree, parameters }, null, 2);
   },
 
   fromJSON: (json: string) => {
     const data = decodeProjectDocument(JSON.parse(json));
-    get().resetDocument(data.tree, data.projectName);
+    get().resetDocument(data.tree, data.projectName, data.parameters);
   },
 }));
 

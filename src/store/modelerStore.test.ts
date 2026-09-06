@@ -14,7 +14,9 @@ function reset() {
     error: null,
     projectName: 'Untitled',
     expandedNodes: new Set(),
+    namedParameters: [],
     history: [null],
+    parameterHistory: [[]],
     historyIndex: 0,
     historyTransaction: null,
     clipboard: null,
@@ -70,6 +72,68 @@ describe('Modeler editing scenarios', () => {
       });
       expect(getState().tree!.params).toMatchObject({ count: 2, spacing: 0.1, axisX: 1 });
       expect(getState().tree!.children[0].params).toMatchObject({ width: 50, height: 0.1, depth: 2 });
+    });
+  });
+
+  describe('Scenario: named parameters and formulas', () => {
+    it('updates dependent geometry atomically and restores definitions with undo/redo', () => {
+      getState().addPrimitive('box');
+      const id = getState().tree!.id;
+      getState().promoteNodeParam(id, 'width', 'outerWidth');
+      expect(getState().tree!.expressions?.width).toBe('outerWidth');
+      expect(getState().namedParameters).toEqual([{ name: 'outerWidth', expression: '50', unit: 'mm' }]);
+
+      getState().setNamedParameters([{ name: 'outerWidth', expression: '75', unit: 'mm' }]);
+      expect(getState().tree!.params.width).toBe(75);
+      getState().undo();
+      expect(getState().tree!.params.width).toBe(50);
+      expect(getState().namedParameters[0].expression).toBe('50');
+      getState().redo();
+      expect(getState().tree!.params.width).toBe(75);
+      expect(getState().namedParameters[0].expression).toBe('75');
+    });
+
+    it('rejects an invalid definition set without changing definitions or geometry', () => {
+      getState().addPrimitive('box');
+      const id = getState().tree!.id;
+      getState().promoteNodeParam(id, 'width', 'width');
+      const beforeTree = getState().tree;
+      const beforeParameters = getState().namedParameters;
+      getState().setNamedParameters([{ name: 'width', expression: 'missing + 2', unit: 'mm' }]);
+      expect(getState().tree).toBe(beforeTree);
+      expect(getState().namedParameters).toBe(beforeParameters);
+      expect(getState().error).toMatch(/Unknown parameter/);
+    });
+
+    it('turns a driven property back into a literal when directly edited', () => {
+      getState().addPrimitive('box');
+      const id = getState().tree!.id;
+      getState().promoteNodeParam(id, 'width', 'width');
+      getState().updateNodeParams(id, { width: 60 });
+      expect(getState().tree!.params.width).toBe(60);
+      expect(getState().tree!.expressions).toBeUndefined();
+    });
+
+    it('rejects a literal edit that would invalidate another driven field', () => {
+      getState().resetDocument({
+        id: 't', kind: 'torus', label: 'Torus', params: { majorRadius: 20, minorRadius: 10 },
+        expressions: { minorRadius: 'minor' }, children: [], enabled: true,
+      }, 'Torus', [{ name: 'minor', expression: '10', unit: 'mm' }]);
+      const before = getState().tree;
+      getState().updateNodeParams('t', { majorRadius: 5 });
+      expect(getState().tree).toBe(before);
+      expect(getState().error).toMatch(/minorRadius.*outside its valid domain/);
+    });
+
+    it('round-trips formula sources and resolved values', () => {
+      getState().addPrimitive('box');
+      getState().promoteNodeParam(getState().tree!.id, 'width', 'width');
+      const json = getState().toJSON();
+      reset();
+      getState().fromJSON(json);
+      expect(getState().namedParameters[0].name).toBe('width');
+      expect(getState().tree!.expressions?.width).toBe('width');
+      expect(getState().tree!.params.width).toBe(50);
     });
   });
 

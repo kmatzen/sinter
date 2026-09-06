@@ -160,6 +160,29 @@ describe('chatStore.sendMessage', () => {
     expect(useChatStore.getState().proposalError).toMatch(/changed after/);
   });
 
+  it('refuses a proposal after formula definitions change even when geometry is numerically equal', async () => {
+    const base = { id: 'a', kind: 'box', label: 'Box', params: { width: 10, height: 10, depth: 10 }, expressions: { width: 'w' }, children: [], enabled: true };
+    useModelerStore.getState().resetDocument(base, 'Model', [{ name: 'w', expression: '10', unit: 'mm' }]);
+    respondWith([JSON.stringify({ action: 'modify', changes: [{ update: 'a', params: { height: 20 } }] })]);
+    await useChatStore.getState().sendMessage('make it taller');
+    useModelerStore.getState().setNamedParameters([{ name: 'w', expression: '5 + 5', unit: 'mm' }]);
+
+    useChatStore.getState().applyProposal();
+
+    expect(useModelerStore.getState().tree?.params.height).toBe(10);
+    expect(useChatStore.getState().proposalError).toMatch(/changed after/);
+  });
+
+  it('treats an explicit AI numeric update as replacing that property formula', async () => {
+    const base = { id: 'a', kind: 'box', label: 'Box', params: { width: 10, height: 10, depth: 10 }, expressions: { width: 'w' }, children: [], enabled: true };
+    useModelerStore.getState().resetDocument(base, 'Model', [{ name: 'w', expression: '10', unit: 'mm' }]);
+    respondWith([JSON.stringify({ action: 'modify', changes: [{ update: 'a', params: { width: 20 } }] })]);
+    await useChatStore.getState().sendMessage('set width literally to 20');
+    useChatStore.getState().applyProposal();
+    expect(useModelerStore.getState().tree?.params.width).toBe(20);
+    expect(useModelerStore.getState().tree?.expressions).toBeUndefined();
+  });
+
   it('streams tokens into the assistant message as they arrive', async () => {
     const seen: string[] = [];
     streamLLMMessage.mockImplementation(async (_req: unknown, onToken: (t: string) => void) => {

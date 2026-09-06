@@ -53,11 +53,11 @@ const box = (width = 10): SDFNodeUI => ({
 });
 
 function resetStores() {
-  useModelerStore.setState({ tree: box(), projectName: 'Untitled' });
+  useModelerStore.setState({ tree: box(), projectName: 'Untitled', namedParameters: [], parameterHistory: [[]] });
   useProjectStore.setState({
     provider: null, projectId: null, remoteName: '', lastSavedHash: '',
     revision: '', generation: 0, saving: false, saveError: null, saveConflict: false, shareUrl: null,
-    checkpoints: [], lastSavedTree: null, lastSavedThumbnail: null,
+    checkpoints: [], lastSavedTree: null, lastSavedThumbnail: null, lastSavedParameters: [],
   });
   useModalStore.getState().hideConfirm();
 }
@@ -83,6 +83,22 @@ describe('projectStore.save', () => {
     const s = useProjectStore.getState();
     expect(s.projectId).toBe('new-id');
     expect(s.provider).toBe('google');
+  });
+
+  it('stores named parameter definitions with their resolved tree snapshot', async () => {
+    useModelerStore.setState({
+      tree: { ...box(24), expressions: { width: 'opening + 2 * wall' } },
+      namedParameters: [
+        { name: 'opening', expression: '20', unit: 'mm' },
+        { name: 'wall', expression: '2', unit: 'mm' },
+      ],
+    });
+    await useProjectStore.getState().save();
+    expect(create.mock.calls[0][2]).toMatchObject({
+      version: 2,
+      parameters: [{ name: 'opening', expression: '20', unit: 'mm' }, { name: 'wall', expression: '2', unit: 'mm' }],
+      tree: { params: { width: 24 }, expressions: { width: 'opening + 2 * wall' } },
+    });
   });
 
   it('cannot attach an old save completion to a newly created document', async () => {
@@ -502,6 +518,19 @@ describe('project checkpoints', () => {
     ] });
     await useProjectStore.getState().loadProject('google', 'id-1', 'Bracket');
     expect(useProjectStore.getState().checkpoints[0].tree?.params.width).toBe(10);
+  });
+
+  it('restores the checkpoint parameter snapshot with its driven tree', async () => {
+    const version = {
+      id: 'formula-v1', name: 'Parametric', createdAt: '2026-09-06T12:00:00Z',
+      tree: { ...box(30), expressions: { width: 'width' } },
+      parameters: [{ name: 'width', expression: '30', unit: 'mm' as const }],
+    };
+    useProjectStore.setState({ projectId: 'existing', provider: 'google', revision: 'r1', checkpoints: [version] });
+    await useProjectStore.getState().restoreCheckpoint('formula-v1');
+    expect(useModelerStore.getState().namedParameters).toEqual(version.parameters);
+    expect(useModelerStore.getState().tree?.params.width).toBe(30);
+    expect(update.mock.calls[0][2].parameters).toEqual(version.parameters);
   });
 });
 

@@ -6,7 +6,7 @@ import { useModelerStore } from './modelerStore';
 import { getEngineRef } from '../engine/engineRef';
 import { decodeTree } from '../types/documentDecoder';
 import { applyNodeParamPatch } from '../types/parameterSchema';
-import { expectedChildren, type SDFNodeUI } from '../types/operations';
+import { expectedChildren, type NamedParameter, type SDFNodeUI } from '../types/operations';
 import { ensureConsent, hasConsent } from './consent';
 import type { ProviderId } from '../llm/providers';
 import { getProvider, isProviderId, PROVIDER_IDS } from '../llm/providers';
@@ -83,8 +83,8 @@ let activeConversationKey = DEFAULT_CONVERSATION;
 let requestSequence = 0;
 let activeRequest: { id: number; key: string; controller: AbortController } | null = null;
 
-function treeHash(tree: SDFNodeUI | null): string {
-  return JSON.stringify(tree);
+function treeHash(tree: SDFNodeUI | null, parameters: NamedParameter[] = []): string {
+  return JSON.stringify({ tree, parameters });
 }
 
 function findNode(tree: SDFNodeUI | null, id: string): SDFNodeUI | null {
@@ -117,11 +117,11 @@ function removeNode(tree: SDFNodeUI, id: string): SDFNodeUI | null {
 }
 
 /** Build and validate a proposal without touching the live model store. */
-export function buildModelProposal(parsed: ParsedResponse, base: SDFNodeUI | null): ModelProposal {
+export function buildModelProposal(parsed: ParsedResponse, base: SDFNodeUI | null, parameters: NamedParameter[] = []): ModelProposal {
   if (!parsed) throw new Error('The response did not contain a model change');
   if (parsed.action === 'replace') {
     const tree = decodeTree(parsed.tree);
-    return { tree, baseHash: treeHash(base), summary: ['Replace the model'], affectedNodeIds: tree ? [tree.id] : [] };
+    return { tree, baseHash: treeHash(base, parameters), summary: ['Replace the model'], affectedNodeIds: tree ? [tree.id] : [] };
   }
   if (!base) throw new Error('There is no model to modify');
 
@@ -132,7 +132,7 @@ export function buildModelProposal(parsed: ParsedResponse, base: SDFNodeUI | nul
     candidate = applyModification(candidate, change, summary, affected);
     candidate = decodeTree(candidate, { repairMissingIds: true });
   }
-  return { tree: candidate, baseHash: treeHash(base), summary, affectedNodeIds: [...affected] };
+  return { tree: candidate, baseHash: treeHash(base, parameters), summary, affectedNodeIds: [...affected] };
 }
 
 function applyModification(
@@ -149,7 +149,10 @@ function applyModification(
     if (!result.params) throw new Error(result.error ?? `Invalid parameters for ${target.label}`);
     affected.add(target.id);
     summary.push(`Update ${target.label}`);
-    return updateNode(tree, target.id, (node) => ({ ...node, params: result.params! }));
+    return updateNode(tree, target.id, (node) => {
+      const expressions = Object.fromEntries(Object.entries(node.expressions ?? {}).filter(([key]) => !(key in change.params)));
+      return { ...node, params: result.params!, expressions: Object.keys(expressions).length ? expressions : undefined };
+    });
   }
   if (change.addChild && change.node) {
     const target = findNode(tree, change.addChild);
@@ -345,7 +348,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
   applyProposal: () => {
     const proposal = get().pendingProposal;
     if (!proposal) return;
-    if (treeHash(useModelerStore.getState().tree) !== proposal.baseHash) {
+    const model = useModelerStore.getState();
+    if (treeHash(model.tree, model.namedParameters) !== proposal.baseHash) {
       set({ proposalError: 'The model changed after this proposal was created. Ask the assistant to try again.' });
       return;
     }
@@ -435,8 +439,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
     });
 
     try {
-      const currentTree = useModelerStore.getState().tree;
-      const systemPrompt = buildSystemPrompt(currentTree);
+      const currentModel = useModelerStore.getState();
+      const currentTree = currentModel.tree;
+      const systemPrompt = buildSystemPrompt(currentTree, currentModel.namedParameters);
       const unbudgeted = get().messages.slice(0, -1); // exclude the empty placeholder
       const providerDef = getProvider(state.provider);
       const estimate = budgetMessages(
@@ -488,7 +493,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
       if (parsed) {
         try {
-          const proposal = buildModelProposal(parsed, currentTree);
+          const proposal = buildModelProposal(parsed, currentTree, currentModel.namedParameters);
           set({ pendingProposal: proposal, proposalError: null });
         } catch (error) {
           const actionError = error instanceof Error ? error.message : 'The proposed model change is invalid';

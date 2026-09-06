@@ -40,6 +40,21 @@ describe('document decoder', () => {
     })) })).toThrow(/at most 10/);
   });
 
+  it('validates persistent formulas and resolves them at the document boundary', () => {
+    const driven = { ...box(), expressions: { width: 'opening + 2 * wall' } };
+    const decoded = decodeProjectDocument({
+      version: 2, tree: driven, parameters: [
+        { name: 'opening', expression: '20', unit: 'mm' },
+        { name: 'wall', expression: '2', unit: 'mm' },
+      ],
+    });
+    expect(decoded.tree?.params.width).toBe(24);
+    expect(decoded.tree?.expressions?.width).toBe('opening + 2 * wall');
+    expect(() => decodeProjectDocument({
+      version: 2, tree: driven, parameters: [{ name: 'wall', expression: '2', unit: 'mm' }],
+    })).toThrow(/Unknown parameter.*opening/);
+  });
+
   it('rejects duplicate IDs, unknown kinds, and invalid arity', () => {
     const duplicate = {
       id: 'u', kind: 'union', label: 'Union', params: { smooth: 0 }, enabled: true,

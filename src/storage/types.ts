@@ -1,3 +1,5 @@
+import type { NamedParameter } from '../types/operations';
+
 // Shape of a project's content file (stored in Drive or as a Gist).
 // Project NAME and timestamps live in the provider's file metadata
 // (Drive `name` / Gist `description`) so the list view never needs
@@ -7,6 +9,7 @@ export interface ProjectCheckpoint {
   name: string;
   createdAt: string;
   tree: unknown;
+  parameters?: NamedParameter[];
 }
 
 export interface ProjectFileBody {
@@ -14,6 +17,7 @@ export interface ProjectFileBody {
   thumbnail: string | null;
   tree: unknown;
   checkpoints?: ProjectCheckpoint[];
+  parameters?: NamedParameter[];
 }
 
 export interface ProjectReadResult extends ProjectFileBody {
