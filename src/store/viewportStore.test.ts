@@ -12,6 +12,7 @@ beforeEach(() => {
   useViewportStore.setState({
     hoveredNodeId: null, hoverSource: null, gizmoSpace: 'world', measurementMode: false,
     measurementPoints: [], pinnedMeasurements: [], measurementUnit: 'mm', measurementPrecision: 2,
+    measurementFractionalDenominator: 16,
   });
 });
 
@@ -42,6 +43,15 @@ describe('measurements', () => {
     useViewportStore.getState().setMeasurementPrecision(9);
     expect(localStorage.getItem('sinter_measurement_unit')).toBe('in');
     expect(localStorage.getItem('sinter_measurement_precision')).toBe('6');
+  });
+
+  it('loads one normalized project preference atomically', () => {
+    useViewportStore.getState().setUnitPreferences({ displayUnit: 'ft-in', decimalPrecision: 3, fractionalDenominator: 32 });
+    expect(useViewportStore.getState()).toMatchObject({
+      measurementUnit: 'ft-in', measurementPrecision: 3, measurementFractionalDenominator: 32,
+    });
+    expect(localStorage.getItem('sinter_measurement_unit')).toBe('ft-in');
+    expect(localStorage.getItem('sinter_measurement_precision')).toBe('3');
   });
 
   it('uses two decimals when no saved precision exists', async () => {

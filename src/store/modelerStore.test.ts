@@ -76,6 +76,22 @@ describe('Modeler editing scenarios', () => {
       expect(getState().historyIndex).toBe(before);
     });
 
+    it('round-trips project unit preferences without changing geometry or history', () => {
+      getState().addPrimitive('box');
+      const tree = getState().tree;
+      const historyIndex = getState().historyIndex;
+      useViewportStore.getState().setUnitPreferences({ displayUnit: 'in', decimalPrecision: 4, fractionalDenominator: 32 });
+      expect(getState().tree).toBe(tree);
+      expect(getState().historyIndex).toBe(historyIndex);
+      const json = getState().toJSON();
+      useViewportStore.getState().setUnitPreferences({ displayUnit: 'mm', decimalPrecision: 2, fractionalDenominator: 16 });
+      getState().fromJSON(json);
+      expect(useViewportStore.getState()).toMatchObject({
+        measurementUnit: 'in', measurementPrecision: 4, measurementFractionalDenominator: 32,
+      });
+      expect(getState().tree?.params).toEqual(tree?.params);
+    });
+
     it('persists non-geometric groups and makes assignment undoable', () => {
       getState().addPrimitive('box');
       const id = getState().tree!.id;

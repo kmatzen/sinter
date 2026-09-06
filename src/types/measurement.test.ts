@@ -25,6 +25,8 @@ describe('measurement math', () => {
     const radial = exactRadialMeasurement({ id: 'c', kind: 'cylinder', label: 'Hole', params: { radius: 6, height: 10 }, children: [], enabled: true });
     expect(radial).toEqual({ radius: 6, diameter: 12, label: 'Cylinder' });
     expect(formatMeasurement(25.4, 'in', 3)).toBe('1.000 in');
+    expect(formatMeasurement(1000, 'm', 2)).toBe('1.00 m');
+    expect(formatMeasurement(25.4 * 14.5, 'ft-in', 2, 16)).toBe('1′ 2 1/2″');
   });
 
   it('does not move a target-relative anchor when an unrelated sibling changes root bounds', () => {

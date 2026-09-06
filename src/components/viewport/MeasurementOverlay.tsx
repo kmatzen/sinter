@@ -13,6 +13,7 @@ import {
   type MeasurementAnchor,
   type Point3,
 } from '../../types/measurement';
+import type { DisplayUnit } from '../../types/units';
 
 function validAnchors(tree: ReturnType<typeof useModelerStore.getState>['tree'], anchors: MeasurementAnchor[]) {
   return resolveMeasurementAnchors(tree, anchors) !== null;
@@ -20,7 +21,7 @@ function validAnchors(tree: ReturnType<typeof useModelerStore.getState>['tree'],
 
 function measurementText(
   tree: ReturnType<typeof useModelerStore.getState>['tree'], anchors: MeasurementAnchor[],
-  unit: 'mm' | 'in', precision: number,
+  unit: DisplayUnit, precision: number,
 ) {
   const points = resolveMeasurementAnchors(tree, anchors);
   if (!points) return '';

@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import type { MeasurementAnchor, PinnedMeasurement } from '../types/measurement';
 import type { NamedProjectView } from '../types/view';
+import { normalizeUnitPreferences, type DisplayUnit, type UnitPreferences } from '../types/units';
 
 const GIZMO_SPACE_KEY = 'sinter_gizmo_space';
 const MEASUREMENT_UNIT_KEY = 'sinter_measurement_unit';
@@ -11,8 +12,9 @@ function initialGizmoSpace(): 'world' | 'local' {
   catch { return 'world'; }
 }
 
-function initialMeasurementUnit(): 'mm' | 'in' {
-  try { return localStorage.getItem(MEASUREMENT_UNIT_KEY) === 'in' ? 'in' : 'mm'; } catch { return 'mm'; }
+function initialMeasurementUnit(): DisplayUnit {
+  try { return ['mm', 'cm', 'm', 'in', 'ft-in'].includes(localStorage.getItem(MEASUREMENT_UNIT_KEY) ?? '')
+    ? localStorage.getItem(MEASUREMENT_UNIT_KEY) as DisplayUnit : 'mm'; } catch { return 'mm'; }
 }
 
 function initialMeasurementPrecision(): number {
@@ -97,8 +99,9 @@ interface ViewportState {
   measurementMode: boolean;
   measurementPoints: MeasurementAnchor[];
   pinnedMeasurements: PinnedMeasurement[];
-  measurementUnit: 'mm' | 'in';
+  measurementUnit: DisplayUnit;
   measurementPrecision: number;
+  measurementFractionalDenominator: UnitPreferences['fractionalDenominator'];
   toggleMeasurementMode: () => void;
   addMeasurementPoint: (anchor: MeasurementAnchor) => void;
   clearMeasurement: () => void;
@@ -107,8 +110,10 @@ interface ViewportState {
   removePinnedMeasurement: (id: string) => void;
   setPinnedMeasurements: (measurements: PinnedMeasurement[]) => void;
   resetMeasurementSession: () => void;
-  setMeasurementUnit: (unit: 'mm' | 'in') => void;
+  setMeasurementUnit: (unit: DisplayUnit) => void;
   setMeasurementPrecision: (precision: number) => void;
+  setMeasurementFractionalDenominator: (denominator: UnitPreferences['fractionalDenominator']) => void;
+  setUnitPreferences: (preferences: UnitPreferences) => void;
 }
 
 export const useViewportStore = create<ViewportState>((set) => ({
@@ -157,6 +162,7 @@ export const useViewportStore = create<ViewportState>((set) => ({
   pinnedMeasurements: [],
   measurementUnit: initialMeasurementUnit(),
   measurementPrecision: initialMeasurementPrecision(),
+  measurementFractionalDenominator: 16,
   toggleMeasurementMode: () => set((state) => ({ measurementMode: !state.measurementMode, measurementPoints: [] })),
   addMeasurementPoint: (anchor) => set((state) => ({ measurementPoints: [...state.measurementPoints, anchor].slice(-3) })),
   clearMeasurement: () => set({ measurementPoints: [] }),
@@ -176,5 +182,15 @@ export const useViewportStore = create<ViewportState>((set) => ({
     const measurementPrecision = Math.max(0, Math.min(6, Math.round(input)));
     try { localStorage.setItem(MEASUREMENT_PRECISION_KEY, String(measurementPrecision)); } catch { /* preference persistence is best effort */ }
     return { measurementPrecision };
+  }),
+  setMeasurementFractionalDenominator: (measurementFractionalDenominator) => set({ measurementFractionalDenominator }),
+  setUnitPreferences: (input) => set(() => {
+    const preferences = normalizeUnitPreferences(input);
+    try {
+      localStorage.setItem(MEASUREMENT_UNIT_KEY, preferences.displayUnit);
+      localStorage.setItem(MEASUREMENT_PRECISION_KEY, String(preferences.decimalPrecision));
+    } catch { /* preference persistence is best effort */ }
+    return { measurementUnit: preferences.displayUnit, measurementPrecision: preferences.decimalPrecision,
+      measurementFractionalDenominator: preferences.fractionalDenominator };
   }),
 }));
