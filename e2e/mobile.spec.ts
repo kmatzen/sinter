@@ -190,7 +190,8 @@ test('a node can be reparented without a drag gesture', async ({ page }) => {
 
   // Pick the box up and place it — two taps, no drag events involved, which is
   // the whole point: HTML5 drag-and-drop never fires from touch input.
-  await panel.locator('[aria-label="Move node into another node"]').last().click();
+  await panel.locator('[aria-label^="Actions for Box"]').last().click();
+  await panel.getByRole('button', { name: 'Move into another node' }).last().click();
   await expect(panel.getByText('Tap a node to move it there')).toBeVisible();
   await rows.getByText('Union', { exact: true }).first().click();
   await expect(panel.getByText('Tap a node to move it there')).toBeHidden();

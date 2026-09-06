@@ -2,6 +2,8 @@ export interface SDFNodeUI {
   id: string;
   kind: string;
   label: string;
+  /** Non-geometric organization label; stripped before SDF evaluation/export. */
+  group?: string;
   params: Record<string, number>;
   /** Persistent source expressions; params always contains their last valid resolved numeric snapshot. */
   expressions?: Record<string, string>;

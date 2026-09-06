@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { SDFNodeUI } from '../../types/operations';
-import { filterNodeTree } from './NodeTreePanel';
+import { filterNodeTree, groupedNodes } from './NodeTreePanel';
 
 const leaf = (id: string, kind: string, label: string): SDFNodeUI => ({
   id, kind, label, params: {}, children: [], enabled: true,
@@ -24,5 +24,20 @@ describe('filterNodeTree', () => {
   it('matches kind display names and all query terms case-insensitively', () => {
     expect(filterNodeTree(tree, 'MAIN box')?.children.map((node) => node.id)).toEqual(['body']);
     expect(filterNodeTree(tree, 'sphere')).toBeNull();
+  });
+
+  it('matches group names and returns stable alphabetical group folders', () => {
+    const grouped = {
+      ...tree,
+      children: [
+        { ...tree.children[0], group: 'Shell' },
+        { ...tree.children[1], group: 'Hardware', children: [{ ...tree.children[1].children[0], group: 'Hardware' }] },
+      ],
+    };
+    expect(filterNodeTree(grouped, 'hardware')?.children.map((node) => node.id)).toEqual(['moved']);
+    expect([...groupedNodes(grouped)].map(([name, nodes]) => [name, nodes.map((node) => node.id)])).toEqual([
+      ['Hardware', ['moved', 'hole']],
+      ['Shell', ['body']],
+    ]);
   });
 });

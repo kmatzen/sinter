@@ -24,9 +24,10 @@ interface Props {
   isLast?: boolean;
   incompleteIds?: Set<string>;
   forceExpanded?: boolean;
+  groupNames?: string[];
 }
 
-export function TreeNode({ node, depth, isLast = true, incompleteIds: incompleteIdsProp, forceExpanded = false }: Props) {
+export function TreeNode({ node, depth, isLast = true, incompleteIds: incompleteIdsProp, forceExpanded = false, groupNames: groupNamesProp }: Props) {
   // Only subscribe to tree at the root level (when incompleteIdsProp is not provided)
   const tree = useModelerStore((s) => incompleteIdsProp ? null : s.tree);
   const selectedId = useModelerStore((s) => s.selectedNodeId);
@@ -39,6 +40,7 @@ export function TreeNode({ node, depth, isLast = true, incompleteIds: incomplete
   const moveNode = useModelerStore((s) => s.moveNode);
   const addNodeFromData = useModelerStore((s) => s.addNodeFromData);
   const renameNode = useModelerStore((s) => s.renameNode);
+  const setNodeGroup = useModelerStore((s) => s.setNodeGroup);
   // Subscribe to booleans so only rows whose hover state changes re-render.
   const isHovered = useViewportStore((s) => s.hoveredNodeId === node.id);
   const setHoveredNode = useViewportStore((s) => s.setHoveredNode);
@@ -54,6 +56,7 @@ export function TreeNode({ node, depth, isLast = true, incompleteIds: incomplete
   const [dragOver, setDragOver] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [draftLabel, setDraftLabel] = useState(node.label);
+  const actionsRef = useRef<HTMLDetailsElement>(null);
 
   // Compute incomplete IDs once at the root, pass down to children
   const incompleteIds = useMemo(
@@ -75,6 +78,17 @@ export function TreeNode({ node, depth, isLast = true, incompleteIds: incomplete
   const kindLabel = NODE_LABELS[node.kind] || node.kind;
   const displayLabel = node.label || kindLabel;
   const accessibleLabel = displayLabel === kindLabel ? kindLabel : `${displayLabel}, ${kindLabel}`;
+  const groupNames = useMemo(() => {
+    if (groupNamesProp) return groupNamesProp;
+    const names = new Set<string>();
+    const visit = (current: SDFNodeUI | null) => {
+      if (!current) return;
+      if (current.group) names.add(current.group);
+      current.children.forEach(visit);
+    };
+    visit(tree ?? node);
+    return [...names].sort((a, b) => a.localeCompare(b));
+  }, [groupNamesProp, tree, node]);
   const visualDepth = Math.min(depth, MAX_VISUAL_DEPTH);
   const leftPad = visualDepth * INDENT + 6;
 
@@ -265,103 +279,44 @@ export function TreeNode({ node, depth, isLast = true, incompleteIds: incomplete
           {summary}
         </span>
 
-        {/* Actions — visible on hover (desktop) or when selected (mobile) */}
-        <span className={`flex items-center gap-0.5 shrink-0 ${isSelected ? 'opacity-100' : 'opacity-0 group-hover-actions'}`}>
-          <button
-            onClick={(e) => { e.stopPropagation(); toggleHidden(node.id); }}
-            className="w-5 h-5 tap flex items-center justify-center rounded text-[10px]"
-            style={{ color: isHidden ? 'var(--accent-blue)' : 'var(--text-muted)' }}
-            title={isHidden ? 'Show in viewport' : 'Hide in viewport (exports unchanged)'}
-            aria-label={isHidden ? 'Show node in viewport' : 'Hide node in viewport'}
-            aria-pressed={isHidden}
-          >
-            {isHidden ? '◌' : '◉'}
-          </button>
-          <button
-            onClick={(e) => { e.stopPropagation(); isolate(isolatedNodeId === node.id ? null : node.id); }}
-            className="w-5 h-5 tap flex items-center justify-center rounded text-[10px]"
-            style={{ color: isolatedNodeId === node.id ? 'var(--accent-blue)' : 'var(--text-muted)' }}
-            title={isolatedNodeId === node.id ? 'Exit isolate' : 'Isolate in viewport'}
-            aria-label={isolatedNodeId === node.id ? 'Exit node isolation' : 'Isolate node in viewport'}
-            aria-pressed={isolatedNodeId === node.id}
-          >
-            {'◎'}
-          </button>
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              if (!isLocked && isSelected) selectNode(null);
-              toggleLocked(node.id);
-            }}
-            className="w-5 h-5 tap flex items-center justify-center rounded text-[10px]"
-            style={{ color: isLocked ? 'var(--accent-blue)' : 'var(--text-muted)' }}
-            title={isLocked ? 'Unlock editing' : 'Lock selection and editing'}
-            aria-label={isLocked ? 'Unlock node' : 'Lock node'}
-            aria-pressed={isLocked}
-          >
-            {isLocked ? '▣' : '□'}
-          </button>
-          {/*
-            Move: the touch counterpart to dragging the row. Dragging is HTML5
-            DnD, which touch never fires, so without this a phone cannot
-            restructure a tree at all — only add to it and delete from it.
-            Picking up here arms the tap-to-place handler on every other row.
-          */}
-          <button
-            onClick={(e) => { e.stopPropagation(); setDraftLabel(node.label); setRenaming(true); }}
-            disabled={isLocked}
-            className="w-5 h-5 tap flex items-center justify-center rounded text-[10px]"
-            style={{ color: 'var(--text-muted)' }}
-            title="Rename"
-            aria-label={`Rename ${node.label}`}
-          >
-            {'✎'}
-          </button>
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              if (isMoving) { cancelMove(); return; }
-              beginMove(node.id);
-            }}
-            className="w-5 h-5 tap flex items-center justify-center rounded text-[10px]"
-            style={{ color: isMoving ? 'var(--accent-blue)' : 'var(--text-muted)' }}
-            title={isMoving ? 'Cancel move' : 'Move into another node'}
-            aria-label={isMoving ? 'Cancel move' : 'Move node into another node'}
-            aria-pressed={isMoving}
-          >
-            {'✥'}
-          </button>
-          <button
-            onClick={(e) => { e.stopPropagation(); selectNode(node.id); duplicateSelected(); }}
-            className="w-5 h-5 tap flex items-center justify-center rounded text-[10px]"
-            style={{ color: 'var(--text-muted)' }}
-            title="Duplicate"
-            aria-label="Duplicate node"
-          >
-            {'\u2750'}
-          </button>
-          <button
-            onClick={(e) => { e.stopPropagation(); toggleNode(node.id); }}
-            className="w-5 h-5 tap flex items-center justify-center rounded text-[10px]"
-            style={{ color: 'var(--text-muted)' }}
-            title={node.enabled ? 'Disable' : 'Enable'}
-            aria-label={node.enabled ? 'Disable node' : 'Enable node'}
-            aria-pressed={node.enabled}
-          >
-            {node.enabled ? '\u25C9' : '\u25CB'}
-          </button>
-          <button
-            onClick={(e) => { e.stopPropagation(); removeNode(node.id); }}
-            className="w-5 h-5 tap flex items-center justify-center rounded text-[10px]"
-            style={{ color: 'var(--text-muted)' }}
-            title="Remove"
-            aria-label="Remove node"
-            onMouseEnter={(e) => { e.currentTarget.style.color = '#d45a5a'; }}
-            onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-muted)'; }}
-          >
-            {'\u2715'}
-          </button>
-        </span>
+        {node.group && (
+          <span className="max-w-20 truncate rounded px-1 text-[9px]" style={{ color: 'var(--accent-blue)', background: 'rgba(91,140,223,0.12)' }} title={`Group: ${node.group}`}>
+            {node.group}
+          </span>
+        )}
+
+        {/* One discoverable action menu instead of eight cramped icon targets. */}
+        <details ref={actionsRef} className={`relative shrink-0 ${isSelected ? 'opacity-100' : 'opacity-0 group-hover-actions'}`} onClick={(event) => event.stopPropagation()}>
+          <summary role="button" aria-label={`Actions for ${displayLabel}`} className="w-5 h-5 tap flex items-center justify-center rounded text-[13px] cursor-pointer" style={{ color: 'var(--text-muted)', listStyle: 'none' }}>⋯</summary>
+          <div aria-label={`${displayLabel} actions`} className="absolute right-0 top-6 z-40 w-48 rounded py-1 shadow-lg" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-default)' }}>
+            <button disabled={isLocked} onClick={() => { setDraftLabel(node.label); setRenaming(true); actionsRef.current?.removeAttribute('open'); }} className="w-full tap-h text-left px-2 py-1.5 text-[11px] disabled:opacity-40">Rename</button>
+            <label className="block px-2 py-1 text-[10px]" style={{ color: 'var(--text-muted)' }}>
+              Group
+              <select
+                aria-label={`Group ${displayLabel}`}
+                value={node.group ?? ''}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  setNodeGroup(node.id, value === '__new' ? `${displayLabel} group` : value || null);
+                  actionsRef.current?.removeAttribute('open');
+                }}
+                className="mt-1 w-full tap-h rounded px-1 text-[11px]"
+                style={{ background: 'var(--bg-deep)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}
+              >
+                <option value="">Ungrouped</option>
+                {groupNames.map((group) => <option key={group} value={group}>{group}</option>)}
+                {!node.group && <option value="__new">Create “{displayLabel} group”</option>}
+              </select>
+            </label>
+            <button onClick={() => { toggleHidden(node.id); actionsRef.current?.removeAttribute('open'); }} className="w-full tap-h text-left px-2 py-1.5 text-[11px]">{isHidden ? 'Show in viewport' : 'Hide in viewport'}</button>
+            <button onClick={() => { isolate(isolatedNodeId === node.id ? null : node.id); actionsRef.current?.removeAttribute('open'); }} className="w-full tap-h text-left px-2 py-1.5 text-[11px]">{isolatedNodeId === node.id ? 'Exit isolate' : 'Isolate in viewport'}</button>
+            <button onClick={() => { if (!isLocked && isSelected) selectNode(null); toggleLocked(node.id); actionsRef.current?.removeAttribute('open'); }} className="w-full tap-h text-left px-2 py-1.5 text-[11px]">{isLocked ? 'Unlock' : 'Lock'}</button>
+            <button onClick={() => { if (isMoving) cancelMove(); else beginMove(node.id); actionsRef.current?.removeAttribute('open'); }} className="w-full tap-h text-left px-2 py-1.5 text-[11px]">{isMoving ? 'Cancel move' : 'Move into another node'}</button>
+            <button onClick={() => { selectNode(node.id); duplicateSelected(); actionsRef.current?.removeAttribute('open'); }} className="w-full tap-h text-left px-2 py-1.5 text-[11px]">Duplicate</button>
+            <button onClick={() => { toggleNode(node.id); actionsRef.current?.removeAttribute('open'); }} className="w-full tap-h text-left px-2 py-1.5 text-[11px]">{node.enabled ? 'Disable geometry' : 'Enable geometry'}</button>
+            <button onClick={() => removeNode(node.id)} className="w-full tap-h text-left px-2 py-1.5 text-[11px]" style={{ color: 'var(--accent-red)' }}>Delete</button>
+          </div>
+        </details>
       </div>
 
       {/* Children + placeholder slots */}
@@ -384,6 +339,7 @@ export function TreeNode({ node, depth, isLast = true, incompleteIds: incomplete
                 isLast={i === node.children.length - 1 && missingSlots === 0}
                 incompleteIds={incompleteIds}
                 forceExpanded={forceExpanded}
+                groupNames={groupNames}
               />
             )
           ))}

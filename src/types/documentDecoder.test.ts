@@ -25,6 +25,14 @@ describe('document decoder', () => {
     expect(() => decodeProjectDocument({ version: 3, tree: box() })).toThrow(/version 3/);
   });
 
+  it('preserves valid group metadata, migrates its absence, and rejects malformed groups', () => {
+    expect(decodeTree({ ...box(), group: '  Enclosure  ' })?.group).toBe('Enclosure');
+    expect(decodeTree(box())).not.toHaveProperty('group');
+    expect(() => decodeTree({ ...box(), group: '' })).toThrow(/group must be a non-empty string/);
+    expect(() => decodeTree({ ...box(), group: 12 })).toThrow(/group must be a non-empty string/);
+    expect(() => decodeTree({ ...box(), group: 'x'.repeat(257) })).toThrow(/at most 256/);
+  });
+
   it('validates and loads bounded version checkpoints', () => {
     const decoded = decodeProjectDocument({
       version: 2, tree: box(), thumbnail: null,

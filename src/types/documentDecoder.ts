@@ -239,6 +239,15 @@ function decodeNode(input: unknown, path: number[], depth: number, context: Cont
     throw new DocumentDecodeError(`${labelPath}.enabled must be boolean`);
   }
 
+  let group: string | undefined;
+  if (raw.group !== undefined) {
+    if (typeof raw.group !== 'string' || !raw.group.trim() || raw.group.length > MAX_LABEL_CHARS) {
+      throw new DocumentDecodeError(`${labelPath}.group must be a non-empty string of at most ${MAX_LABEL_CHARS} characters`);
+    }
+    group = raw.group.trim();
+    accountString(context, group);
+  }
+
   const data = decodeData(kind, raw.data, labelPath, context);
   let expressions: Record<string, string> | undefined;
   if (raw.expressions !== undefined) {
@@ -267,6 +276,7 @@ function decodeNode(input: unknown, path: number[], depth: number, context: Cont
   return {
     id, kind, label,
     params: normalizedParams,
+    ...(group ? { group } : {}),
     ...(data ? { data } : {}),
     ...(expressions ? { expressions } : {}),
     children,
