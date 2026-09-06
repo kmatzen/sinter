@@ -71,6 +71,8 @@ export function ViewportToolbar({ engine }: { engine: ThreeEngine | null }) {
   const setClipPosition = useViewportStore((s) => s.setClipPosition);
   const gizmoMode = useViewportStore((s) => s.gizmoMode);
   const setGizmoMode = useViewportStore((s) => s.setGizmoMode);
+  const gizmoSpace = useViewportStore((s) => s.gizmoSpace);
+  const toggleGizmoSpace = useViewportStore((s) => s.toggleGizmoSpace);
   const snapEnabled = useViewportStore((s) => s.snapEnabled);
   const toggleSnap = useViewportStore((s) => s.toggleSnap);
   const snapSize = useViewportStore((s) => s.snapSize);
@@ -100,6 +102,9 @@ export function ViewportToolbar({ engine }: { engine: ThreeEngine | null }) {
               <Icon size={ICON} />
             </SmallBtn>
           ))}
+          <SmallBtn active={gizmoSpace === 'local'} onClick={toggleGizmoSpace} title={`Transform space: ${gizmoSpace}. Switch to ${gizmoSpace === 'world' ? 'local' : 'world'}`}>
+            {gizmoSpace === 'world' ? 'W' : 'L'}
+          </SmallBtn>
         </BtnGroup>
 
         <BtnGroup>

@@ -1,5 +1,12 @@
 import { create } from 'zustand';
 
+const GIZMO_SPACE_KEY = 'sinter_gizmo_space';
+
+function initialGizmoSpace(): 'world' | 'local' {
+  try { return localStorage.getItem(GIZMO_SPACE_KEY) === 'local' ? 'local' : 'world'; }
+  catch { return 'world'; }
+}
+
 interface ViewportState {
   // Gizmo
   gizmoMode: 'none' | 'translate' | 'rotate' | 'scale';
@@ -68,8 +75,12 @@ interface ViewportState {
 export const useViewportStore = create<ViewportState>((set) => ({
   gizmoMode: 'translate',
   setGizmoMode: (mode) => set({ gizmoMode: mode }),
-  gizmoSpace: 'world',
-  toggleGizmoSpace: () => set((s) => ({ gizmoSpace: s.gizmoSpace === 'world' ? 'local' : 'world' })),
+  gizmoSpace: initialGizmoSpace(),
+  toggleGizmoSpace: () => set((s) => {
+    const gizmoSpace = s.gizmoSpace === 'world' ? 'local' : 'world';
+    try { localStorage.setItem(GIZMO_SPACE_KEY, gizmoSpace); } catch { /* preference persistence is best effort */ }
+    return { gizmoSpace };
+  }),
   dragging: false,
   setDragging: (v) => set({ dragging: v }),
   snapEnabled: false,

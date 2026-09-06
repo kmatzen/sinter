@@ -1,8 +1,27 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { useViewportStore } from './viewportStore';
 
 beforeEach(() => {
-  useViewportStore.setState({ hoveredNodeId: null, hoverSource: null });
+  const values = new Map<string, string>();
+  vi.stubGlobal('localStorage', {
+    getItem: (key: string) => values.get(key) ?? null,
+    setItem: (key: string, value: string) => void values.set(key, value),
+    removeItem: (key: string) => void values.delete(key),
+    clear: () => values.clear(),
+  });
+  useViewportStore.setState({ hoveredNodeId: null, hoverSource: null, gizmoSpace: 'world' });
+});
+
+describe('gizmo space', () => {
+  it('switches between visible world/local modes and persists the preference', () => {
+    useViewportStore.getState().toggleGizmoSpace();
+    expect(useViewportStore.getState().gizmoSpace).toBe('local');
+    expect(localStorage.getItem('sinter_gizmo_space')).toBe('local');
+
+    useViewportStore.getState().toggleGizmoSpace();
+    expect(useViewportStore.getState().gizmoSpace).toBe('world');
+    expect(localStorage.getItem('sinter_gizmo_space')).toBe('world');
+  });
 });
 
 describe('hovered node', () => {

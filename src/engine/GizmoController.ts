@@ -98,6 +98,7 @@ export class GizmoController {
   private unsubs: (() => void)[] = [];
   private shiftHeld = false;
   private lastGizmoMode = 'none';
+  private lastGizmoSpace: 'world' | 'local';
 
   constructor(engine: ThreeEngine) {
     this.engine = engine;
@@ -119,7 +120,8 @@ export class GizmoController {
     const coarsePointer = typeof window !== 'undefined'
       && window.matchMedia?.('(pointer: coarse)').matches;
     this.controls.setSize(coarsePointer ? 1.9 : 1.2);
-    this.controls.setSpace('local');
+    this.lastGizmoSpace = useViewportStore.getState().gizmoSpace;
+    this.controls.setSpace(this.lastGizmoSpace);
     this.controls.visible = false;
     this.controls.enabled = false;
     engine.gizmoScene.add(this.controls);
@@ -175,6 +177,10 @@ export class GizmoController {
 
     // Update snap
     const vs = useViewportStore.getState();
+    if (vs.gizmoSpace !== this.lastGizmoSpace) {
+      this.controls.setSpace(vs.gizmoSpace);
+      this.lastGizmoSpace = vs.gizmoSpace;
+    }
     const snap = vs.snapEnabled && !this.shiftHeld;
     this.controls.setTranslationSnap(snap ? vs.snapSize : null);
     this.controls.setRotationSnap(snap ? (vs.snapSize * Math.PI / 180) : null);
