@@ -33,7 +33,11 @@ export function computeBounds(node: SDFNode): BBox {
       return { min: [-hx, -hy, -hz], max: [hx, hy, hz] };
     }
     case 'union':
-      return mergeBounds(computeBounds(node.a), computeBounds(node.b), node.k);
+      return mergeBounds(
+        computeBounds(node.a),
+        computeBounds(node.b),
+        node.k > 0 ? (node.k / 4) * Math.max(fieldScale(node.a), fieldScale(node.b)) : 0,
+      );
     case 'subtract':
       return expandBounds(computeBounds(node.a), node.k);
     case 'intersect': {

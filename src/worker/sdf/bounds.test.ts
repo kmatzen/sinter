@@ -40,6 +40,22 @@ describe('computeBounds', () => {
     expect(bb.max[0]).toBeGreaterThanOrEqual(25);
   });
 
+  it('contains smooth-union material produced by conservative child fields', () => {
+    const child: SDFNode = {
+      kind: 'transform', child: { kind: 'cylinder', radius: 1, height: 2 },
+      tx: 0, ty: 0, tz: 0, rx: 0, ry: 0, rz: 0,
+      sx: 0.1, sy: 1.25, sz: 0.1,
+    };
+    const smooth: SDFNode = { kind: 'union', a: child, b: child, k: 6 };
+    const bb = computeBounds(smooth);
+
+    // smin(a,a,k) subtracts k/4 in field units. The non-uniform transform's
+    // field is scaled by 0.1, so the physical blend can reach 18.75 mm beyond
+    // the child rather than the raw six-millimetre parameter value.
+    expect(bb.max[1]).toBeGreaterThanOrEqual(20);
+    expect(bb.min[1]).toBeLessThanOrEqual(-20);
+  });
+
   it('shell adds margin', () => {
     const shell: SDFNode = { kind: 'shell', child: { kind: 'box', size: [10, 10, 10] }, thickness: 4 };
     const bb = computeBounds(shell);
