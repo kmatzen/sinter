@@ -8,20 +8,23 @@ import {
   findMeasurementNode,
   formatMeasurement,
   makeAnchor,
-  measureAnchors,
+  measurePoints,
+  resolveMeasurementAnchors,
   type MeasurementAnchor,
   type Point3,
 } from '../../types/measurement';
 
 function validAnchors(tree: ReturnType<typeof useModelerStore.getState>['tree'], anchors: MeasurementAnchor[]) {
-  return anchors.every((anchor) => !!findMeasurementNode(tree, anchor.nodeId));
+  return resolveMeasurementAnchors(tree, anchors) !== null;
 }
 
 function measurementText(
-  anchors: MeasurementAnchor[], min: Point3 | undefined, max: Point3 | undefined,
+  tree: ReturnType<typeof useModelerStore.getState>['tree'], anchors: MeasurementAnchor[],
   unit: 'mm' | 'in', precision: number,
 ) {
-  const result = measureAnchors(anchors, min, max);
+  const points = resolveMeasurementAnchors(tree, anchors);
+  if (!points) return '';
+  const result = measurePoints(points);
   const lines = result.points.map((point, index) =>
     `Point ${index + 1}: ${point.map((value) => formatMeasurement(value, unit, precision)).join(', ')}`,
   );
@@ -56,8 +59,9 @@ export function MeasurementOverlay() {
   const structuralBounds = useMemo(() => tree ? nodeWorldBounds(tree, tree.id) : null, [tree]);
   const min = structuralBounds?.min ?? display?.bbMin;
   const max = structuralBounds?.max ?? display?.bbMax;
-  const current = useMemo(() => measureAnchors(anchors, min, max), [anchors, min, max]);
-  const currentValid = validAnchors(tree, anchors);
+  const currentPoints = useMemo(() => resolveMeasurementAnchors(tree, anchors), [tree, anchors]);
+  const current = useMemo(() => measurePoints(currentPoints ?? []), [currentPoints]);
+  const currentValid = currentPoints !== null;
   const sourceNode = anchors.length ? findMeasurementNode(tree, anchors[anchors.length - 1].nodeId) : null;
   const radial = exactRadialMeasurement(sourceNode);
 
@@ -76,11 +80,11 @@ export function MeasurementOverlay() {
 
   const addBound = (point: Point3) => {
     if (!tree || !min || !max) return;
-    addPoint(makeAnchor(point, tree.id, min, max));
+    addPoint(makeAnchor(point, tree.id, min, max, { path: [tree.id], patternInstances: {}, mirrorSigns: {} }, point));
   };
   const copy = async () => {
     if (!currentValid || anchors.length === 0) return;
-    await navigator.clipboard.writeText(measurementText(anchors, min, max, unit, precision));
+    await navigator.clipboard.writeText(measurementText(tree, anchors, unit, precision));
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1200);
   };
@@ -133,7 +137,8 @@ export function MeasurementOverlay() {
       {pinned.length > 0 && <div className="space-y-1.5 border-t pt-2" style={{ borderColor: 'var(--border-subtle)' }}>
         {pinned.map((item, index) => {
           const valid = validAnchors(tree, item.anchors);
-          const result = valid ? measureAnchors(item.anchors, min, max) : null;
+          const points = valid ? resolveMeasurementAnchors(tree, item.anchors) : null;
+          const result = points ? measurePoints(points) : null;
           const radial = valid ? exactRadialMeasurement(findMeasurementNode(tree, item.anchors[item.anchors.length - 1]?.nodeId)) : null;
           const summary = result?.distance !== undefined
             ? formatMeasurement(result.distance, unit, precision)

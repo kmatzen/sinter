@@ -103,6 +103,10 @@ describe('document decoder', () => {
     expect(decodeProjectDocument({ version: 1, tree: box(), measurements: [pin] }).measurements).toEqual([]);
     expect(() => decodeProjectDocument({ version: 2, tree: box(), measurements: [{ ...pin, anchors: [{ ...pin.anchors[0], fallback: [Infinity, 0, 0] }] }] })).toThrow(/finite/);
     expect(() => decodeProjectDocument({ version: 2, tree: box(), measurements: [pin, pin] })).toThrow(/duplicated/);
+    const targetRelative = { ...pin, anchors: [{ ...pin.anchors[0], path: ['box'], patternInstances: {}, mirrorSigns: {} }] };
+    expect(decodeProjectDocument({ version: 2, tree: box(), measurements: [targetRelative] }).measurements).toEqual([targetRelative]);
+    expect(() => decodeProjectDocument({ version: 2, tree: box(), measurements: [{ ...pin, anchors: [{ ...pin.anchors[0], path: ['other'] }] }] })).toThrow(/end at nodeId/);
+    expect(() => decodeProjectDocument({ version: 2, tree: box(), measurements: [{ ...pin, anchors: [{ ...pin.anchors[0], path: ['box'], mirrorSigns: { mirror: [0, 1, 1] } }] }] })).toThrow(/mirrorSigns/);
   });
 
   it('rejects duplicate IDs, unknown kinds, and invalid arity', () => {

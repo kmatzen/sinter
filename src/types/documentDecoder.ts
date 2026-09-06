@@ -369,7 +369,45 @@ function decodeMeasurements(input: unknown, path: string): PinnedMeasurement[] {
       if ([...normalized, ...fallback].some((value) => Math.abs(value) > MODEL_SPATIAL_LIMIT_MM)) {
         throw new DocumentDecodeError(`${anchorPath} coordinates exceed the modeling envelope`);
       }
-      return { nodeId: anchor.nodeId, normalized, fallback };
+      let pathIds: string[] | undefined;
+      if (anchor.path !== undefined) {
+        if (!Array.isArray(anchor.path) || anchor.path.length < 1 || anchor.path.length > MAX_DOCUMENT_DEPTH ||
+            anchor.path.some((id) => typeof id !== 'string' || !id || id.length > 128)) {
+          throw new DocumentDecodeError(`${anchorPath}.path is invalid`);
+        }
+        pathIds = [...anchor.path] as string[];
+        if (pathIds[pathIds.length - 1] !== anchor.nodeId) throw new DocumentDecodeError(`${anchorPath}.path must end at nodeId`);
+      }
+      const decodeInstanceMap = (input: unknown, field: string): Record<string, number> | undefined => {
+        if (input === undefined) return undefined;
+        const values = record(input, `${anchorPath}.${field}`);
+        if (Object.keys(values).length > MAX_DOCUMENT_DEPTH) throw new DocumentDecodeError(`${anchorPath}.${field} has too many entries`);
+        const result: Record<string, number> = {};
+        for (const [id, value] of Object.entries(values)) {
+          if (!id || id.length > 128 || typeof value !== 'number' || !Number.isInteger(value) || Math.abs(value) > 1_000) {
+            throw new DocumentDecodeError(`${anchorPath}.${field}.${id} is invalid`);
+          }
+          result[id] = value;
+        }
+        return result;
+      };
+      let mirrorSigns: Record<string, [number, number, number]> | undefined;
+      if (anchor.mirrorSigns !== undefined) {
+        const values = record(anchor.mirrorSigns, `${anchorPath}.mirrorSigns`);
+        if (Object.keys(values).length > MAX_DOCUMENT_DEPTH) throw new DocumentDecodeError(`${anchorPath}.mirrorSigns has too many entries`);
+        mirrorSigns = {};
+        for (const [id, value] of Object.entries(values)) {
+          const signs = finiteVec3(value, `${anchorPath}.mirrorSigns.${id}`);
+          if (!id || id.length > 128 || signs.some((sign) => sign !== -1 && sign !== 1)) throw new DocumentDecodeError(`${anchorPath}.mirrorSigns.${id} is invalid`);
+          mirrorSigns[id] = signs;
+        }
+      }
+      return {
+        nodeId: anchor.nodeId, normalized, fallback,
+        ...(pathIds ? { path: pathIds } : {}),
+        ...(anchor.patternInstances !== undefined ? { patternInstances: decodeInstanceMap(anchor.patternInstances, 'patternInstances')! } : {}),
+        ...(mirrorSigns ? { mirrorSigns } : {}),
+      };
     });
     return { id: raw.id, createdAt: raw.createdAt, anchors };
   });

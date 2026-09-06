@@ -91,9 +91,22 @@ function compile(cache: Compiled, ui: SDFNodeUI) {
  * along it.
  */
 export function attributePath(ui: SDFNodeUI, p: Vec3): string[] {
-  const out: string[] = [];
-  descend(ui, p, out, new Map());
-  return out;
+  return attributePointDetails(ui, p)?.path ?? [];
+}
+
+export interface PointAttribution {
+  path: string[];
+  /** Point expressed in the owning leaf's local coordinate system. */
+  localPoint: Vec3;
+  /** Chosen repetition index for every pattern in the path. */
+  patternInstances: Record<string, number>;
+  /** Original side of every folded mirror axis. */
+  mirrorSigns: Record<string, Vec3>;
+}
+
+export function attributePointDetails(ui: SDFNodeUI, p: Vec3): PointAttribution | null {
+  const trace: PointAttribution = { path: [], localPoint: [...p], patternInstances: {}, mirrorSigns: {} };
+  return descend(ui, p, trace, new Map()) ? trace : null;
 }
 
 /**
@@ -106,25 +119,28 @@ export function attributePoint(ui: SDFNodeUI, p: Vec3): string | null {
 }
 
 /**
- * Append the owning path for `p` under `ui` to `out`; report whether one
- * exists. On failure `out` is left exactly as it was found, so a caller that
+ * Append the owning path for `p` under `ui` to `trace`; report whether one
+ * exists. On failure the path is left exactly as it was found, so a caller that
  * tries a branch and loses does not have to unwind by hand.
  */
-function descend(ui: SDFNodeUI, p: Vec3, out: string[], cache: Compiled): boolean {
-  const mark = out.length;
-  if (!attribute(ui, p, out, cache)) {
-    out.length = mark;
+function descend(ui: SDFNodeUI, p: Vec3, trace: PointAttribution, cache: Compiled): boolean {
+  const mark = trace.path.length;
+  if (!attribute(ui, p, trace, cache)) {
+    trace.path.length = mark;
     return false;
   }
   return true;
 }
 
-function attribute(ui: SDFNodeUI, p: Vec3, out: string[], cache: Compiled): boolean {
+function attribute(ui: SDFNodeUI, p: Vec3, trace: PointAttribution, cache: Compiled): boolean {
   if (!ui.enabled) return false;
 
-  out.push(ui.id);
+  trace.path.push(ui.id);
 
-  if (LEAF_KINDS.has(ui.kind)) return true;
+  if (LEAF_KINDS.has(ui.kind)) {
+    trace.localPoint = [...p];
+    return true;
+  }
 
   // Placeholder slots are `enabled: false`, so this drops them too.
   const enabledChildren = ui.children.filter(c => c.enabled);
@@ -132,13 +148,13 @@ function attribute(ui: SDFNodeUI, p: Vec3, out: string[], cache: Compiled): bool
   // Booleans: decide which child owns the surface
   if (ui.kind === 'union' || ui.kind === 'subtract' || ui.kind === 'intersect') {
     if (enabledChildren.length === 0) return false;
-    if (enabledChildren.length === 1) return descend(enabledChildren[0], p, out, cache);
+    if (enabledChildren.length === 1) return descend(enabledChildren[0], p, trace, cache);
 
     const [childA, childB] = enabledChildren;
     const sdfA = compile(cache, childA);
     const sdfB = compile(cache, childB);
-    if (!sdfA) return descend(childB, p, out, cache);
-    if (!sdfB) return descend(childA, p, out, cache);
+    if (!sdfA) return descend(childB, p, trace, cache);
+    if (!sdfB) return descend(childA, p, trace, cache);
 
     const dA = evaluateSDF(sdfA, p);
     const dB = evaluateSDF(sdfB, p);
@@ -151,13 +167,13 @@ function attribute(ui: SDFNodeUI, p: Vec3, out: string[], cache: Compiled): bool
     } else {
       winner = dA >= dB ? childA : childB;
     }
-    return descend(winner, p, out, cache);
+    return descend(winner, p, trace, cache);
   }
 
   // Transforms: inverse-transform point then recurse
   if (ui.kind === 'translate' || ui.kind === 'rotate' || ui.kind === 'scale') {
     if (enabledChildren.length === 0) return false;
-    return descend(enabledChildren[0], inverseTransform(ui, p), out, cache);
+    return descend(enabledChildren[0], inverseTransform(ui, p), trace, cache);
   }
 
   // Mirror: fold point
@@ -168,7 +184,8 @@ function attribute(ui: SDFNodeUI, p: Vec3, out: string[], cache: Compiled): bool
       ui.params.mirrorY ? Math.abs(p[1]) : p[1],
       ui.params.mirrorZ ? Math.abs(p[2]) : p[2],
     ];
-    return descend(enabledChildren[0], mp, out, cache);
+    trace.mirrorSigns[ui.id] = [p[0] < 0 ? -1 : 1, p[1] < 0 ? -1 : 1, p[2] < 0 ? -1 : 1];
+    return descend(enabledChildren[0], mp, trace, cache);
   }
 
   // Linear pattern: find nearest copy, undo repetition
@@ -184,13 +201,15 @@ function attribute(ui: SDFNodeUI, p: Vec3, out: string[], cache: Compiled): bool
     if (!sdfChild) return false;
     let bestDist = Infinity;
     let bestP: Vec3 = p;
+    let bestIndex = base;
     for (let j = 0; j < width; j++) {
       const offset = (base + j) * pattern.spacing;
       const lp: Vec3 = [p[0] - nax[0] * offset, p[1] - nax[1] * offset, p[2] - nax[2] * offset];
       const d = evaluateSDF(sdfChild, lp);
-      if (d < bestDist) { bestDist = d; bestP = lp; }
+      if (d < bestDist) { bestDist = d; bestP = lp; bestIndex = base + j; }
     }
-    return descend(enabledChildren[0], bestP, out, cache);
+    trace.patternInstances[ui.id] = ((bestIndex % pattern.count) + pattern.count) % pattern.count;
+    return descend(enabledChildren[0], bestP, trace, cache);
   }
 
   // Circular pattern: find nearest sector, undo rotation
@@ -217,6 +236,7 @@ function attribute(ui: SDFNodeUI, p: Vec3, out: string[], cache: Compiled): bool
     if (!sdfChild) return false;
     let bestDist = Infinity;
     let bestP: Vec3 = p;
+    let bestIndex = base;
     for (let j = 0; j < width; j++) {
       const a = angle - (base + j) * sector;
       const c = Math.cos(a), s = Math.sin(a);
@@ -225,12 +245,13 @@ function attribute(ui: SDFNodeUI, p: Vec3, out: string[], cache: Compiled): bool
       else if (isZ) cp = [radius * c, radius * s, p[2]];
       else cp = [radius * c, p[1], radius * s];
       const d = evaluateSDF(sdfChild, cp);
-      if (d < bestDist) { bestDist = d; bestP = cp; }
+      if (d < bestDist) { bestDist = d; bestP = cp; bestIndex = base + j; }
     }
-    return descend(enabledChildren[0], bestP, out, cache);
+    trace.patternInstances[ui.id] = ((bestIndex % pattern.count) + pattern.count) % pattern.count;
+    return descend(enabledChildren[0], bestP, trace, cache);
   }
 
   // All other modifiers (shell, offset, round, halfSpace): pass through
-  if (enabledChildren.length > 0) return descend(enabledChildren[0], p, out, cache);
+  if (enabledChildren.length > 0) return descend(enabledChildren[0], p, trace, cache);
   return false;
 }

@@ -5,14 +5,14 @@ import { useViewportStore } from '../store/viewportStore';
 import { SdfMesh } from './SdfMesh';
 import { OutlinePass } from './OutlinePass';
 import { GizmoController } from './GizmoController';
-import { attributePath } from './sdfPicking';
+import { attributePointDetails, type PointAttribution } from './sdfPicking';
 import type { Vec3 } from '../worker/sdf/types';
-import { makeAnchor } from '../types/measurement';
+import { makeTargetMeasurementAnchor } from '../types/measurement';
 import { nodeWorldBounds } from './nodeBounds';
 import { standardViewPose, type StandardView } from './cameraViews';
 import { hasValidCameraBasis, type NamedProjectView } from '../types/view';
 
-interface PickResult { path: string[]; point?: Vec3 }
+interface PickResult { path: string[]; point?: Vec3; attribution?: PointAttribution }
 
 export class ThreeEngine {
   renderer: THREE.WebGLRenderer;
@@ -319,7 +319,8 @@ export class ThreeEngine {
     worldPos.divideScalar(worldPos.w);
 
     const hitPoint: Vec3 = [worldPos.x, worldPos.y, worldPos.z];
-    return { path: attributePath(tree, hitPoint), point: hitPoint };
+    const attribution = attributePointDetails(tree, hitPoint);
+    return { path: attribution?.path ?? [], point: hitPoint, attribution: attribution ?? undefined };
   }
 
   private onPointerDown = (e: PointerEvent) => {
@@ -356,14 +357,9 @@ export class ThreeEngine {
     }
 
     const viewport = useViewportStore.getState();
-    if (viewport.measurementMode && picked.point) {
-      const bounds = store.tree ? nodeWorldBounds(store.tree, store.tree.id) : null;
-      viewport.addMeasurementPoint(makeAnchor(
-        picked.point,
-        path[path.length - 1],
-        bounds?.min,
-        bounds?.max,
-      ));
+    if (viewport.measurementMode && picked.point && picked.attribution && store.tree) {
+      const anchor = makeTargetMeasurementAnchor(store.tree, picked.attribution, picked.point);
+      if (anchor) viewport.addMeasurementPoint(anchor);
       return;
     }
 
