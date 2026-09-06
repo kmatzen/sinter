@@ -90,6 +90,10 @@ export function NodeTreeContent({ onClose }: { onClose?: () => void } = {}) {
   const allExpanded = tree ? expandedNodes.size > 0 : false;
   const movingNodeId = useTreeUiStore((s) => s.movingNodeId);
   const selectedNodeId = useModelerStore((s) => s.selectedNodeId);
+  const selectedNodeIds = useModelerStore((s) => s.selectedNodeIds);
+  const duplicateSelected = useModelerStore((s) => s.duplicateSelected);
+  const toggleSelected = useModelerStore((s) => s.toggleSelected);
+  const removeSelected = useModelerStore((s) => s.removeSelected);
   const cancelMove = useTreeUiStore((s) => s.cancelMove);
   const hiddenCount = useTreeUiStore((s) => s.hiddenNodeIds.size);
   const isolatedNodeId = useTreeUiStore((s) => s.isolatedNodeId);
@@ -178,6 +182,21 @@ export function NodeTreeContent({ onClose }: { onClose?: () => void } = {}) {
           {query && <div role="status" className="mt-1 text-[10px]" style={{ color: 'var(--text-muted)' }}>
             {filteredTree ? 'Matching nodes shown with their context' : 'No matching nodes'}
           </div>}
+        </div>
+      )}
+
+      {selectedNodeIds.length > 1 && (
+        <div
+          aria-label="Multiple selection actions"
+          className="px-2 py-1.5 flex items-center gap-1"
+          style={{ borderBottom: '1px solid var(--border-subtle)', background: 'var(--accent-subtle)' }}
+        >
+          <span className="mr-auto text-[10px] font-medium" style={{ color: 'var(--text-secondary)' }}>
+            {selectedNodeIds.length} selected
+          </span>
+          <button onClick={duplicateSelected} className="tap-h rounded px-2 text-[10px]" style={{ border: '1px solid var(--border-default)' }}>Duplicate</button>
+          <button onClick={toggleSelected} className="tap-h rounded px-2 text-[10px]" style={{ border: '1px solid var(--border-default)' }}>Enable/disable</button>
+          <button onClick={removeSelected} className="tap-h rounded px-2 text-[10px]" style={{ color: 'var(--accent-red)', border: '1px solid var(--border-default)' }}>Delete</button>
         </div>
       )}
 

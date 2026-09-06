@@ -227,6 +227,27 @@ export function TreeNode({ node, depth, isLast = true, incompleteIds: incomplete
           <span className="w-4 tap-w shrink-0" />
         )}
 
+        {/* Persistent touch target for additive selection; modifier keys are
+            still the faster desktop path, but are not available on tablets. */}
+        <button
+          type="button"
+          aria-label={isSelected ? `Remove ${displayLabel} from selection` : `Add ${displayLabel} to selection`}
+          aria-pressed={isSelected}
+          title={isSelected ? 'Remove from selection' : 'Add to selection'}
+          className="w-4 h-4 tap flex items-center justify-center shrink-0 rounded text-[10px]"
+          style={{
+            color: isSelected ? 'var(--bg-deep)' : 'var(--text-muted)',
+            background: isSelected ? 'var(--accent)' : 'transparent',
+            border: `1px solid ${isSelected ? 'var(--accent)' : 'var(--border-default)'}`,
+          }}
+          onClick={(event) => {
+            event.stopPropagation();
+            if (!isLocked) selectNode(node.id, 'toggle');
+          }}
+        >
+          {isSelected ? '✓' : '+'}
+        </button>
+
         {/* Kind color pip */}
         <span
           className="w-[6px] h-[6px] rounded-full shrink-0"

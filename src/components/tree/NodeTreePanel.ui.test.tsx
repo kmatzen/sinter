@@ -84,4 +84,18 @@ describe('node naming and search workflow', () => {
     expect(useModelerStore.getState().tree?.children[0].group).toBe('Shell');
     expect(screen.getByRole('button', { name: 'Group Shell, 1 node' })).toBeInTheDocument();
   });
+
+  it('supports additive touch selection and exposes atomic bulk actions', () => {
+    render(<NodeTreeContent />);
+    fireEvent.click(screen.getByRole('button', { name: 'Expand' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add Main body to selection' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add Fasteners to selection' }));
+
+    expect(useModelerStore.getState().selectedNodeIds).toEqual(['body', 'moved']);
+    expect(screen.getByLabelText('Multiple selection actions')).toHaveTextContent('2 selected');
+    const historyLength = useModelerStore.getState().history.length;
+    fireEvent.click(screen.getByRole('button', { name: 'Enable/disable' }));
+    expect(useModelerStore.getState().tree?.children.map((node) => node.enabled)).toEqual([false, false]);
+    expect(useModelerStore.getState().history).toHaveLength(historyLength + 1);
+  });
 });
