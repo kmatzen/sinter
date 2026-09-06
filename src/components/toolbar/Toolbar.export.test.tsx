@@ -95,7 +95,7 @@ describe('Toolbar export cancellation', () => {
     job.resolve(artifact(1024, 12));
     await waitFor(() => expect(screen.getByText('Download')).toBeInTheDocument());
     expect(screen.getByText('Watertight')).toBeInTheDocument();
-    expect(screen.getByText('10.0 × 20.0 × 30.0 mm')).toBeInTheDocument();
+    expect(screen.getByText('10.00 × 20.00 × 30.00 mm')).toBeInTheDocument();
     expect(screen.getByText('≤ 0.0250 mm')).toBeInTheDocument();
     expect(screen.getByText('Verified components')).toBeInTheDocument();
     expect(screen.getByText('Verified samples')).toBeInTheDocument();

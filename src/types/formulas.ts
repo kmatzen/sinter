@@ -1,5 +1,6 @@
 import type { NamedParameter, ParameterUnit, SDFNodeUI } from './operations';
 import { applyNodeParamPatch, PARAMETER_SCHEMAS } from './parameterSchema';
+import { toMillimeters } from './units';
 
 interface Quantity { value: number; unit: ParameterUnit | null; bare: boolean }
 type Lookup = (name: string) => Quantity;
@@ -42,7 +43,12 @@ class Parser {
 
   private term(): Quantity {
     let left = this.factor();
-    while (this.peek() === '*' || this.peek() === '/') {
+    while (this.peek() === '*' || this.peek() === '/' || isLengthUnit(this.peek())) {
+      if (isLengthUnit(this.peek())) {
+        if (left.unit) throw new FormulaError(`Cannot apply ${this.peek()} to ${left.unit}`);
+        left = { value: toMillimeters(left.value, this.take() as 'mm' | 'cm' | 'm' | 'in'), unit: 'mm', bare: false };
+        continue;
+      }
       const op = this.take();
       const right = this.factor();
       if (op === '*') {
@@ -102,8 +108,19 @@ function tokenize(expression: string): string[] {
   return tokens;
 }
 
+function isLengthUnit(token: string | undefined): token is 'mm' | 'cm' | 'm' | 'in' {
+  return token === 'mm' || token === 'cm' || token === 'm' || token === 'in';
+}
+
 function parse(expression: string, lookup: Lookup): Quantity {
   return new Parser(tokenize(expression.trim()), lookup).parse();
+}
+
+/** Resolve a standalone length expression to canonical millimeters. */
+export function evaluateLengthExpression(expression: string): number {
+  const quantity = parse(expression, (name) => { throw new FormulaError(`Unknown parameter “${name}”`); });
+  if (quantity.unit && quantity.unit !== 'mm') throw new FormulaError(`Expected a length, got ${quantity.unit}`);
+  return quantity.value;
 }
 
 export interface ResolvedParameter extends NamedParameter { value: number }

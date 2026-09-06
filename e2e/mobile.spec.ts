@@ -114,7 +114,7 @@ test('the core path works with a finger: add a shape, edit a dimension', async (
 
   await width.fill('42');
   await width.press('Enter');
-  await expect(width).toHaveValue('42');
+  await expect(width).toHaveValue('42.00');
 });
 
 test('the property sheet opens far enough to edit in, and closes without a swipe', async ({ page }) => {

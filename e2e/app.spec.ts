@@ -255,8 +255,8 @@ test.describe('Modeler: Viewport controls', () => {
     const snap = page.locator('[title="Snap to grid"]');
     await expect(snap).toBeVisible();
     await snap.click();
-    await expect(page.locator('[title="Snap size: 5mm"]')).toBeVisible();
-    await expect(page.locator('[title="Snap size: 10mm"]')).toBeVisible();
+    await expect(page.locator('[title="Snap size: 5.00 mm"]')).toBeVisible();
+    await expect(page.locator('[title="Snap size: 10.00 mm"]')).toBeVisible();
   });
 
   test('dimensions toggle exists', async ({ page }) => {

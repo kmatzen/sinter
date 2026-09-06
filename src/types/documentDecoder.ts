@@ -7,6 +7,7 @@ import { FormulaError, resolveNamedParameters, resolveTreeFormulas } from './for
 import { STLParseError, STL_TOPOLOGY_STATUS, validateSTLTopology } from '../worker/sdf/stl';
 import { MODEL_SPATIAL_LIMIT_MM } from './modelingEnvelope';
 import type { PinnedMeasurement } from './measurement';
+import { DEFAULT_UNIT_PREFERENCES, type UnitPreferences } from './units';
 
 export const CURRENT_DOCUMENT_VERSION = 2;
 export const MAX_PROJECT_CHECKPOINTS = 10;
@@ -156,7 +157,7 @@ function validateGlyphPayload(value: string, path: string): void {
 function decodeData(kind: string, input: unknown, path: string, context: Context): Record<string, string> | undefined {
   if (input === undefined) return undefined;
   const raw = record(input, `${path}.data`);
-  const allowed = kind === 'mesh' ? new Set(['meshPositions', 'meshName', 'meshTopology'])
+  const allowed = kind === 'mesh' ? new Set(['meshPositions', 'meshName', 'meshTopology', 'meshImportUnit'])
     : kind === 'text' ? new Set(['text', 'glyphPaths']) : new Set<string>();
   const out: Record<string, string> = {};
   for (const [key, value] of Object.entries(raw)) {
@@ -167,6 +168,7 @@ function decodeData(kind: string, input: unknown, path: string, context: Context
     if (typeof value !== 'string') throw new DocumentDecodeError(`${path}.data.${key} must be a string`);
     accountString(context, value);
     if (key === 'meshPositions') validateMeshPayload(value, path);
+    else if (key === 'meshImportUnit' && !['mm', 'cm', 'm', 'in'].includes(value)) throw new DocumentDecodeError(`${path}.data.meshImportUnit is invalid`);
     else if (key === 'text' && value.length > MAX_TEXT_CHARS) throw new DocumentDecodeError(`${path} text exceeds ${MAX_TEXT_CHARS} characters`);
     else if (key === 'glyphPaths') {
       if (value.length > MAX_GLYPH_CHARS) throw new DocumentDecodeError(`${path} glyph data is too large`);
@@ -298,10 +300,28 @@ export interface DecodedProject {
   parameters: NamedParameter[];
   views: NamedProjectView[];
   measurements: PinnedMeasurement[];
+  units: UnitPreferences;
 }
 
 const MAX_NAMED_VIEWS = 20;
 const MAX_PINNED_MEASUREMENTS = 20;
+
+function decodeUnitPreferences(input: unknown, path: string): UnitPreferences {
+  if (input === undefined) return { ...DEFAULT_UNIT_PREFERENCES };
+  const raw = record(input, path);
+  if (raw.displayUnit !== 'mm' && raw.displayUnit !== 'cm' && raw.displayUnit !== 'm' &&
+      raw.displayUnit !== 'in' && raw.displayUnit !== 'ft-in') {
+    throw new DocumentDecodeError(`${path}.displayUnit is invalid`);
+  }
+  if (!Number.isInteger(raw.decimalPrecision) || (raw.decimalPrecision as number) < 0 || (raw.decimalPrecision as number) > 6) {
+    throw new DocumentDecodeError(`${path}.decimalPrecision must be an integer from 0 to 6`);
+  }
+  if (![2, 4, 8, 16, 32, 64].includes(raw.fractionalDenominator as number)) {
+    throw new DocumentDecodeError(`${path}.fractionalDenominator is invalid`);
+  }
+  return { displayUnit: raw.displayUnit, decimalPrecision: raw.decimalPrecision as number,
+    fractionalDenominator: raw.fractionalDenominator as UnitPreferences['fractionalDenominator'] };
+}
 
 function finiteVec3(input: unknown, path: string): [number, number, number] {
   if (!Array.isArray(input) || input.length !== 3 || input.some((value) => typeof value !== 'number' || !Number.isFinite(value))) {
@@ -459,6 +479,7 @@ export function decodeProjectDocument(input: unknown, fallbackName = 'Untitled')
   const parameters = raw.version === 2 ? decodeNamedParameters(raw.parameters, 'project.parameters') : [];
   const views = raw.version === 2 ? decodeNamedViews(raw.views) : [];
   const measurements = raw.version === 2 ? decodeMeasurements(raw.measurements, 'project.measurements') : [];
+  const units = raw.version === 2 ? decodeUnitPreferences(raw.units, 'project.units') : { ...DEFAULT_UNIT_PREFERENCES };
   if (!Array.isArray(checkpointInput) || checkpointInput.length > MAX_PROJECT_CHECKPOINTS) {
     throw new DocumentDecodeError(`project checkpoints must be an array of at most ${MAX_PROJECT_CHECKPOINTS}`);
   }
@@ -483,6 +504,8 @@ export function decodeProjectDocument(input: unknown, fallbackName = 'Untitled')
       ? decodeNamedViews(checkpoint.views) : undefined;
     const checkpointMeasurements = Object.prototype.hasOwnProperty.call(checkpoint, 'measurements')
       ? decodeMeasurements(checkpoint.measurements, `project.checkpoints[${index}].measurements`) : undefined;
+    const checkpointUnits = Object.prototype.hasOwnProperty.call(checkpoint, 'units')
+      ? decodeUnitPreferences(checkpoint.units, `project.checkpoints[${index}].units`) : undefined;
     let tree = decodeTree(checkpoint.tree);
     try { tree = resolveTreeFormulas(tree, checkpointParameters); }
     catch (error) { throw new DocumentDecodeError(`project.checkpoints[${index}]: ${error instanceof Error ? error.message : 'invalid formulas'}`); }
@@ -494,6 +517,7 @@ export function decodeProjectDocument(input: unknown, fallbackName = 'Untitled')
       parameters: checkpointParameters,
       ...(checkpointViews ? { views: checkpointViews } : {}),
       ...(checkpointMeasurements ? { measurements: checkpointMeasurements } : {}),
+      ...(checkpointUnits ? { units: checkpointUnits } : {}),
     };
   });
   let tree = decodeTree(raw.tree, { legacy, repairMissingIds: legacy });
@@ -508,10 +532,11 @@ export function decodeProjectDocument(input: unknown, fallbackName = 'Untitled')
     parameters,
     views,
     measurements,
+    units,
   };
 }
 
 export function decodeProjectFileBody(input: unknown): ProjectFileBody {
   const decoded = decodeProjectDocument(input);
-  return { version: 2, thumbnail: decoded.thumbnail, tree: decoded.tree, checkpoints: decoded.checkpoints, parameters: decoded.parameters, views: decoded.views, measurements: decoded.measurements };
+  return { version: 2, thumbnail: decoded.thumbnail, tree: decoded.tree, checkpoints: decoded.checkpoints, parameters: decoded.parameters, views: decoded.views, measurements: decoded.measurements, units: decoded.units };
 }

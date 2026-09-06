@@ -1,6 +1,7 @@
 import type { SDFNodeUI } from './operations';
 import { toSDFNode } from '../worker/sdf/convert';
 import { computeBounds } from '../worker/sdf/bounds';
+import { formatLength, type DisplayUnit, type UnitPreferences } from './units';
 
 export type Point3 = [number, number, number];
 export interface MeasurementAnchor {
@@ -170,7 +171,7 @@ export function exactRadialMeasurement(node: SDFNodeUI | null): { radius: number
   return { radius, diameter: radius * 2, label: node.kind === 'cylinder' ? 'Cylinder' : node.label };
 }
 
-export function formatMeasurement(valueMm: number, unit: 'mm' | 'in', precision: number): string {
-  const value = unit === 'in' ? valueMm / 25.4 : valueMm;
-  return `${value.toFixed(Math.max(0, Math.min(6, precision)))} ${unit}`;
+export function formatMeasurement(valueMm: number, unit: DisplayUnit, precision: number,
+  fractionalDenominator: UnitPreferences['fractionalDenominator'] = 16): string {
+  return formatLength(valueMm, { displayUnit: unit, decimalPrecision: precision, fractionalDenominator });
 }

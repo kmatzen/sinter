@@ -921,15 +921,20 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
   toJSON: () => {
     const { tree, projectName, namedParameters: parameters } = get();
     const viewport = useViewportStore.getState();
-    return JSON.stringify({ version: 2, projectName, tree, parameters, views: viewport.namedViews, measurements: viewport.pinnedMeasurements }, null, 2);
+    const units = { displayUnit: viewport.measurementUnit, decimalPrecision: viewport.measurementPrecision,
+      fractionalDenominator: viewport.measurementFractionalDenominator };
+    return JSON.stringify({ version: 2, projectName, tree, parameters, views: viewport.namedViews,
+      measurements: viewport.pinnedMeasurements, units }, null, 2);
   },
 
   fromJSON: (json: string) => {
     const data = decodeProjectDocument(JSON.parse(json));
     get().resetDocument(data.tree, data.projectName, data.parameters);
-    useViewportStore.getState().setNamedViews(data.views);
-    useViewportStore.getState().setPinnedMeasurements(data.measurements);
-    useViewportStore.getState().resetMeasurementSession();
+    const viewport = useViewportStore.getState();
+    viewport.setNamedViews(data.views);
+    viewport.setPinnedMeasurements(data.measurements);
+    viewport.setUnitPreferences(data.units);
+    viewport.resetMeasurementSession();
   },
 }));
 

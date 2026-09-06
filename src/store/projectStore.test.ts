@@ -117,6 +117,20 @@ describe('projectStore.save', () => {
     });
   });
 
+  it('persists a unit-only edit and marks the provider payload clean', async () => {
+    await useProjectStore.getState().save();
+    useViewportStore.getState().setUnitPreferences({ displayUnit: 'in', decimalPrecision: 4, fractionalDenominator: 32 });
+    expect(isCloudDirty()).toBe(true);
+
+    await useProjectStore.getState().save();
+    const body = update.mock.calls[update.mock.calls.length - 1][2];
+    expect(body.units).toEqual({
+      displayUnit: 'in', decimalPrecision: 4, fractionalDenominator: 32,
+    });
+    expect(body.checkpoints).toEqual([]);
+    expect(isCloudDirty()).toBe(false);
+  });
+
   it('stores named views as project data and treats view edits as unsaved changes', async () => {
     const view = {
       id: 'v1', name: 'Cutaway', createdAt: '2026-09-06T12:00:00Z',
@@ -372,6 +386,15 @@ describe('projectStore.loadProject', () => {
     expect(useModelerStore.getState().history).toHaveLength(1);
     useModelerStore.getState().undo();
     expect(useModelerStore.getState().tree!.params.width).toBe(42);
+  });
+
+  it('restores project unit preferences from the provider', async () => {
+    read.mockResolvedValue({ version: 2, tree: box(42), thumbnail: null, revision: 'r4',
+      units: { displayUnit: 'cm', decimalPrecision: 3, fractionalDenominator: 8 } });
+    await useProjectStore.getState().loadProject('google', 'id-1', 'Metric');
+    expect(useViewportStore.getState()).toMatchObject({
+      measurementUnit: 'cm', measurementPrecision: 3, measurementFractionalDenominator: 8,
+    });
   });
 
   it('ignores a slower project load after a newer load starts', async () => {

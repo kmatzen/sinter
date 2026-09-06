@@ -1,7 +1,8 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NumberInput } from './NumberInput';
 import { useModelerStore } from '../../store/modelerStore';
+import { useViewportStore } from '../../store/viewportStore';
 
 const box = () => ({
   id: 'box', kind: 'box', label: 'Box',
@@ -12,6 +13,7 @@ describe('NumberInput constraints', () => {
   beforeEach(() => {
     const tree = box();
     useModelerStore.setState({ tree, history: [tree], historyIndex: 0, historyTransaction: null });
+    useViewportStore.getState().setUnitPreferences({ displayUnit: 'mm', decimalPrecision: 2, fractionalDenominator: 16 });
   });
 
   it('clamps keyboard stepping at the same minimum as typed input', () => {
@@ -87,5 +89,54 @@ describe('NumberInput constraints', () => {
 
     expect(useModelerStore.getState().tree!.params.width).toBe(12);
     expect(useModelerStore.getState().history).toHaveLength(2);
+  });
+
+  it('shows canonical millimeters in the selected project unit', () => {
+    useViewportStore.getState().setUnitPreferences({ displayUnit: 'in', decimalPrecision: 3, fractionalDenominator: 16 });
+    const onChange = vi.fn();
+    render(<NumberInput label="Width" value={25.4} onChange={onChange} />);
+
+    expect(screen.getByLabelText('Width')).toHaveValue('1.000');
+    expect(screen.getByText('in')).toBeInTheDocument();
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it('converts bare property input from the selected unit to millimeters', () => {
+    useViewportStore.getState().setUnitPreferences({ displayUnit: 'in', decimalPrecision: 2, fractionalDenominator: 16 });
+    const onChange = vi.fn();
+    render(<NumberInput label="Width" value={25.4} onChange={onChange} />);
+    const input = screen.getByLabelText('Width');
+
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: '2' } });
+    fireEvent.blur(input);
+
+    expect(onChange).toHaveBeenCalledWith(50.8);
+  });
+
+  it('accepts mixed explicit units independently of the display unit', () => {
+    useViewportStore.getState().setUnitPreferences({ displayUnit: 'cm', decimalPrecision: 2, fractionalDenominator: 16 });
+    const onChange = vi.fn();
+    render(<NumberInput label="Width" value={10} onChange={onChange} />);
+    const input = screen.getByLabelText('Width');
+
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: '1 in + 12.7mm' } });
+    fireEvent.blur(input);
+
+    expect(onChange).toHaveBeenCalledWith(38.1);
+  });
+
+  it('changes presentation without rewriting canonical geometry', () => {
+    const onChange = vi.fn();
+    const { rerender } = render(<NumberInput label="Width" value={25.4} onChange={onChange} />);
+
+    act(() => {
+      useViewportStore.getState().setUnitPreferences({ displayUnit: 'in', decimalPrecision: 4, fractionalDenominator: 16 });
+    });
+    rerender(<NumberInput label="Width" value={25.4} onChange={onChange} />);
+
+    expect(screen.getByLabelText('Width')).toHaveValue('1.0000');
+    expect(onChange).not.toHaveBeenCalled();
   });
 });

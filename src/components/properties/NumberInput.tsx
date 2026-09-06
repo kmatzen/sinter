@@ -1,5 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { useModelerStore } from '../../store/modelerStore';
+import { useViewportStore } from '../../store/viewportStore';
+import { evaluateLengthExpression } from '../../types/formulas';
+import { fromMillimeters, toMillimeters, type DisplayUnit } from '../../types/units';
 
 interface Props {
   label: string;
@@ -69,7 +72,17 @@ function evalExpression(expr: string): number | null {
 }
 
 export function NumberInput({ label, value, unit = 'mm', min, max, step = 1, onChange }: Props) {
-  const [localValue, setLocalValue] = useState(String(value));
+  const displayUnit = useViewportStore((state) => state.measurementUnit);
+  const precision = useViewportStore((state) => state.measurementPrecision);
+  const isLength = unit === 'mm';
+  // Feet-and-inches remains a rich output format. Numeric property editing uses
+  // inches so expressions stay unambiguous and keyboard-friendly.
+  const inputUnit: Exclude<DisplayUnit, 'ft-in'> = displayUnit === 'ft-in' ? 'in' : displayUnit;
+  const renderValue = (canonicalValue: number) => isLength
+    ? fromMillimeters(canonicalValue, inputUnit).toFixed(precision)
+    : String(canonicalValue);
+  const unitLabel = isLength ? inputUnit : unit;
+  const [localValue, setLocalValue] = useState(() => renderValue(value));
   const [isExpr, setIsExpr] = useState(false);
   const [isFocused, setIsFocused] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
@@ -100,10 +113,10 @@ export function NumberInput({ label, value, unit = 'mm', min, max, step = 1, onC
 
   useEffect(() => {
     if (!isFocused) {
-      setLocalValue(String(value));
+      setLocalValue(renderValue(value));
       setIsExpr(false);
     }
-  }, [value, isFocused]);
+  }, [value, isFocused, inputUnit, precision, isLength]);
 
   const constrain = (input: number) => {
     let num = input;
@@ -113,17 +126,27 @@ export function NumberInput({ label, value, unit = 'mm', min, max, step = 1, onC
   };
 
   const commit = () => {
-    const exprResult = evalExpression(localValue);
-    let num = exprResult !== null ? exprResult : parseFloat(localValue);
+    let num: number;
+    try {
+      if (isLength && /(?:mm|cm|in|m)\b/i.test(localValue)) {
+        num = evaluateLengthExpression(localValue);
+      } else {
+        const exprResult = evalExpression(localValue);
+        const entered = exprResult !== null ? exprResult : parseFloat(localValue);
+        num = isLength ? toMillimeters(entered, inputUnit) : entered;
+      }
+    } catch {
+      num = Number.NaN;
+    }
 
     if (isNaN(num)) {
-      setLocalValue(String(value));
+      setLocalValue(renderValue(value));
       setIsExpr(false);
       return;
     }
     num = constrain(num);
 
-    setLocalValue(String(num));
+    setLocalValue(renderValue(num));
     setIsExpr(false);
     if (num !== value) onChange(num);
   };
@@ -247,9 +270,9 @@ export function NumberInput({ label, value, unit = 'mm', min, max, step = 1, onC
         />
 
         {/* Unit badge */}
-        {unit && (
+        {unitLabel && (
           <span className="text-[10px] pr-2 shrink-0 font-mono" style={{ color: 'var(--text-muted)' }}>
-            {unit}
+            {unitLabel}
           </span>
         )}
       </div>

@@ -6,6 +6,8 @@ import type { MeshFitResult } from '../../types/geometry';
 import { NODE_LABELS, NODE_KINDS, type NamedParameter, type ParameterUnit, type SDFNodeUI } from '../../types/operations';
 import { parameterUnitFor, resolveNamedParameters } from '../../types/formulas';
 import { NumberInput } from './NumberInput';
+import { useViewportStore } from '../../store/viewportStore';
+import { formatLength } from '../../types/units';
 
 function findNode(tree: SDFNodeUI, id: string): SDFNodeUI | null {
   if (tree.id === id) return tree;
@@ -286,6 +288,9 @@ export function PropertyPanel() {
  */
 function FitPrimitive({ node }: { node: SDFNodeUI }) {
   const replaceNode = useModelerStore((s) => s.replaceNode);
+  const displayUnit = useViewportStore((s) => s.measurementUnit);
+  const decimalPrecision = useViewportStore((s) => s.measurementPrecision);
+  const fractionalDenominator = useViewportStore((s) => s.measurementFractionalDenominator);
   const [busy, setBusy] = useState(false);
   const [fit, setFit] = useState<MeshFitResult | null | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
@@ -311,7 +316,9 @@ function FitPrimitive({ node }: { node: SDFNodeUI }) {
     replaceNode(node.id, fit.node);
   };
 
-  const mm = (v: number) => `${v.toFixed(2)} mm`;
+  const length = (value: number) => formatLength(value, {
+    displayUnit, decimalPrecision: Math.max(decimalPrecision, 4), fractionalDenominator,
+  });
 
   return (
     <>
@@ -339,7 +346,7 @@ function FitPrimitive({ node }: { node: SDFNodeUI }) {
         {fit && (
           <div className="mt-2 text-[10px] leading-snug" style={{ color: 'var(--text-muted)' }}>
             <div style={{ color: 'var(--text-secondary)' }}>
-              {fit.kind} — worst {mm(fit.surfaceMax)}, rms {mm(fit.surfaceRms)}
+              {fit.kind} — worst {length(fit.surfaceMax)}, rms {length(fit.surfaceRms)}
             </div>
             {fit.acceptable ? (
               <>
