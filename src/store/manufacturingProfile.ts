@@ -1,10 +1,13 @@
 import { create } from 'zustand';
+import type { BuildDirection, ExportPreflightOptions } from '../types/geometry';
 
 export interface ManufacturingProfile {
   nozzleDiameter: number;
   layerHeight: number;
   tolerance: number;
   buildVolume: [number, number, number];
+  overhangAngle: number;
+  buildDirection: BuildDirection;
 }
 
 export const DEFAULT_MANUFACTURING_PROFILE: ManufacturingProfile = {
@@ -12,6 +15,8 @@ export const DEFAULT_MANUFACTURING_PROFILE: ManufacturingProfile = {
   layerHeight: 0.2,
   tolerance: 0.2,
   buildVolume: [220, 220, 250],
+  overhangAngle: 45,
+  buildDirection: 'z',
 };
 
 const STORAGE_KEY = 'sinter_manufacturing_profile';
@@ -34,7 +39,14 @@ export function normalizeManufacturingProfile(value: unknown): ManufacturingProf
       finiteRange(volume[1], 1, 10_000, DEFAULT_MANUFACTURING_PROFILE.buildVolume[1]),
       finiteRange(volume[2], 1, 10_000, DEFAULT_MANUFACTURING_PROFILE.buildVolume[2]),
     ],
+    overhangAngle: finiteRange(input.overhangAngle, 0, 89, DEFAULT_MANUFACTURING_PROFILE.overhangAngle),
+    buildDirection: ['x', '-x', 'y', '-y', 'z', '-z'].includes(input.buildDirection as string)
+      ? input.buildDirection as BuildDirection : DEFAULT_MANUFACTURING_PROFILE.buildDirection,
   };
+}
+
+export function exportPreflightOptions(profile: ManufacturingProfile): ExportPreflightOptions {
+  return { overhangAngle: profile.overhangAngle, buildDirection: profile.buildDirection };
 }
 
 function loadProfile(): ManufacturingProfile {
