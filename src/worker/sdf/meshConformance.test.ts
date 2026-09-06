@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { combineConformance, verifyMeshConformance } from './meshConformance';
+import { combineConformance, sampleActiveGridSurface, verifyMeshConformance } from './meshConformance';
 import type { MeshResult } from './marchingCubes';
 
 const octahedron = (dx = 0): MeshResult => ({
@@ -57,5 +57,42 @@ describe('mesh conformance', () => {
     expect(result.meshSamples).toBe(first.meshSamples + second.meshSamples);
     expect(result.sourceSamples).toBe(first.sourceSamples + second.sourceSamples);
     expect(result.maxDeviation).toBe(Math.max(first.maxDeviation, second.maxDeviation));
+  });
+
+  it('samples small source features from the export grid deterministically', () => {
+    const res = 32;
+    const grid = new Float32Array(res ** 3);
+    const feature = { kind: 'sphere' as const, radius: 0.35 };
+    const featureBox = { min: [-8, -8, -8] as [number, number, number], max: [8, 8, 8] as [number, number, number] };
+    for (let z = 0; z < res; z++) for (let y = 0; y < res; y++) for (let x = 0; x < res; x++) {
+      const p: [number, number, number] = [
+        featureBox.min[0] + (x + 0.5) * 16 / res,
+        featureBox.min[1] + (y + 0.5) * 16 / res,
+        featureBox.min[2] + (z + 0.5) * 16 / res,
+      ];
+      grid[(z * res + y) * res + x] = Math.hypot(p[0] - 0.25, p[1] - 0.25, p[2] - 0.25) - feature.radius;
+    }
+    const active = { nb: 4, bits: new Uint8Array(4 ** 3).fill(1) };
+    const first = sampleActiveGridSurface(grid, res, featureBox, active, 32);
+    const second = sampleActiveGridSurface(grid, res, featureBox, active, 32);
+    expect(first).toEqual(second);
+    expect(first.points.length).toBeGreaterThan(0);
+    // A 20³ lattice over this box has 0.84 mm spacing and can miss this
+    // deliberately off-plane 0.7 mm feature; the 32³ export grid cannot.
+    expect(first.coverageComplete).toBe(true);
+  });
+
+  it('marks regional source coverage incomplete when block representatives exceed the budget', () => {
+    const res = 16;
+    const grid = new Float32Array(res ** 3);
+    for (let z = 0; z < res; z++) for (let y = 0; y < res; y++) for (let x = 0; x < res; x++) {
+      grid[(z * res + y) * res + x] = x % 2 ? -1 : 1;
+    }
+    const result = sampleActiveGridSurface(grid, res, { min: [0, 0, 0], max: [16, 16, 16] }, {
+      nb: 2, bits: new Uint8Array(8).fill(1),
+    }, 2);
+    expect(result.surfaceBlocks).toBeGreaterThan(2);
+    expect(result.coverageComplete).toBe(false);
+    expect(result.points).toHaveLength(2);
   });
 });

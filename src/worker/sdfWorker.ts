@@ -23,7 +23,7 @@ import { analyzeMesh, removeDegenerateTriangles, projectVerticesToSurface } from
 import { validateModelingEnvelope } from './sdf/modelingEnvelope';
 import { partitionExportComponents, planComponentSampling } from './sdf/exportComponents';
 import type { MeshResult } from './sdf/marchingCubes';
-import { combineConformance, verifyMeshConformance } from './sdf/meshConformance';
+import { combineConformance, conformanceSourceBudget, sampleActiveGridSurface, verifyMeshConformance } from './sdf/meshConformance';
 
 self.postMessage({ type: 'ready' });
 
@@ -111,7 +111,11 @@ function evaluateAndMeshWithProgress(tree: SDFNodeUI | null, resolution: number,
     report(index, 'Refining surface', 92);
     const mesh = projectVerticesToSurface(simplified, component, voxel * PROJECT_TOLERANCE_VOXELS);
     report(index, 'Verifying geometry', 94);
-    const conformance = verifyMeshConformance(mesh, component, bbox, plan.tolerance);
+    const source = sampleActiveGridSurface(grid, componentResolution, bbox, active, conformanceSourceBudget(mesh));
+    const conformance = verifyMeshConformance(mesh, component, bbox, plan.tolerance, {
+      sourcePoints: source.points,
+      sourceCoverageComplete: source.coverageComplete,
+    });
     if (conformance.status === 'failed') {
       throw new Error(`Export geometry deviates by ${conformance.maxDeviation.toPrecision(4)} mm, exceeding the verified ${conformance.tolerance.toPrecision(4)} mm tolerance`);
     }

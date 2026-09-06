@@ -1,9 +1,90 @@
 import type { MeshResult } from './marchingCubes';
+import type { ActiveBlocks } from './gridEval';
 import type { BBox, SDFNode, Vec3 } from './types';
 import { evaluateSDF } from './evaluate';
 import type { ExportConformance } from '../../types/geometry';
 
-export interface ConformanceBudget { maxMeshSamples?: number; sourceGrid?: number; maxSourceSamples?: number; maxDistanceTests?: number }
+export interface ConformanceBudget {
+  maxMeshSamples?: number;
+  sourceGrid?: number;
+  maxSourceSamples?: number;
+  maxDistanceTests?: number;
+  sourcePoints?: Vec3[];
+  sourceCoverageComplete?: boolean;
+}
+
+export interface GridSurfaceSamples { points: Vec3[]; coverageComplete: boolean; surfaceBlocks: number }
+
+export function conformanceSourceBudget(mesh: MeshResult, budget: ConformanceBudget = {}): number {
+  const triangles = mesh.indices.length / 3;
+  return Math.min(budget.maxSourceSamples ?? 2048,
+    Math.max(1, Math.floor((budget.maxDistanceTests ?? 4_000_000) / Math.max(1, triangles))));
+}
+
+/**
+ * Sample zero crossings from the same interval-active grid used by the mesher.
+ * One representative is retained per surface-bearing block before the fixed
+ * budget is spent on additional deterministic reservoir samples. This makes
+ * skipped regions explicit instead of letting an early region consume all
+ * source samples and still report verified.
+ */
+export function sampleActiveGridSurface(grid: Float32Array, res: number, bbox: BBox, active: ActiveBlocks, maxSamples: number): GridSurfaceSamples {
+  const blockSize = Math.ceil(res / active.nb);
+  const r2 = res * res;
+  const representatives: Vec3[] = [];
+  const extras: Vec3[] = [];
+  let extraSeen = 0;
+  let random = 0x51f15e;
+  const nextRandom = () => (random = (Math.imul(random, 1664525) + 1013904223) >>> 0) / 0x1_0000_0000;
+  const world = (x: number, y: number, z: number): Vec3 => [
+    bbox.min[0] + (x + 0.5) * (bbox.max[0] - bbox.min[0]) / res,
+    bbox.min[1] + (y + 0.5) * (bbox.max[1] - bbox.min[1]) / res,
+    bbox.min[2] + (z + 0.5) * (bbox.max[2] - bbox.min[2]) / res,
+  ];
+  const value = (x: number, y: number, z: number) => grid[z * r2 + y * res + x];
+  const crossing = (a: Vec3, av: number, b: Vec3, bv: number): Vec3 | null => {
+    if ((av < 0) === (bv < 0)) return null;
+    const t = av / (av - bv);
+    return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+  };
+  const retainExtra = (point: Vec3) => {
+    extraSeen++;
+    if (extras.length < maxSamples) extras.push(point);
+    else {
+      const slot = Math.floor(nextRandom() * extraSeen);
+      if (slot < maxSamples) extras[slot] = point;
+    }
+  };
+
+  for (let bz = 0; bz < active.nb; bz++) for (let by = 0; by < active.nb; by++) for (let bx = 0; bx < active.nb; bx++) {
+    if (!active.bits[(bz * active.nb + by) * active.nb + bx]) continue;
+    let representative: Vec3 | null = null;
+    const x0 = bx * blockSize, y0 = by * blockSize, z0 = bz * blockSize;
+    const x1 = Math.min(res, x0 + blockSize), y1 = Math.min(res, y0 + blockSize), z1 = Math.min(res, z0 + blockSize);
+    for (let z = z0; z < z1; z++) for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) {
+      const p = world(x, y, z), v = value(x, y, z);
+      const candidates = [
+        x + 1 < res ? crossing(p, v, world(x + 1, y, z), value(x + 1, y, z)) : null,
+        y + 1 < res ? crossing(p, v, world(x, y + 1, z), value(x, y + 1, z)) : null,
+        z + 1 < res ? crossing(p, v, world(x, y, z + 1), value(x, y, z + 1)) : null,
+      ];
+      for (const point of candidates) if (point) {
+        if (!representative) representative = point;
+        else retainExtra(point);
+      }
+    }
+    if (representative) representatives.push(representative);
+  }
+
+  if (representatives.length > maxSamples) {
+    return { points: representatives.slice(0, maxSamples), coverageComplete: false, surfaceBlocks: representatives.length };
+  }
+  return {
+    points: representatives.concat(extras.slice(0, maxSamples - representatives.length)),
+    coverageComplete: true,
+    surfaceBlocks: representatives.length,
+  };
+}
 
 function pointTriangleDistance(p: Vec3, a: Vec3, b: Vec3, c: Vec3): number {
   const sub = (u: Vec3, v: Vec3): Vec3 => [u[0] - v[0], u[1] - v[1], u[2] - v[2]];
@@ -75,23 +156,22 @@ export function verifyMeshConformance(mesh: MeshResult, sdf: SDFNode, bbox: BBox
   const n = Math.max(6, Math.min(40, Math.round(budget.sourceGrid ?? 20)));
   // Brute-force point-to-triangle distance is exact, but quadratic. Keep the
   // total bounded independent of mesh size; cancellation terminates the worker.
-  const maxSource = Math.min(budget.maxSourceSamples ?? 2048,
-    Math.max(1, Math.floor((budget.maxDistanceTests ?? 4_000_000) / Math.max(1, triangleCount))));
-  const values = new Float64Array(n * n * n);
+  const maxSource = conformanceSourceBudget(mesh, budget);
+  const values = new Float64Array(budget.sourcePoints ? 0 : n * n * n);
   const at = (x: number, y: number, z: number) => (z * n + y) * n + x;
   const point = (x: number, y: number, z: number): Vec3 => [
     bbox.min[0] + (bbox.max[0] - bbox.min[0]) * x / (n - 1),
     bbox.min[1] + (bbox.max[1] - bbox.min[1]) * y / (n - 1),
     bbox.min[2] + (bbox.max[2] - bbox.min[2]) * z / (n - 1),
   ];
-  for (let z = 0; z < n; z++) for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) values[at(x, y, z)] = evaluateSDF(sdf, point(x, y, z));
-  const crossings: Vec3[] = [];
+  for (let z = 0; !budget.sourcePoints && z < n; z++) for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) values[at(x, y, z)] = evaluateSDF(sdf, point(x, y, z));
+  const crossings: Vec3[] = budget.sourcePoints?.slice(0, maxSource) ?? [];
   const addEdge = (a: Vec3, av: number, b: Vec3, bv: number) => {
     if ((av < 0) === (bv < 0) || crossings.length >= maxSource) return;
     const t = av / (av - bv);
     crossings.push([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t]);
   };
-  for (let z = 0; z < n; z++) for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+  for (let z = 0; !budget.sourcePoints && z < n; z++) for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
     const p = point(x, y, z), v = values[at(x, y, z)];
     if (x + 1 < n) addEdge(p, v, point(x + 1, y, z), values[at(x + 1, y, z)]);
     if (y + 1 < n) addEdge(p, v, point(x, y + 1, z), values[at(x, y + 1, z)]);
@@ -101,7 +181,7 @@ export function verifyMeshConformance(mesh: MeshResult, sdf: SDFNode, bbox: BBox
   const forward = stats(meshValues), reverse = stats(sourceValues);
   const combined = [...meshValues, ...sourceValues];
   const all = stats(combined);
-  const finite = Number.isFinite(all.max) && meshValues.length > 0 && sourceValues.length > 0;
+  const finite = Number.isFinite(all.max) && meshValues.length > 0 && sourceValues.length > 0 && budget.sourceCoverageComplete !== false;
   return {
     status: !finite ? 'inconclusive' : all.max <= tolerance ? 'verified' : 'failed', tolerance,
     meshToSourceMax: forward.max, meshToSourceRms: forward.rms,
