@@ -89,7 +89,7 @@ export function LandingPage({ onLaunch }: { onLaunch: () => void }) {
         <h1 className="text-4xl md:text-6xl font-bold mb-4 md:mb-6 leading-[1.1] tracking-tight">
           <span style={{ color: 'var(--text-primary)' }}>Describe it.</span>
           <br />
-          <span style={{ color: 'var(--accent)' }}>Print it.</span>
+          <span style={{ color: 'var(--text-primary)' }}>Print it.</span>
         </h1>
 
         <p className="text-base md:text-lg mb-6 md:mb-8 max-w-xl mx-auto leading-relaxed px-2" style={{ color: 'var(--text-secondary)' }}>
@@ -183,7 +183,7 @@ export function LandingPage({ onLaunch }: { onLaunch: () => void }) {
       </section>
 
       {/* How it works — BYOK */}
-      <section className="relative z-10 max-w-4xl mx-auto px-6 py-16">
+      <section className="relative z-10 max-w-5xl mx-auto px-6 py-16">
         <div className="text-center mb-10">
           <p className="font-mono text-[11px] tracking-[0.2em] uppercase mb-3" style={{ color: 'var(--accent)' }}>How It Works</p>
           <h2 className="text-3xl font-bold tracking-tight mb-3">Bring your own keys</h2>
@@ -192,7 +192,7 @@ export function LandingPage({ onLaunch }: { onLaunch: () => void }) {
           </p>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 max-w-3xl mx-auto">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mx-auto">
           {[
             { step: '1', title: 'Sign in', desc: 'Use your GitHub or Google account. Your OAuth provider determines where projects are stored.' },
             { step: '2', title: 'Add your API key', desc: 'Bring your own Anthropic or OpenAI key for AI-powered modeling. Keys stay in your browser.' },

@@ -16,6 +16,7 @@
     "test:live": "vitest run src/llm/live.test.ts",
     "test:all": "vitest run && playwright test",
     "check:landing-budget": "node scripts/check-landing-budget.mjs",
+    "check:clarity": "npm run build && node scripts/check-clarity.mjs",
     "bench": "tsx bench/mesh.bench.ts"
   },
   "dependencies": {

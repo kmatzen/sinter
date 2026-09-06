@@ -63,7 +63,7 @@ export function SelectionBreadcrumb() {
         className="absolute top-3 left-1/2 -translate-x-1/2 z-20 pointer-events-none max-w-[60%]"
       >
         <div
-          className="rounded-lg px-2.5 py-1 text-[10px] font-mono truncate"
+          className="rounded-lg px-2.5 py-1 text-[10px] leading-normal font-mono text-center"
           style={{ background: 'rgba(16,16,24,0.7)', color: 'var(--text-muted)' }}
         >
           Click a surface to select its node
