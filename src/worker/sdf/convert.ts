@@ -4,7 +4,7 @@ import { bakeMeshField } from './meshField';
 import { MeshFieldCache } from './meshFieldCache';
 import { computeBounds } from './bounds';
 import { buildHullPlanes } from './hull';
-import { parseProfile } from './profile';
+import { parseProfile, parseRevolveProfile } from './profile';
 
 /**
  * Baked mesh fields, keyed by the mesh data and the resolution asked for.
@@ -64,6 +64,7 @@ export function toSDFNode(ui: SDFNodeUI): SDFNode | null {
     case 'capsule': return { kind: 'capsule', radius: p.radius, height: p.height };
     case 'ellipsoid': return { kind: 'ellipsoid', size: [p.width, p.height, p.depth] };
     case 'extrude': return { kind: 'extrude', profile: parseProfile(ui.data?.profile), depth: p.depth };
+    case 'revolve': return { kind: 'revolve', profile: parseRevolveProfile(ui.data?.profile), axis: p.axis === 0 ? 'x' : p.axis === 2 ? 'z' : 'y', angle: p.angle };
 
     case 'mesh': {
       const b64 = ui.data?.meshPositions;

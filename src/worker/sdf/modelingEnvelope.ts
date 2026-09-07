@@ -74,6 +74,10 @@ export function validateModelingEnvelope(root: SDFNode): void {
       case 'extrude':
         requireFeature(node.depth, scale, 'extrude depth');
         requireFeature(profileFeatureSize(node.profile), scale, 'profile edge or wall'); return;
+      case 'revolve':
+        requireFeature(profileFeatureSize(node.profile), scale, 'profile edge or wall');
+        if (node.angle < 1 || node.angle > 360) throw new ModelingEnvelopeError('revolve angle must be between 1° and 360°');
+        return;
       case 'text':
         requireFeature(Math.min(node.size, node.depth), scale, 'text dimension'); return;
       case 'shell':

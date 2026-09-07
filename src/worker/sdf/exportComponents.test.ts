@@ -98,6 +98,13 @@ describe('export component partitioning', () => {
     expect(plan.tolerance).toBe(0.25);
   });
 
+  it('resolves the narrow missing sector in an almost-full revolve', () => {
+    const revolve: SDFNode = { kind: 'revolve', axis: 'y', angle: 359, profile: {
+      outer: [[0, -5], [10, -5], [10, 5], [0, 5]], holes: [],
+    } };
+    expect(planComponentSampling(revolve, computeBounds(revolve), 2, 384).resolution).toBeGreaterThan(200);
+  });
+
   it('fails before meshing when a thin shell cannot be resolved safely', () => {
     const shell: SDFNode = { kind: 'shell', child: { kind: 'box', size: [100, 100, 100] }, thickness: 0.1 };
     expect(() => planComponentSampling(shell, { min: [-51, -51, -51], max: [51, 51, 51] }, 128, 384))

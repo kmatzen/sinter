@@ -9,6 +9,10 @@ export const DEFAULT_PROFILE: PolygonProfile = {
   outer: [[-20, -15], [20, -15], [20, 15], [-20, 15]],
   holes: [],
 };
+export const DEFAULT_REVOLVE_PROFILE: PolygonProfile = {
+  outer: [[0, -15], [12, -15], [18, -8], [18, 8], [12, 15], [0, 15]],
+  holes: [],
+};
 
 export class ProfileValidationError extends Error {
   constructor(message: string) { super(`Invalid profile: ${message}`); this.name = 'ProfileValidationError'; }
@@ -78,10 +82,19 @@ export function parseProfile(source?: string): PolygonProfile {
   return profile;
 }
 
-function loopDistance(loop: Vec2[], x: number, y: number): number {
+export function parseRevolveProfile(source?: string): PolygonProfile {
+  const profile = parseProfile(source || JSON.stringify(DEFAULT_REVOLVE_PROFILE));
+  if ([profile.outer, ...profile.holes].some((loop) => loop.some((point) => point[0] < 0))) {
+    throw new ProfileValidationError('revolve radius coordinates must be non-negative');
+  }
+  return profile;
+}
+
+function loopDistance(loop: Vec2[], x: number, y: number, ignoreAxisEdge = false): number {
   let distance2 = Infinity;
   for (let i = 0; i < loop.length; i++) {
     const a = loop[i], b = loop[(i + 1) % loop.length], dx = b[0] - a[0], dy = b[1] - a[1];
+    if (ignoreAxisEdge && a[0] === 0 && b[0] === 0) continue;
     const t = Math.max(0, Math.min(1, ((x - a[0]) * dx + (y - a[1]) * dy) / (dx * dx + dy * dy)));
     distance2 = Math.min(distance2, (x - a[0] - t * dx) ** 2 + (y - a[1] - t * dy) ** 2);
   }
@@ -127,7 +140,37 @@ export function profileDistance(profile: PolygonProfile, x: number, y: number): 
   return distance;
 }
 
+function revolvedProfileDistance(profile: PolygonProfile, radius: number, axial: number): number {
+  let distance = loopDistance(profile.outer, radius, axial, true);
+  for (const hole of profile.holes) distance = Math.max(distance, -loopDistance(hole, radius, axial, true));
+  return distance;
+}
+
 export function extrudeDistance(profile: PolygonProfile, depth: number, p: Vec3): number {
   const d2 = profileDistance(profile, p[0], p[1]), dz = Math.abs(p[2]) - depth / 2;
   return Math.min(Math.max(d2, dz), 0) + Math.hypot(Math.max(d2, 0), Math.max(dz, 0));
+}
+
+function distanceToRay(u: number, v: number, angle: number): number {
+  const dx = Math.cos(angle), dy = Math.sin(angle), t = Math.max(0, u * dx + v * dy);
+  return Math.hypot(u - t * dx, v - t * dy);
+}
+
+/** Signed distance to the angular sector centred on the positive radial direction. */
+export function sectorDistance(u: number, v: number, angleDegrees: number): number {
+  if (angleDegrees >= 360) return -Infinity;
+  const half = angleDegrees * Math.PI / 360;
+  const theta = Math.atan2(v, u);
+  const distance = Math.min(distanceToRay(u, v, half), distanceToRay(u, v, -half));
+  return Math.abs(theta) <= half ? -distance : distance;
+}
+
+export function revolveDistance(profile: PolygonProfile, axis: 'x' | 'y' | 'z', angle: number, p: Vec3): number {
+  let axial: number, u: number, v: number;
+  if (axis === 'x') { axial = p[0]; u = p[1]; v = p[2]; }
+  else if (axis === 'z') { axial = p[2]; u = p[0]; v = p[1]; }
+  else { axial = p[1]; u = p[0]; v = p[2]; }
+  const radial = Math.hypot(u, v);
+  const section = revolvedProfileDistance(profile, radial, axial);
+  return Math.max(section, sectorDistance(u, v, angle));
 }

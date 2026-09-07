@@ -131,6 +131,9 @@ const CASES: [string, SDFNode][] = [
     outer: [[-16, -12], [16, -12], [16, 12], [-16, 12]],
     holes: [[[-5, -5], [-5, 5], [5, 5], [5, -5]]],
   } }],
+  ['partial profile revolve', { kind: 'revolve', axis: 'y', angle: 140, profile: {
+    outer: [[0, -10], [8, -10], [14, -5], [14, 5], [8, 10], [0, 10]], holes: [],
+  } }],
   ['round(ellipsoid)', { kind: 'round', radius: 6, child: { kind: 'ellipsoid', size: [60, 10, 20] } }],
   ['chamfer(box)', { kind: 'chamfer', distance: 4, child: { kind: 'box', size: [30, 20, 40] } }],
   ['draft(box)', { kind: 'draft', axis: 'y', angle: 12, reference: 0, child: { kind: 'box', size: [30, 20, 40] } }],

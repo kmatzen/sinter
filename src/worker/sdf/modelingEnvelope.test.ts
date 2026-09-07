@@ -73,4 +73,9 @@ describe('resolved modeling envelope', () => {
     const hull: SDFNode = { kind: 'hull', a: sphere, b: halfSpace, detail: 6, planes: [] };
     expect(() => validateModelingEnvelope(hull)).toThrow(/hull operands must be bounded/i);
   });
+
+  it('rejects an invalid internal revolve angle before meshing', () => {
+    const revolve: SDFNode = { kind: 'revolve', axis: 'y', angle: 0, profile: { outer: [[0, -1], [2, -1], [2, 1], [0, 1]], holes: [] } };
+    expect(() => validateModelingEnvelope(revolve)).toThrow(/revolve angle must be between 1° and 360°/);
+  });
 });

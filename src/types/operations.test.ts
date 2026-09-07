@@ -24,6 +24,7 @@ describe('operations types', () => {
     expect(expectedChildren('cylinder')).toBe(0);
     expect(expectedChildren('torus')).toBe(0);
     expect(expectedChildren('extrude')).toBe(0);
+    expect(expectedChildren('revolve')).toBe(0);
   });
 
   it('booleans have 2 expected children', () => {
@@ -84,6 +85,7 @@ describe('operations types', () => {
     expect(nodeSummary(mk('capsule', { radius: 3, height: 9 }))).toBe('r=3 h=9');
     expect(nodeSummary(mk('ellipsoid', { width: 1, height: 2, depth: 3 }))).toBe('1×2×3');
     expect(nodeSummary(mk('extrude', { depth: 5 }))).toBe('5mm profile');
+    expect(nodeSummary(mk('revolve', { axis: 1, angle: 270 }))).toBe('Y 270°');
     expect(nodeSummary(mk('shell', { thickness: 2 }))).toBe('2mm');
     expect(nodeSummary(mk('offset', { distance: 4 }))).toBe('4mm');
     expect(nodeSummary(mk('round', { radius: 1.5 }))).toBe('r=1.5');
