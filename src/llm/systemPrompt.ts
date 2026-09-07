@@ -72,6 +72,7 @@ Change types:
 - **shell**: \`{ thickness }\` — hollow with wall thickness
 - **offset**: \`{ distance }\` — expand (>0) or shrink (<0)
 - **round**: \`{ radius }\` — round all edges
+- **chamfer**: \`{ distance }\` — approximate planar bevel; quality follows the child field
 - **halfSpace**: \`{ axis, position }\` — planar cut (axis: 0=X, 1=Y, 2=Z)
 
 ### Transforms (1 child)

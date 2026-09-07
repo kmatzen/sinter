@@ -186,6 +186,25 @@ describe('evaluateSDF', () => {
       expect(evaluateSDF(round, [5.5, 0, 0])).toBeLessThan(0);
     });
 
+    it('chamfer: uses the requested physical bevel distance and preserves identity at zero', () => {
+      const box: SDFNode = { kind: 'box', size: [10, 10, 10] };
+      const chamfer: SDFNode = { kind: 'chamfer', child: box, distance: 1 };
+      expect(evaluateSDF(chamfer, [6, 0, 0])).toBeCloseTo(0, 4);
+      expect(evaluateSDF(chamfer, [5.5, 5.5, 0])).toBeCloseTo(0, 3);
+      const point: Vec3 = [7, 3, -1];
+      expect(evaluateSDF({ ...chamfer, distance: 0 }, point)).toBe(evaluateSDF(box, point));
+      expect(evaluateSDF({ ...chamfer, distance: 1e-12 }, point)).toBe(evaluateSDF(box, point));
+    });
+
+    it('keeps chamfer distance physical under a transformed child', () => {
+      const scaledBox: SDFNode = {
+        kind: 'transform', child: { kind: 'box', size: [20, 20, 20] },
+        tx: 0, ty: 0, tz: 0, rx: 0, ry: 0, rz: 0, sx: 6, sy: 1, sz: 2,
+      };
+      const chamfer: SDFNode = { kind: 'chamfer', child: scaledBox, distance: 2 };
+      expect(evaluateSDF(chamfer, [62, 0, 0])).toBeCloseTo(0, 2);
+    });
+
     it('does not let a no-op round create a ghost shell surface at a medial axis', () => {
       const shell: SDFNode = {
         kind: 'shell',
@@ -200,6 +219,13 @@ describe('evaluateSDF', () => {
       // between all three box faces, that inflated the child distance to
       // exactly half the shell thickness and invented a zero surface.
       expect(evaluateSDF(shell, [2.5581459176676775, -2.3290874556538985, 0.000690781800709292])).toBeLessThan(0);
+    });
+
+    it('treats a sub-nanometre round as identity inside a shell', () => {
+      const ellipsoid: SDFNode = { kind: 'ellipsoid', size: [10.872407233628735, 7.180965780277225, 2] };
+      const tinyRound: SDFNode = { kind: 'round', child: ellipsoid, radius: 1.6072450231350569e-9 };
+      const point: Vec3 = [3.1, 0.7, 0.2];
+      expect(evaluateSDF(tinyRound, point)).toBe(evaluateSDF(ellipsoid, point));
     });
   });
 

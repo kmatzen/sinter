@@ -29,9 +29,9 @@ const rawTree = (depth: number): fc.Arbitrary<RawNode> => {
   const transform = fc.tuple(wrapper, child).map(([w, c]) => ({ kind: w.kind, params: { x: w.x, y: w.y, z: w.z }, children: [c] }));
   const boolean = fc.tuple(fc.constantFrom('union', 'subtract', 'intersect'), child, child)
     .map(([kind, a, b]) => ({ kind, params: { smooth: 0 }, children: [a, b] }));
-  const modifier = fc.tuple(fc.constantFrom('round', 'offset', 'shell'), scale, child).map(([kind, value, c]): RawNode => {
+  const modifier = fc.tuple(fc.constantFrom('round', 'chamfer', 'offset', 'shell'), scale, child).map(([kind, value, c]): RawNode => {
     const params: Record<string, number> = kind === 'round' ? { radius: value }
-      : kind === 'offset' ? { distance: value } : { thickness: value };
+      : kind === 'offset' || kind === 'chamfer' ? { distance: value } : { thickness: value };
     return { kind, params, children: [c] };
   });
   return fc.oneof({ depthIdentifier: 'simplify-tree', maxDepth: depth }, leaf, transform, boolean, modifier);

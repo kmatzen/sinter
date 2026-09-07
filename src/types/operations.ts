@@ -28,7 +28,7 @@ export const NODE_KINDS = {
   // file has been imported, so it arrives through the importer instead.
   primitives: ['box', 'sphere', 'cylinder', 'torus', 'cone', 'capsule', 'ellipsoid'] as const,
   booleans: ['union', 'subtract', 'intersect'] as const,
-  modifiers: ['shell', 'offset', 'round', 'mirror', 'halfSpace'] as const,
+  modifiers: ['shell', 'offset', 'round', 'chamfer', 'mirror', 'halfSpace'] as const,
   patterns: ['linearPattern', 'circularPattern'] as const,
   transforms: ['translate', 'rotate', 'scale'] as const,
 };
@@ -49,6 +49,7 @@ export const NODE_LABELS: Record<string, string> = {
   shell: 'Shell',
   offset: 'Offset',
   round: 'Round',
+  chamfer: 'Chamfer',
   mirror: 'Mirror',
   halfSpace: 'Half-Space Cut',
   linearPattern: 'Linear Pattern',
@@ -76,6 +77,7 @@ export const NODE_DEFAULTS: Record<string, Record<string, number>> = {
   shell: { thickness: 2 },
   offset: { distance: 1 },
   round: { radius: 2 },
+  chamfer: { distance: 2 },
   mirror: { mirrorX: 1, mirrorY: 0, mirrorZ: 0 },
   halfSpace: { axis: 1, position: 0, flip: 0 },
   linearPattern: { axisX: 1, axisY: 0, axisZ: 0, count: 3, spacing: 20 },
@@ -158,6 +160,7 @@ export function nodeSummary(node: SDFNodeUI): string {
     case 'shell': return `${p.thickness}mm`;
     case 'offset': return `${p.distance}mm`;
     case 'round': return `r=${p.radius}`;
+    case 'chamfer': return `${p.distance}mm`;
     case 'translate': return `${p.x}, ${p.y}, ${p.z}`;
     case 'rotate': return `${p.x}\u00b0, ${p.y}\u00b0, ${p.z}\u00b0`;
     case 'scale': return `${p.x}, ${p.y}, ${p.z}`;

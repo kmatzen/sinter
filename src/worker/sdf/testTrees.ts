@@ -102,6 +102,7 @@ export function expandPatterns(node: SDFNode): SDFNode {
     case 'shell':
     case 'offset':
     case 'round':
+    case 'chamfer':
     case 'transform':
     case 'mirror':
       return { ...node, child: expandPatterns(node.child) } as SDFNode;

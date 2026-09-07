@@ -241,6 +241,17 @@ describe('Modeler editing scenarios', () => {
 
   // ─── Scenario 3: Rounded enclosure ─────────────────────────────────
   describe('Scenario: Rounded enclosure with shell', () => {
+    it('wraps a selected node in chamfer as one undoable edit', () => {
+      getState().addPrimitive('box');
+      const boxId = getState().tree!.id;
+      getState().selectNode(boxId);
+      getState().wrapSelected('chamfer');
+      expect(getState().tree).toMatchObject({ kind: 'chamfer', params: { distance: 2 } });
+      expect(getState().tree!.children[0].id).toBe(boxId);
+      getState().undo();
+      expect(getState().tree).toMatchObject({ kind: 'box', id: boxId });
+    });
+
     it('builds box → round → shell', () => {
       // Add box
       getState().addPrimitive('box');

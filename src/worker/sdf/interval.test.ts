@@ -54,6 +54,17 @@ const frac = fc.tuple(
 );
 
 describe('the interval enclosure contains the pointwise field', () => {
+  it('contains the gradient-dependent chamfer field', () => {
+    const tree: SDFNode = { kind: 'chamfer', distance: 2, child: { kind: 'box', size: [10, 12, 14] } };
+    const box: BBox = { min: [4.5, 4.5, -1], max: [7.5, 7.5, 1] };
+    const iv = evaluateInterval(tree, box);
+    for (const point of samplesIn(box, 200, 17)) {
+      const value = evaluateSDF(tree, point);
+      expect(value).toBeGreaterThanOrEqual(iv.lo - 1e-8);
+      expect(value).toBeLessThanOrEqual(iv.hi + 1e-8);
+    }
+  });
+
   it('holds for random trees and random boxes', () => {
     fc.assert(
       fc.property(smallTree(3), frac, frac, fc.integer({ min: 1, max: 2 ** 30 }), (tree, f, g, seed) => {

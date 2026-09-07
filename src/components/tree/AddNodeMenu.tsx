@@ -18,6 +18,7 @@ const NODE_ICONS: Record<string, ReactNode> = {
   shell: <Shell size={12} />,
   offset: <Expand size={12} />,
   round: <CircleDot size={12} />,
+  chamfer: <CircleDot size={12} />,
   mirror: <FlipHorizontal size={12} />,
   halfSpace: <Scissors size={12} />,
   linearPattern: <Repeat size={12} />,

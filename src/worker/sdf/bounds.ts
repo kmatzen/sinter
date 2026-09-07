@@ -62,6 +62,8 @@ export function computeBounds(node: SDFNode): BBox {
       return expandBounds(computeBounds(node.child), Math.abs(node.distance) * fieldScale(node.child));
     case 'round':
       return expandBounds(computeBounds(node.child), node.radius * fieldScale(node.child));
+    case 'chamfer':
+      return expandBounds(computeBounds(node.child), node.distance * fieldScale(node.child));
     case 'mirror': {
       const cb = computeBounds(node.child);
       return {
@@ -268,6 +270,9 @@ export function fieldScale(node: SDFNode): number {
       return fieldScale(node.child) * MODIFIER_DISTANCE_SAFETY;
     case 'round':
       if (node.radius <= SDF_PARAM_EPSILON) return fieldScale(node.child);
+      return fieldScale(node.child) * MODIFIER_DISTANCE_SAFETY;
+    case 'chamfer':
+      if (node.distance <= SDF_PARAM_EPSILON) return fieldScale(node.child);
       return fieldScale(node.child) * MODIFIER_DISTANCE_SAFETY;
     case 'shell':
       return fieldScale(node.child) * MODIFIER_DISTANCE_SAFETY;

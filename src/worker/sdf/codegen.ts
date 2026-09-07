@@ -499,6 +499,21 @@ function emitNode(node: SDFNode, pVar: string, lines: string[]): string {
       lines.push(`float ${result} = (${child}(${pVar}) - ${up(node.radius)}) / ${up(fieldScale(node.child) * MODIFIER_DISTANCE_SAFETY)};`);
       return result;
     }
+    case 'chamfer': {
+      if (node.distance <= SDF_PARAM_EPSILON) return emitNode(node.child, pVar, lines);
+      const child = emitDistanceFunction(node.child);
+      const e = `ce_${result}`;
+      const grad = `cg_${result}`;
+      lines.push(`float ${e} = 0.001;`);
+      lines.push(`vec3 ${grad} = vec3(
+        ${child}(${pVar} + vec3(${e}, 0.0, 0.0)) - ${child}(${pVar} - vec3(${e}, 0.0, 0.0)),
+        ${child}(${pVar} + vec3(0.0, ${e}, 0.0)) - ${child}(${pVar} - vec3(0.0, ${e}, 0.0)),
+        ${child}(${pVar} + vec3(0.0, 0.0, ${e})) - ${child}(${pVar} - vec3(0.0, 0.0, ${e}))
+      );`);
+      lines.push(`float cs_${result} = length(${grad}) > 1e-12 ? max(max(abs(${grad}.x), abs(${grad}.y)), abs(${grad}.z)) / length(${grad}) : 1.0;`);
+      lines.push(`float ${result} = (${child}(${pVar}) - ${up(node.distance)} * cs_${result}) / ${up(fieldScale(node.child) * MODIFIER_DISTANCE_SAFETY)};`);
+      return result;
+    }
     case 'transform': {
       const tp = `tp_${result}`;
       lines.push(`vec3 ${tp} = ${pVar} - vec3(${up(node.tx)}, ${up(node.ty)}, ${up(node.tz)});`);

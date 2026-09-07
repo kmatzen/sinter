@@ -507,6 +507,16 @@ function NodeEditor({ node, onUpdate, onUpdateStr }: { node: SDFNodeUI; onUpdate
           <NumberInput label="Radius" value={p.radius} min={0} max={20} step={0.5} onChange={(v) => onUpdate({ radius: v })} />
         </>
       );
+    case 'chamfer':
+      return (
+        <>
+          <SectionLabel>Chamfer</SectionLabel>
+          <NumberInput label="Distance" value={p.distance} min={0} max={20} step={0.5} onChange={(v) => onUpdate({ distance: v })} />
+          <div className="px-2 pt-1 text-[10px] leading-snug" style={{ color: 'var(--text-muted)' }}>
+            Approximate planar bevel. Results depend on the child field quality.
+          </div>
+        </>
+      );
     case 'translate':
       return (
         <>

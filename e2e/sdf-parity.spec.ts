@@ -127,6 +127,7 @@ const CASES: [string, SDFNode][] = [
   ['capsule degenerate', { kind: 'capsule', radius: 10, height: 5 }],
   ['ellipsoid', { kind: 'ellipsoid', size: [60, 10, 20] }],
   ['round(ellipsoid)', { kind: 'round', radius: 6, child: { kind: 'ellipsoid', size: [60, 10, 20] } }],
+  ['chamfer(box)', { kind: 'chamfer', distance: 4, child: { kind: 'box', size: [30, 20, 40] } }],
   ['shell', { kind: 'shell', thickness: 4, child: { kind: 'box', size: [30, 30, 30] } }],
   ['smooth union', {
     kind: 'union', k: 5,

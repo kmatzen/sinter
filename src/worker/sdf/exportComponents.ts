@@ -32,6 +32,7 @@ export function sourceFeatureSize(node: SDFNode): Feature3 {
     case 'shell': return min3(sourceFeatureSize(node.child), [node.thickness, node.thickness, node.thickness]);
     case 'offset': return node.distance === 0 ? sourceFeatureSize(node.child) : min3(sourceFeatureSize(node.child), [Math.abs(node.distance), Math.abs(node.distance), Math.abs(node.distance)]);
     case 'round': return node.radius === 0 ? sourceFeatureSize(node.child) : min3(sourceFeatureSize(node.child), [node.radius, node.radius, node.radius]);
+    case 'chamfer': return node.distance === 0 ? sourceFeatureSize(node.child) : min3(sourceFeatureSize(node.child), [node.distance, node.distance, node.distance]);
     case 'transform': {
       const child = sourceFeatureSize(node.child);
       const smallest = Math.min(child[0] * Math.abs(node.sx), child[1] * Math.abs(node.sy), child[2] * Math.abs(node.sz));
