@@ -28,6 +28,22 @@ function sphere(radius = 5, subdivisions = 2): Float32Array {
   return new Float32Array(faces.flat(2));
 }
 
+function saddle(steps = 6): Float32Array {
+  const values: number[] = [], point = (x: number, y: number) => [x, y, 0.25 * x * y];
+  for (let y = -steps / 2; y < steps / 2; y++) for (let x = -steps / 2; x < steps / 2; x++) {
+    const a = point(x, y), b = point(x + 1, y), c = point(x + 1, y + 1), d = point(x, y + 1);
+    values.push(...tri(a, b, c), ...tri(a, c, d));
+  }
+  return new Float32Array(values);
+}
+
+function reversedTriangles(source: Float32Array): Float32Array {
+  const output = new Float32Array(source.length);
+  const count = source.length / 9;
+  for (let triangle = 0; triangle < count; triangle++) output.set(source.slice((count - triangle - 1) * 9, (count - triangle) * 9), triangle * 9);
+  return output;
+}
+
 describe('regional analytic surface fitting', () => {
   it('classifies a planar face with exact source mapping', () => {
     const positions = new Float32Array([...tri([0,0,2],[4,0,2],[4,3,2]), ...tri([0,0,2],[4,3,2],[0,3,2])]);
@@ -72,5 +88,27 @@ describe('regional analytic surface fitting', () => {
     expect(region.triangleIds).toHaveLength(64);
     expect(rankRegionSurfaceCandidates(oneBand, region).map((candidate) => candidate.parameters.kind)).toEqual(['sphere', 'cylinder']);
     expect(fitRegionSurface(oneBand, region)?.parameters.kind).toBe('cylinder');
+  });
+
+  it('is stable under equivalent triangle ordering', () => {
+    const positions = cylinderSide(), reordered = reversedTriangles(positions);
+    const firstRegion = segmentMeshSurfaces(positions).regions[0], secondRegion = segmentMeshSurfaces(reordered).regions[0];
+    const first = fitRegionSurface(positions, firstRegion)!, second = fitRegionSurface(reordered, secondRegion)!;
+    expect(first.parameters.kind).toBe('cylinder');
+    expect(second.parameters.kind).toBe('cylinder');
+    if (first.parameters.kind === 'cylinder' && second.parameters.kind === 'cylinder') {
+      expect(second.parameters.radius).toBeCloseTo(first.parameters.radius, 10);
+      expect(second.parameters.origin).toEqual(first.parameters.origin.map((value) => expect.closeTo(value, 10)));
+      expect(second.parameters.axis).toEqual(first.parameters.axis.map((value) => expect.closeTo(value, 10)));
+    }
+    expect(second.surfaceMax).toBeCloseTo(first.surfaceMax, 10);
+    expect(second.surfaceRms).toBeCloseTo(first.surfaceRms, 10);
+  });
+
+  it('leaves a smooth but non-analytic saddle region unclassified', () => {
+    const positions = saddle(), regions = segmentMeshSurfaces(positions, { smoothAngleDegrees: 80 }).regions;
+    expect(regions).toHaveLength(1);
+    expect(regions[0].eligible).toBe(true);
+    expect(fitRegionSurface(positions, regions[0])).toBeNull();
   });
 });
