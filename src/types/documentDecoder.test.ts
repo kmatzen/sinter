@@ -29,6 +29,14 @@ describe('named configurations', () => {
     expect(() => decodeProjectDocument({ ...base, configurations: [{ id: 'a', name: 'A', overrides: { size: 'unknown + 2' } }] })).toThrow(/unknown/i);
     expect(() => decodeProjectDocument({ ...base, configurations: [], activeConfigurationId: 'gone' })).toThrow(/activeConfigurationId/);
   });
+
+  it('keeps configuration snapshots inside project versions', () => {
+    const parameters = [{ name: 'size', expression: '10', unit: 'mm' as const }];
+    const configuration = { id: 'small', name: 'Small', overrides: { size: '8' } };
+    const checkpoint = { id: 'v1', name: 'Configured', createdAt: '2026-09-06T12:00:00Z', tree: box(), parameters, configurations: [configuration], activeConfigurationId: 'small' };
+    const decoded = decodeProjectDocument({ version: 2, tree: box(), parameters, checkpoints: [checkpoint] });
+    expect(decoded.checkpoints[0]).toMatchObject({ configurations: [configuration], activeConfigurationId: 'small' });
+  });
 });
 
 describe('document decoder', () => {
