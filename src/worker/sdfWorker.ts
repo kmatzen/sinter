@@ -123,7 +123,7 @@ function evaluateAndMeshWithProgress(tree: SDFNodeUI | null, resolution: number,
     conformances.push(conformance);
   }
   const conformance = combineConformance(conformances);
-  if (meshes.length === 1) return { mesh: meshes[0], achievedTolerance, componentCount: components.length, conformance };
+  if (meshes.length === 1) return { mesh: meshes[0], componentMeshes: meshes, achievedTolerance, componentCount: components.length, conformance };
   const positionCount = meshes.reduce((sum, mesh) => sum + mesh.positions.length, 0);
   const normalCount = meshes.reduce((sum, mesh) => sum + mesh.normals.length, 0);
   const indexCount = meshes.reduce((sum, mesh) => sum + mesh.indices.length, 0);
@@ -134,7 +134,7 @@ function evaluateAndMeshWithProgress(tree: SDFNodeUI | null, resolution: number,
     for (let i = 0; i < mesh.indices.length; i++) indices[indexOffset + i] = mesh.indices[i] + vertexOffset;
     positionOffset += mesh.positions.length; normalOffset += mesh.normals.length; indexOffset += mesh.indices.length; vertexOffset += mesh.positions.length / 3;
   }
-  return { mesh: { positions, normals, indices }, achievedTolerance, componentCount: components.length, conformance };
+  return { mesh: { positions, normals, indices }, componentMeshes: meshes, achievedTolerance, componentCount: components.length, conformance };
 }
 
 /**
@@ -239,9 +239,12 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
         };
         const result = evaluateAndMeshWithProgress(req.tree, exportResolution(req.resolution), progress);
         if (!result) { self.postMessage({ type: 'error', rid, message: 'No geometry to export' }); return; }
-        const { mesh, achievedTolerance, componentCount, conformance } = result;
+        const { mesh, componentMeshes, achievedTolerance, componentCount, conformance } = result;
         progress('Encoding 3MF', 95);
-        const data = export3MF(mesh);
+        const data = export3MF(componentMeshes.map((componentMesh, index) => ({
+          mesh: componentMesh,
+          name: componentMeshes.length > 1 ? `Component ${index + 1}` : undefined,
+        })));
         const preflight = req.preflight ?? { overhangAngle: 45, buildDirection: 'z', minimumWallThickness: 1.2 };
         const diagnostics = { ...analyzeMesh(mesh), overhang: analyzeOverhangs(mesh, preflight), thickness: analyzeWallThickness(mesh, preflight.minimumWallThickness) };
         self.postMessage({ type: 'exportResult', rid, format: '3mf' as const, data,
