@@ -318,4 +318,20 @@ describe('regressions for the defects these properties found', () => {
     expect(clearance).toBeLessThanOrEqual(crossingDistance);
     expect(Math.abs(evaluateSDF(tree, q))).toBeLessThan(1e-9);
   });
+
+  it('#238 thick shells used in subtraction retain conservative clearance', () => {
+    const tree: SDFNode = {
+      kind: 'subtract',
+      a: { kind: 'transform', child: { kind: 'ellipsoid', size: [2, 2, 2] }, tx: 0, ty: 0, tz: 0, rx: 0, ry: 0, rz: 0, sx: 0.1, sy: 0.1, sz: 0.1 },
+      b: { kind: 'mirror', child: { kind: 'shell', child: { kind: 'ellipsoid', size: [2, 2, 2.347783754231144] }, thickness: 2.2187500000011986 }, axes: [0, 0, 0] },
+      k: 0,
+    };
+    const p: Vec3 = [0.020664787376609095, -0.028063697753503758, 0.03014080056461546];
+    const surface: Vec3 = [0.006676538469784561, -0.0011548765729270313, 0.06043894729581248];
+    const crossingDistance = Math.hypot(surface[0] - p[0], surface[1] - p[1], surface[2] - p[2]);
+
+    expect(evaluateSDF(tree, p)).toBeGreaterThan(0);
+    expect(evaluateSDF(tree, p)).toBeLessThanOrEqual(crossingDistance);
+    expect(Math.abs(evaluateSDF(tree, surface))).toBeLessThan(1e-9);
+  });
 });
