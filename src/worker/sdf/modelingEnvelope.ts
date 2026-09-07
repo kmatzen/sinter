@@ -31,6 +31,20 @@ function requireFeature(value: number, scale: number, description: string): void
  * pattern whose individually valid spacing pushes its last copy out of range.
  */
 export function validateModelingEnvelope(root: SDFNode): void {
+  const rejectUnboundedHull = (node: SDFNode): void => {
+    if (node.kind === 'hull') {
+      const a = computeBounds(node.a), b = computeBounds(node.b);
+      if (![...a.min, ...a.max, ...b.min, ...b.max].every(Number.isFinite)) {
+        throw new ModelingEnvelopeError('hull operands must be bounded');
+      }
+      rejectUnboundedHull(node.a); rejectUnboundedHull(node.b); return;
+    }
+    if (node.kind === 'union' || node.kind === 'subtract' || node.kind === 'intersect') {
+      rejectUnboundedHull(node.a); rejectUnboundedHull(node.b); return;
+    }
+    if ('child' in node) rejectUnboundedHull(node.child);
+  };
+  rejectUnboundedHull(root);
   const bounds = computeBounds(root);
   for (const value of [...bounds.min, ...bounds.max]) {
     if (!Number.isFinite(value) || Math.abs(value) > MODEL_SPATIAL_LIMIT_MM) {
@@ -100,6 +114,15 @@ export function validateModelingEnvelope(root: SDFNode): void {
         visit(node.a, scale, scaleRatio);
         visit(node.b, scale, scaleRatio);
         return;
+      case 'hull': {
+        const a = computeBounds(node.a), b = computeBounds(node.b);
+        if (![...a.min, ...a.max, ...b.min, ...b.max].every(Number.isFinite)) {
+          throw new ModelingEnvelopeError('hull operands must be bounded');
+        }
+        visit(node.a, scale, scaleRatio);
+        visit(node.b, scale, scaleRatio);
+        return;
+      }
       case 'mirror':
       case 'linearPattern':
       case 'circularPattern':

@@ -486,6 +486,16 @@ function NodeEditor({ node, onUpdate, onUpdateStr }: { node: SDFNodeUI; onUpdate
           </div>
         </>
       );
+    case 'hull':
+      return (
+        <>
+          <SectionLabel>Faceted hull</SectionLabel>
+          <NumberInput label="Support planes" value={p.detail} min={6} max={98} step={2} unit="unitless" onChange={(v) => onUpdate({ detail: v })} />
+          <div className="px-2 pt-1 text-[10px] leading-snug" style={{ color: 'var(--text-muted)' }}>
+            Convex outer approximation. More planes improve detail while always containing both children.
+          </div>
+        </>
+      );
     case 'shell':
       return (
         <>

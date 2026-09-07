@@ -50,3 +50,12 @@ describe('bend conversion', () => {
     expect(toSDFNode(ui)).toEqual({ kind: 'bend', axis: 'z', direction: 'x', angle: -60, origin: 3, extent: 20, child: { kind: 'sphere', radius: 5 } });
   });
 });
+
+describe('hull conversion', () => {
+  it('builds bounded support planes for both children', () => {
+    const ui: SDFNodeUI = { id: 'h', kind: 'hull', label: 'Hull', params: { detail: 12 }, children: [node('sphere'), node('sphere')], enabled: true };
+    const converted = toSDFNode(ui);
+    expect(converted).toMatchObject({ kind: 'hull', detail: 12 });
+    expect(converted?.kind === 'hull' && converted.planes).toHaveLength(12);
+  });
+});

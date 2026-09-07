@@ -1,6 +1,7 @@
 import fc from 'fast-check';
 import type { SDFNode, Vec3, BBox } from './types';
 import { computeBounds } from './bounds';
+import { buildHullPlanes } from './hull';
 
 /**
  * Shared fixtures for the invariant suites: random tree generation, and
@@ -29,6 +30,7 @@ export function sdfTree(maxDepth = 3): fc.Arbitrary<SDFNode> {
       fc.record({ kind: fc.constant('union' as const), a: tie('node'), b: tie('node'), k: num(0, 6) }),
       fc.record({ kind: fc.constant('subtract' as const), a: tie('node'), b: tie('node'), k: num(0, 6) }),
       fc.record({ kind: fc.constant('intersect' as const), a: tie('node'), b: tie('node'), k: num(0, 6) }),
+      fc.tuple(tie('node'), tie('node')).map(([a, b]) => ({ kind: 'hull' as const, a, b, detail: 6, planes: buildHullPlanes(a, b, computeBounds(a), computeBounds(b), 6) })),
       fc.record({ kind: fc.constant('shell' as const), child: tie('node'), thickness: num(0.5, 8) }),
       fc.record({ kind: fc.constant('offset' as const), child: tie('node'), distance: num(-6, 6) }),
       fc.record({ kind: fc.constant('round' as const), child: tie('node'), radius: num(0, 10) }),
@@ -101,6 +103,7 @@ export function expandPatterns(node: SDFNode): SDFNode {
     case 'union':
     case 'subtract':
     case 'intersect':
+    case 'hull':
       return { ...node, a: expandPatterns(node.a), b: expandPatterns(node.b) };
     case 'shell':
     case 'offset':

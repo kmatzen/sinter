@@ -186,6 +186,14 @@ export function evaluateInterval(node: SDFNode, box: BBox): Interval {
       if (node.k > SDF_PARAM_EPSILON) return I(Math.max(a.lo, b.lo), Math.max(a.hi, b.hi) + node.k / 4);
       return maxI(a, b);
     }
+    case 'hull': {
+      let result: Interval | null = null;
+      for (const plane of node.planes) {
+        const projected = add(add(mulK(x, plane.normal[0]), mulK(y, plane.normal[1])), addK(mulK(z, plane.normal[2]), -plane.offset));
+        result = result ? maxI(result, projected) : projected;
+      }
+      return result ?? WHOLE;
+    }
     case 'shell':
       return mulK(addK(absI(distanceI(node.child, box)), -node.thickness / 2), 1 / (fieldScale(node.child) * MODIFIER_DISTANCE_SAFETY));
     case 'offset':

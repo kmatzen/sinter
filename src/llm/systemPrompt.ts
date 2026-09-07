@@ -67,6 +67,7 @@ Change types:
 - **union**: \`{ smooth }\` — merges children. smooth=0 sharp, >0 = fillet radius
 - **subtract**: \`{ smooth }\` — first child minus second child
 - **intersect**: \`{ smooth }\` — overlap only
+- **hull**: \`{ detail }\` — faceted convex outer envelope of two children (6–98 support planes)
 
 ### Modifiers (1 child)
 - **shell**: \`{ thickness }\` — hollow with wall thickness

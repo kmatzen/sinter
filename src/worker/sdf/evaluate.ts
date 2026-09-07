@@ -178,6 +178,12 @@ export function evalAt(node: SDFNode, px: number, py: number, pz: number): numbe
       }
       return Math.max(a, b);
     }
+    case 'hull': {
+      let distance = -Infinity;
+      for (const plane of node.planes) distance = Math.max(distance,
+        px * plane.normal[0] + py * plane.normal[1] + pz * plane.normal[2] - plane.offset);
+      return distance;
+    }
     case 'shell':
       return (Math.abs(localDistance(node.child, px, py, pz)) - node.thickness / 2) /
         (cachedFieldScale(node.child) * MODIFIER_DISTANCE_SAFETY);

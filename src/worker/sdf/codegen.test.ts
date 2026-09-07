@@ -5,6 +5,8 @@ import type { SDFNodeUI } from '../../types/operations';
 import { normalizeNodeParams } from '../../types/parameterSchema';
 import { toSDFNode } from './convert';
 import { evaluateSDF } from './evaluate';
+import { computeBounds } from './bounds';
+import { buildHullPlanes } from './hull';
 
 describe('generateGLSL', () => {
   it('generates valid GLSL for a box', () => {
@@ -124,6 +126,15 @@ describe('generateGLSL', () => {
       const inter = generateGLSL({ kind: 'intersect', a, b, k });
       expect(inter).toContain(k > 0 ? 'mix' : 'max');
     }
+  });
+
+  it('generates a finite support-plane shader for hull', () => {
+    const a: SDFNode = { kind: 'sphere', radius: 2 };
+    const b: SDFNode = { kind: 'transform', child: a, tx: 8, ty: 0, tz: 0, rx: 0, ry: 0, rz: 0, sx: 1, sy: 1, sz: 1 };
+    const planes = buildHullPlanes(a, b, computeBounds(a), computeBounds(b), 12);
+    const glsl = generateGLSL({ kind: 'hull', a, b, detail: 12, planes });
+    expect(glsl).toContain('dot(p, vec3');
+    expect(glsl).not.toContain('NaN');
   });
 
   it('generates GLSL for offset, round, chamfer, and draft', () => {

@@ -66,4 +66,11 @@ describe('resolved modeling envelope', () => {
     const safe: SDFNode = { kind: 'bend', child: box([2, 20, 2]), axis: 'y', direction: 'x', angle: 45, origin: 0, extent: 40 };
     expect(() => validateModelingEnvelope(safe)).not.toThrow();
   });
+
+  it('rejects unbounded hull operands with an actionable error', () => {
+    const sphere: SDFNode = { kind: 'sphere', radius: 2 };
+    const halfSpace: SDFNode = { kind: 'halfSpace', axis: 'x', position: 0, flip: false };
+    const hull: SDFNode = { kind: 'hull', a: sphere, b: halfSpace, detail: 6, planes: [] };
+    expect(() => validateModelingEnvelope(hull)).toThrow(/hull operands must be bounded/i);
+  });
 });
