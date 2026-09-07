@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import type { MeshRegionSurfaceFit } from '../../types/geometry';
 import { assembleRegionalCsgTree, recoverRegionalPrimitiveEvidence } from './csgRecovery';
+import type { RegionalPrimitiveEvidence } from './csgRecovery';
 import { evaluateSDF } from './evaluate';
 import { bakeMeshField } from './meshField';
 import { segmentMeshSurfaces } from './meshSegmentation';
 import { fitSegmentedSurfaces } from './regionFit';
 import { fitPrimitive } from './fitPrimitive';
+import { compressRegionalPatterns } from './patternRecovery';
 import type { MeshFieldData, SDFNode } from './types';
 
 function fieldFor(node: SDFNode, res = 41): MeshFieldData {
@@ -109,5 +111,29 @@ describe('regional CSG evidence', () => {
     expect(assembled.contributors.map((candidate) => candidate.polarity)).toEqual(['add', 'subtract']);
     const whole = fitPrimitive(field)!, workerEquivalent = assembleRegionalCsgTree(field, whole.node, evidence)!;
     expect(workerEquivalent.acceptable, JSON.stringify({ whole, workerEquivalent })).toBe(true);
+  });
+
+  it('validates a compressed linear pattern as part of the complete CSG tree', () => {
+    const base: SDFNode = { kind: 'box', size: [20, 3, 12] };
+    const standoff = (x: number): SDFNode => ({
+      kind: 'transform', child: { kind: 'cylinder', radius: 1.5, height: 5 },
+      tx: x, ty: 4, tz: 0, rx: 0, ry: 0, rz: 0, sx: 1, sy: 1, sz: 1,
+    });
+    const explicit = [-6, 0, 6].map((x, index): RegionalPrimitiveEvidence => ({
+      node: standoff(x), polarity: 'add', regionKeys: [`standoff-${index}`],
+      surfaceRms: 0.01, surfaceMax: 0.02, occupancyAgreement: 1,
+    }));
+    const target = explicit.reduce<SDFNode>((node, candidate) => ({ kind: 'union', a: node, b: candidate.node, k: 0 }), base);
+    const compressed = compressRegionalPatterns(explicit);
+    expect(compressed.patterns).toHaveLength(1);
+    expect(compressed.evidence).toHaveLength(1);
+    expect(compressed.evidence[0].node.kind).toBe('linearPattern');
+
+    const result = assembleRegionalCsgTree(fieldFor(target), base, compressed.evidence)!;
+    expect(result.acceptable).toBe(true);
+    expect(result.relativeError).toBeLessThan(0.01);
+    expect(result.contributors).toEqual([expect.objectContaining({
+      polarity: 'add', regionKeys: ['standoff-0', 'standoff-1', 'standoff-2'],
+    })]);
   });
 });
