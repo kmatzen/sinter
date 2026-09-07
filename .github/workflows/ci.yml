@@ -37,9 +37,31 @@ jobs:
       - run: npm test
 
   e2e-tests:
-    name: E2E Tests
+    name: E2E shard (${{ matrix.name }})
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Chromium 1/4
+            command: npx playwright test --project=chromium --shard=1/4
+            artifact: chromium-1
+          - name: Chromium 2/4
+            command: npx playwright test --project=chromium --shard=2/4
+            artifact: chromium-2
+          - name: Chromium 3/4
+            command: npx playwright test --project=chromium --shard=3/4
+            artifact: chromium-3
+          - name: Chromium 4/4
+            command: npx playwright test --project=chromium --shard=4/4
+            artifact: chromium-4
+          - name: Mobile
+            command: npx playwright test --project=mobile
+            artifact: mobile
+          - name: Golden
+            command: npx playwright test --project=golden
+            artifact: golden
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -48,13 +70,25 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npx playwright install chromium --with-deps
-      - run: npx playwright test --project=chromium --project=mobile --project=golden
+      - run: ${{ matrix.command }}
       - uses: actions/upload-artifact@v7
         if: failure()
         with:
-          name: playwright-report
+          name: playwright-${{ matrix.artifact }}
           path: test-results/
           retention-days: 7
+
+  # Keep one stable required-check name while the expensive work fans out.
+  e2e:
+    name: E2E Tests
+    runs-on: ubuntu-latest
+    if: always()
+    needs: e2e-tests
+    steps:
+      - name: Require every E2E shard
+        env:
+          SHARD_RESULT: ${{ needs.e2e-tests.result }}
+        run: test "$SHARD_RESULT" = success
 
   cross-engine-smoke:
     name: ${{ matrix.engine }} Smoke

@@ -123,6 +123,13 @@ npm run check:clarity # measured legibility/a11y regression gate (requires ../cl
 npm run test:live     # asks a real model for real geometry (needs a credential)
 ```
 
+CI keeps one Playwright worker per runner because WebGL uses software rendering,
+then distributes Chromium tests across four isolated runners. Reproduce one
+shard with `CI=1 npx playwright test --project=chromium --shard=1/4`; change the
+numerator to select another shard. Run the complete browser gate with
+`npm run test:e2e`. Mobile and golden projects run independently with
+`CI=1 npx playwright test --project=mobile` and `--project=golden`.
+
 The Clarity check builds Sinter, audits landing, login, and deterministic editor
 states at desktop and mobile widths, writes `clarity-report.json`, and fails if
 any gating finding increases. For local use, clone
