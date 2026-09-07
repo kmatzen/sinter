@@ -252,6 +252,16 @@ describe('Modeler editing scenarios', () => {
       expect(getState().tree).toMatchObject({ kind: 'box', id: boxId });
     });
 
+    it('wraps a selected node in draft as one undoable edit', () => {
+      getState().addPrimitive('box');
+      const boxId = getState().tree!.id;
+      getState().selectNode(boxId);
+      getState().wrapSelected('draft');
+      expect(getState().tree).toMatchObject({ kind: 'draft', params: { axis: 1, angle: 5, reference: 0 } });
+      getState().undo();
+      expect(getState().tree).toMatchObject({ kind: 'box', id: boxId });
+    });
+
     it('builds box → round → shell', () => {
       // Add box
       getState().addPrimitive('box');

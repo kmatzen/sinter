@@ -56,6 +56,13 @@ describe('export component partitioning', () => {
     expect(plan.tolerance).toBe(0.5);
   });
 
+  it('automatically resolves the lateral run introduced by draft', () => {
+    const draft: SDFNode = { kind: 'draft', child: { kind: 'box', size: [100, 100, 100] }, axis: 'y', angle: Math.atan(0.01) * 180 / Math.PI, reference: 0 };
+    const bounds = computeBounds(draft);
+    const plan = planComponentSampling(draft, bounds, 128, 384);
+    expect(plan.resolution).toBe(202);
+  });
+
   it('fails before meshing when a thin shell cannot be resolved safely', () => {
     const shell: SDFNode = { kind: 'shell', child: { kind: 'box', size: [100, 100, 100] }, thickness: 0.1 };
     expect(() => planComponentSampling(shell, { min: [-51, -51, -51], max: [51, 51, 51] }, 128, 384))

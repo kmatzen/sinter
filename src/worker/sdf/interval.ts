@@ -1,7 +1,7 @@
 import { sampleMeshField } from './meshField';
 import type { SDFNode, BBox, Vec3 } from './types';
 import { SDF_PARAM_EPSILON } from './types';
-import { fieldScale, MODIFIER_DISTANCE_SAFETY } from './bounds';
+import { computeBounds, fieldScale, MODIFIER_DISTANCE_SAFETY } from './bounds';
 
 /**
  * Interval-arithmetic evaluation of the SDF tree.
@@ -197,6 +197,18 @@ export function evaluateInterval(node: SDFNode, box: BBox): Interval {
       if (node.distance <= SDF_PARAM_EPSILON) return evaluateInterval(node.child, box);
       const child = distanceI(node.child, box);
       return mulK(I(child.lo - node.distance, child.hi), 1 / (fieldScale(node.child) * MODIFIER_DISTANCE_SAFETY));
+    }
+    case 'draft': {
+      if (Math.abs(node.angle) <= SDF_PARAM_EPSILON) return evaluateInterval(node.child, box);
+      const axis = node.axis === 'x' ? x : node.axis === 'z' ? z : y;
+      const index = node.axis === 'x' ? 0 : node.axis === 'z' ? 2 : 1;
+      const bounds = computeBounds(node.child);
+      const slope = Math.tan(node.angle * Math.PI / 180);
+      const wall = mulK(add(distanceI(node.child, box), mulK(addK(axis, -node.reference), -slope)),
+        1 / (fieldScale(node.child) * MODIFIER_DISTANCE_SAFETY * Math.hypot(1, slope)));
+      const lower = addK(neg(axis), bounds.min[index]);
+      const upper = addK(axis, -bounds.max[index]);
+      return maxI(wall, maxI(lower, upper));
     }
     case 'transform': {
       if (!isFinite(node.sx) || !isFinite(node.sy) || !isFinite(node.sz) ||

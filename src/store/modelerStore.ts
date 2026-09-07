@@ -1137,7 +1137,7 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
       }
 
       // Remove modifiers/patterns with no children
-      if (['shell', 'offset', 'round', 'chamfer', 'mirror', 'halfSpace', 'linearPattern', 'circularPattern'].includes(simplified.kind) && children.length === 0) {
+      if (['shell', 'offset', 'round', 'chamfer', 'draft', 'mirror', 'halfSpace', 'linearPattern', 'circularPattern'].includes(simplified.kind) && children.length === 0) {
         return null;
       }
 

@@ -1,5 +1,5 @@
 import { computeBounds } from './bounds';
-import type { BBox, SDFNode } from './types';
+import { SDF_PARAM_EPSILON, type BBox, type SDFNode } from './types';
 
 type Feature3 = [number, number, number];
 const min3 = (a: Feature3, b: Feature3): Feature3 => [Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.min(a[2], b[2])];
@@ -33,6 +33,13 @@ export function sourceFeatureSize(node: SDFNode): Feature3 {
     case 'offset': return node.distance === 0 ? sourceFeatureSize(node.child) : min3(sourceFeatureSize(node.child), [Math.abs(node.distance), Math.abs(node.distance), Math.abs(node.distance)]);
     case 'round': return node.radius === 0 ? sourceFeatureSize(node.child) : min3(sourceFeatureSize(node.child), [node.radius, node.radius, node.radius]);
     case 'chamfer': return node.distance === 0 ? sourceFeatureSize(node.child) : min3(sourceFeatureSize(node.child), [node.distance, node.distance, node.distance]);
+    case 'draft': {
+      if (Math.abs(node.angle) <= SDF_PARAM_EPSILON) return sourceFeatureSize(node.child);
+      const bounds = computeBounds(node.child);
+      const axis = node.axis === 'x' ? 0 : node.axis === 'z' ? 2 : 1;
+      const run = Math.abs(Math.tan(node.angle * Math.PI / 180)) * (bounds.max[axis] - bounds.min[axis]);
+      return min3(sourceFeatureSize(node.child), [run, run, run]);
+    }
     case 'transform': {
       const child = sourceFeatureSize(node.child);
       const smallest = Math.min(child[0] * Math.abs(node.sx), child[1] * Math.abs(node.sy), child[2] * Math.abs(node.sz));

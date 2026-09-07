@@ -126,13 +126,17 @@ describe('generateGLSL', () => {
     }
   });
 
-  it('generates GLSL for offset, round, and chamfer', () => {
+  it('generates GLSL for offset, round, chamfer, and draft', () => {
     const child: SDFNode = { kind: 'box', size: [10, 10, 10] };
     expect(generateGLSL({ kind: 'offset', child, distance: 2 })).toContain('float sdf(vec3 p)');
     expect(generateGLSL({ kind: 'round', child, radius: 1 })).toContain('float sdf(vec3 p)');
     const chamfer = generateGLSL({ kind: 'chamfer', child, distance: 1 });
     expect(chamfer).toContain('float sdf(vec3 p)');
     expect(chamfer).toContain('length(cg_');
+    const draft = generateGLSL({ kind: 'draft', child, axis: 'y', angle: 12, reference: 2 });
+    expect(draft).toContain('float sdf(vec3 p)');
+    expect(draft).toContain('dw_');
+    expect(draft).not.toContain('NaN');
   });
 
   it('generates GLSL for linearPattern using a helper function', () => {

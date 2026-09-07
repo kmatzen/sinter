@@ -64,6 +64,19 @@ export function computeBounds(node: SDFNode): BBox {
       return expandBounds(computeBounds(node.child), node.radius * fieldScale(node.child));
     case 'chamfer':
       return expandBounds(computeBounds(node.child), node.distance * fieldScale(node.child));
+    case 'draft': {
+      const bounds = computeBounds(node.child);
+      if (Math.abs(node.angle) <= SDF_PARAM_EPSILON) return bounds;
+      const axis = node.axis === 'x' ? 0 : node.axis === 'z' ? 2 : 1;
+      const slope = Math.tan(node.angle * Math.PI / 180);
+      const expansion = Math.max(0, slope * (bounds.min[axis] - node.reference), slope * (bounds.max[axis] - node.reference)) * fieldScale(node.child);
+      const result: BBox = { min: [...bounds.min], max: [...bounds.max] };
+      for (let i = 0; i < 3; i++) if (i !== axis) {
+        result.min[i] -= expansion;
+        result.max[i] += expansion;
+      }
+      return result;
+    }
     case 'mirror': {
       const cb = computeBounds(node.child);
       return {
@@ -273,6 +286,9 @@ export function fieldScale(node: SDFNode): number {
       return fieldScale(node.child) * MODIFIER_DISTANCE_SAFETY;
     case 'chamfer':
       if (node.distance <= SDF_PARAM_EPSILON) return fieldScale(node.child);
+      return fieldScale(node.child) * MODIFIER_DISTANCE_SAFETY;
+    case 'draft':
+      if (Math.abs(node.angle) <= SDF_PARAM_EPSILON) return fieldScale(node.child);
       return fieldScale(node.child) * MODIFIER_DISTANCE_SAFETY;
     case 'shell':
       return fieldScale(node.child) * MODIFIER_DISTANCE_SAFETY;

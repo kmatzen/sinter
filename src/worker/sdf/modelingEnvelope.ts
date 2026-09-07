@@ -69,6 +69,8 @@ export function validateModelingEnvelope(root: SDFNode): void {
       case 'chamfer':
         if (node.distance !== 0) requireFeature(node.distance, scale, 'chamfer distance');
         visit(node.child, scale, scaleRatio); return;
+      case 'draft':
+        visit(node.child, scale, scaleRatio); return;
       case 'transform': {
         const lo = Math.min(Math.abs(node.sx), Math.abs(node.sy), Math.abs(node.sz));
         const hi = Math.max(Math.abs(node.sx), Math.abs(node.sy), Math.abs(node.sz));

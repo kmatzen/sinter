@@ -29,3 +29,10 @@ describe('chamfer conversion', () => {
     expect(toSDFNode(ui)).toEqual({ kind: 'chamfer', distance: 3, child: { kind: 'sphere', radius: 5 } });
   });
 });
+
+describe('draft conversion', () => {
+  it('preserves axis, signed angle, reference, and child', () => {
+    const ui: SDFNodeUI = { id: 'd', kind: 'draft', label: 'Draft', params: { axis: 2, angle: -7, reference: 4 }, children: [node('sphere')], enabled: true };
+    expect(toSDFNode(ui)).toEqual({ kind: 'draft', axis: 'z', angle: -7, reference: 4, child: { kind: 'sphere', radius: 5 } });
+  });
+});

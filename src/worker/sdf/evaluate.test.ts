@@ -265,6 +265,29 @@ describe('evaluateSDF', () => {
     });
   });
 
+  describe('draft', () => {
+    it('keeps the reference plane fixed and applies the signed wall angle', () => {
+      const child: SDFNode = { kind: 'box', size: [20, 20, 20] };
+      const positive: SDFNode = { kind: 'draft', child, axis: 'y', angle: 10, reference: 0 };
+      const negative: SDFNode = { ...positive, angle: -10 };
+      const run = 5 * Math.tan(10 * Math.PI / 180);
+      expect(evaluateSDF(positive, [10, 0, 0])).toBeCloseTo(0, 8);
+      expect(evaluateSDF(positive, [10 + run, 5, 0])).toBeCloseTo(0, 8);
+      expect(evaluateSDF(negative, [10 - run, 5, 0])).toBeCloseTo(0, 8);
+    });
+
+    it('supports transformed children, exact identity, original caps, and finite extremes', () => {
+      const child: SDFNode = { kind: 'transform', child: { kind: 'box', size: [20, 20, 20] }, tx: 5, ty: 2, tz: 0, rx: 0, ry: 0, rz: 0, sx: 1, sy: 1, sz: 1 };
+      const draft: SDFNode = { kind: 'draft', child, axis: 'y', angle: 45, reference: 2 };
+      expect(evaluateSDF(draft, [15, 2, 0])).toBeCloseTo(0, 8);
+      expect(evaluateSDF(draft, [20, 7, 0])).toBeCloseTo(0, 8);
+      expect(evaluateSDF(draft, [0, 12.001, 0])).toBeGreaterThan(0);
+      expect(Number.isFinite(evaluateSDF(draft, [1e4, 1e4, 1e4]))).toBe(true);
+      const identity: SDFNode = { kind: 'draft', child, axis: 'z', angle: 1e-7, reference: -999 };
+      expect(evaluateSDF(identity, [15, 2, 0])).toBe(evaluateSDF(child, [15, 2, 0]));
+    });
+  });
+
   describe('halfSpace', () => {
     it('below plane is inside', () => {
       const hs: SDFNode = { kind: 'halfSpace', axis: 'y', position: 5, flip: false };
