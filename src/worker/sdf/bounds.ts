@@ -238,7 +238,10 @@ export function computeBounds(node: SDFNode): BBox {
  * correction varies near seams and medial axes. Reserve slope headroom so the
  * resulting field remains a conservative sphere-tracing step there.
  */
-export const MODIFIER_DISTANCE_SAFETY = 2;
+// The local gradient correction can change across a modifier's medial seams.
+// A 5% margin beyond the theoretical 2x bound keeps the composed field
+// conservative under floating-point interpolation at those transitions.
+export const MODIFIER_DISTANCE_SAFETY = 2.1;
 
 export function fieldScale(node: SDFNode): number {
   switch (node.kind) {

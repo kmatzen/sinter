@@ -53,7 +53,7 @@ async function enterModeler(page: Page) {
 }
 
 async function importBox(page: Page) {
-  await page.locator('[title="Import STL"]').first().click();
+  await page.getByRole('button', { name: 'Import mesh' }).click();
   await page.locator('input[type="file"]').setInputFiles({
     name: 'part.stl', mimeType: 'model/stl', buffer: boxSTL(),
   });
@@ -136,13 +136,13 @@ test.describe('STL import', () => {
 
   test('refuses a file that is not an STL, with a reason', async ({ page }) => {
     await enterModeler(page);
-    await page.locator('[title="Import STL"]').first().click();
+    await page.getByRole('button', { name: 'Import mesh' }).click();
     await page.locator('input[type="file"]').setInputFiles({
       name: 'notes.stl', mimeType: 'model/stl', buffer: Buffer.from('this is not a mesh'),
     });
 
     await expect(page.locator('[role="alert"]')).toBeVisible({ timeout: 15_000 });
     // And the dialog stays open rather than dropping a broken node in the tree.
-    await expect(page.locator('text=Import STL').first()).toBeVisible();
+    await expect(page.getByRole('dialog', { name: 'Import mesh' })).toBeVisible();
   });
 });

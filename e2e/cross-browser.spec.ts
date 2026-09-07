@@ -61,8 +61,8 @@ test('boot, edit, undo, save interception, import, and export', async ({ page })
 
   await page.getByRole('button', { name: 'New project' }).click();
   await discardIfAsked(page);
-  await page.getByRole('button', { name: 'Import STL' }).click();
-  await page.getByLabel('STL file').setInputFiles({
+  await page.getByRole('button', { name: 'Import mesh' }).click();
+  await page.getByLabel('Mesh file').setInputFiles({
     name: 'box.stl', mimeType: 'model/stl', buffer: closedBoxSTL(),
   });
   await page.getByRole('button', { name: 'Import approximately' }).click();

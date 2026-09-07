@@ -191,16 +191,17 @@ export function isBinarySTL(buffer: ArrayBuffer): boolean {
   return head.trim().toLowerCase() !== 'solid';
 }
 
-export function parseSTL(buffer: ArrayBuffer): RawMesh {
-  return isBinarySTL(buffer) ? parseBinary(buffer) : parseAscii(buffer);
+export function parseSTL(buffer: ArrayBuffer, maxTriangles = MAX_STL_TRIANGLES): RawMesh {
+  if (!Number.isInteger(maxTriangles) || maxTriangles < 1) throw new STLParseError('Triangle limit must be a positive integer');
+  return isBinarySTL(buffer) ? parseBinary(buffer, maxTriangles) : parseAscii(buffer, maxTriangles);
 }
 
-function parseBinary(buffer: ArrayBuffer): RawMesh {
+function parseBinary(buffer: ArrayBuffer, maxTriangles: number): RawMesh {
   if (buffer.byteLength < BINARY_HEADER) throw new STLParseError('File is too short to be an STL');
   const view = new DataView(buffer);
   const count = view.getUint32(80, true);
-  if (count > MAX_STL_TRIANGLES) {
-    throw new STLParseError(`The STL contains ${count.toLocaleString()} triangles; the supported limit is ${MAX_STL_TRIANGLES.toLocaleString()}`);
+  if (count > maxTriangles) {
+    throw new STLParseError(`The STL contains ${count.toLocaleString()} triangles; the supported limit is ${maxTriangles.toLocaleString()}`);
   }
   const needed = BINARY_HEADER + count * BINARY_TRIANGLE;
   if (needed > buffer.byteLength) {
@@ -229,7 +230,7 @@ function parseBinary(buffer: ArrayBuffer): RawMesh {
   return { positions, normals, triangleCount: count, topology };
 }
 
-function parseAscii(buffer: ArrayBuffer): RawMesh {
+function parseAscii(buffer: ArrayBuffer, maxTriangles: number): RawMesh {
   const text = new TextDecoder().decode(buffer);
   const positions: number[] = [];
   const normals: number[] = [];
@@ -272,8 +273,8 @@ function parseAscii(buffer: ArrayBuffer): RawMesh {
       if (facetVertices.length !== 9) throw new STLParseError(`A facet contains ${facetVertices.length / 3} vertices instead of 3`);
       positions.push(...facetVertices);
       normals.push(...facetNormal);
-      if (positions.length / 9 > MAX_STL_TRIANGLES) {
-        throw new STLParseError(`The STL exceeds the supported limit of ${MAX_STL_TRIANGLES.toLocaleString()} triangles`);
+      if (positions.length / 9 > maxTriangles) {
+        throw new STLParseError(`The STL exceeds the supported limit of ${maxTriangles.toLocaleString()} triangles`);
       }
       inFacet = false;
       i++;
