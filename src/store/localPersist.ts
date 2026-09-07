@@ -4,6 +4,7 @@ import { useModelerStore } from './modelerStore';
 import { ensureConsent, hasConsent } from './consent';
 import { decodeProjectDocument, MAX_PROJECT_JSON_CHARS } from '../types/documentDecoder';
 import { useViewportStore } from './viewportStore';
+import { useProjectComponentStore } from './componentLibrary';
 
 const LEGACY_STORAGE_KEY = 'sinter_local_project';
 const CURRENT_KEY = 'current';
@@ -227,7 +228,8 @@ export async function startLocalAutoSave(): Promise<void> {
   const unsubViewport = useViewportStore.subscribe((state, previous) => {
     if (state.namedViews !== previous.namedViews || state.pinnedMeasurements !== previous.pinnedMeasurements) schedule();
   });
-  unsubscribers = [unsubModeler, unsubViewport];
+  const unsubComponents = useProjectComponentStore.subscribe(schedule);
+  unsubscribers = [unsubModeler, unsubViewport, unsubComponents];
 }
 
 export function stopLocalAutoSave() {
