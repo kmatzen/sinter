@@ -1,7 +1,11 @@
 export type Vec3 = [number, number, number];
 
-/** Values below this are identity/sharp at the engine's spatial precision. */
-export const SDF_PARAM_EPSILON = 1e-9;
+/**
+ * Values below one nanometre are identity/sharp. This is three orders of
+ * magnitude below the best supported model-boundary precision and prevents
+ * numerically active modifiers from amplifying physically meaningless input.
+ */
+export const SDF_PARAM_EPSILON = 1e-6;
 
 export type SDFNode =
   | { kind: 'box'; size: Vec3; warn?: boolean }
@@ -17,6 +21,7 @@ export type SDFNode =
   | { kind: 'shell'; child: SDFNode; thickness: number; warn?: boolean }
   | { kind: 'offset'; child: SDFNode; distance: number; warn?: boolean }
   | { kind: 'round'; child: SDFNode; radius: number; warn?: boolean }
+  | { kind: 'chamfer'; child: SDFNode; distance: number; warn?: boolean }
   | { kind: 'transform'; child: SDFNode; tx: number; ty: number; tz: number; rx: number; ry: number; rz: number; sx: number; sy: number; sz: number; warn?: boolean }
   | { kind: 'mirror'; child: SDFNode; axes: Vec3; warn?: boolean }  // axes: [1,0,0] = mirror X, [0,1,0] = Y, etc. Can combine.
   | { kind: 'linearPattern'; child: SDFNode; axis: Vec3; count: number; spacing: number; warn?: boolean }

@@ -21,3 +21,11 @@ describe('boolean operand conversion', () => {
     expect(isTreeExportable(tree)).toBe(false);
   });
 });
+
+describe('chamfer conversion', () => {
+  it('preserves its physical distance and child', () => {
+    const child = node('sphere');
+    const ui: SDFNodeUI = { id: 'c', kind: 'chamfer', label: 'Chamfer', params: { distance: 3 }, children: [child], enabled: true };
+    expect(toSDFNode(ui)).toEqual({ kind: 'chamfer', distance: 3, child: { kind: 'sphere', radius: 5 } });
+  });
+});

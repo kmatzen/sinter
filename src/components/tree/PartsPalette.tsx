@@ -15,7 +15,7 @@ const ICONS: Record<string, ReactNode> = {
   box: <Box size={14} />, sphere: <Circle size={14} />, cylinder: <Cylinder size={14} />,
   torus: <Donut size={14} />, cone: <Cone size={14} />, capsule: <Pill size={14} />, ellipsoid: <Egg size={14} />,
   union: <Merge size={13} />, subtract: <Minus size={13} />, intersect: <Combine size={13} />,
-  shell: <Shell size={13} />, offset: <Expand size={13} />, round: <CircleDot size={13} />,
+  shell: <Shell size={13} />, offset: <Expand size={13} />, round: <CircleDot size={13} />, chamfer: <CircleDot size={13} />,
   mirror: <FlipHorizontal size={13} />, halfSpace: <Scissors size={13} />,
   linearPattern: <Repeat size={13} />, circularPattern: <CircleDashed size={13} />,
   translate: <Move size={13} />, rotate: <RotateCcw size={13} />, scale: <Scaling size={13} />,
@@ -241,7 +241,7 @@ export function PartsPalette() {
 
             <SectionHeader>Modifiers</SectionHeader>
             <div className="flex flex-wrap gap-1">
-              {(['shell', 'offset', 'round', 'mirror', 'halfSpace'] as const).map((kind) => (
+              {(['shell', 'offset', 'round', 'chamfer', 'mirror', 'halfSpace'] as const).map((kind) => (
                 <OpPill key={kind} kind={kind} color={CAT_COLORS.modifiers} />
               ))}
             </div>

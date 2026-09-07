@@ -193,6 +193,11 @@ export function evaluateInterval(node: SDFNode, box: BBox): Interval {
     case 'round':
       if (node.radius <= SDF_PARAM_EPSILON) return evaluateInterval(node.child, box);
       return mulK(addK(distanceI(node.child, box), -node.radius), 1 / (fieldScale(node.child) * MODIFIER_DISTANCE_SAFETY));
+    case 'chamfer': {
+      if (node.distance <= SDF_PARAM_EPSILON) return evaluateInterval(node.child, box);
+      const child = distanceI(node.child, box);
+      return mulK(I(child.lo - node.distance, child.hi), 1 / (fieldScale(node.child) * MODIFIER_DISTANCE_SAFETY));
+    }
     case 'transform': {
       if (!isFinite(node.sx) || !isFinite(node.sy) || !isFinite(node.sz) ||
           Math.abs(node.sx) < 1e-9 || Math.abs(node.sy) < 1e-9 || Math.abs(node.sz) < 1e-9) return WHOLE;

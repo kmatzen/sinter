@@ -112,6 +112,10 @@ export function toSDFNode(ui: SDFNodeUI): SDFNode | null {
       if (children.length < 1) return null;
       return { kind: 'round', child: children[0], radius: p.radius };
 
+    case 'chamfer':
+      if (children.length < 1) return null;
+      return { kind: 'chamfer', child: children[0], distance: p.distance };
+
     case 'translate':
     case 'rotate':
     case 'scale':

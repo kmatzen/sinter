@@ -43,6 +43,18 @@ function localDistance(node: SDFNode, px: number, py: number, pz: number): numbe
   return raw * correction;
 }
 
+/** Approximate dilation by an octahedral tool, which produces planar bevels. */
+function chamferDistance(node: SDFNode, distance: number, px: number, py: number, pz: number): number {
+  const d = localDistance(node, px, py, pz);
+  const e = 1e-3;
+  const gx = localDistance(node, px + e, py, pz) - localDistance(node, px - e, py, pz);
+  const gy = localDistance(node, px, py + e, pz) - localDistance(node, px, py - e, pz);
+  const gz = localDistance(node, px, py, pz + e) - localDistance(node, px, py, pz - e);
+  const length = Math.hypot(gx, gy, gz);
+  const support = length > 1e-12 ? Math.max(Math.abs(gx), Math.abs(gy), Math.abs(gz)) / length : 1;
+  return (d - distance * support) / (cachedFieldScale(node) * MODIFIER_DISTANCE_SAFETY);
+}
+
 /**
  * Cached rotation matrices for `transform`.
  *
@@ -176,6 +188,9 @@ export function evalAt(node: SDFNode, px: number, py: number, pz: number): numbe
       if (node.radius <= SDF_PARAM_EPSILON) return evalAt(node.child, px, py, pz);
       return (localDistance(node.child, px, py, pz) - node.radius) /
         (cachedFieldScale(node.child) * MODIFIER_DISTANCE_SAFETY);
+    case 'chamfer':
+      if (node.distance <= SDF_PARAM_EPSILON) return evalAt(node.child, px, py, pz);
+      return chamferDistance(node.child, node.distance, px, py, pz);
     case 'transform': {
       // Inverse transform the point: R^-1((p - t) / s).
       let qx = (px - node.tx) / node.sx;

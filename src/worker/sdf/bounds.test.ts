@@ -137,6 +137,12 @@ describe('computeBounds', () => {
     expect(bb.max).toEqual([7, 7, 7]);
   });
 
+  it('chamfer conservatively expands by distance', () => {
+    const bb = computeBounds({ kind: 'chamfer', child: { kind: 'box', size: [10, 10, 10] }, distance: 2 });
+    expect(bb.min).toEqual([-7, -7, -7]);
+    expect(bb.max).toEqual([7, 7, 7]);
+  });
+
   it('rotated transform rotates all three axes', () => {
     const node: SDFNode = {
       kind: 'transform',
