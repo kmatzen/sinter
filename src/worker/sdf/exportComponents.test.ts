@@ -5,6 +5,7 @@ import { partitionExportComponents, planComponentSampling } from './exportCompon
 import type { SDFNode } from './types';
 import { evaluateCPUWithProgress } from './gridEval';
 import { dualContour } from './dualContour';
+import { buildHullPlanes } from './hull';
 
 const movedSphere = (x: number): SDFNode => ({
   kind: 'transform', child: { kind: 'sphere', radius: 0.5 },
@@ -73,6 +74,18 @@ describe('export component partitioning', () => {
     const bend: SDFNode = { kind: 'bend', child: { kind: 'box', size: [2, 20, 2] }, axis: 'y', direction: 'x', angle: 170, origin: 0, extent: 20 };
     const plan = planComponentSampling(bend, computeBounds(bend), 2, 384);
     expect(plan.resolution).toBeGreaterThan(2);
+  });
+
+  it('preserves child feature size when planning a hull export', () => {
+    const a = movedSphere(0);
+    const b = movedSphere(20);
+    const hull: SDFNode = {
+      kind: 'hull', a, b, detail: 24,
+      planes: buildHullPlanes(a, b, computeBounds(a), computeBounds(b), 24),
+    };
+    const plan = planComponentSampling(hull, computeBounds(hull), 2, 384);
+    expect(plan.resolution).toBe(42);
+    expect(plan.tolerance).toBe(0.5);
   });
 
   it('fails before meshing when a thin shell cannot be resolved safely', () => {

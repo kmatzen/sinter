@@ -3,6 +3,7 @@ import { generateSDFFunction } from '../src/worker/sdf/codegen';
 import { evaluateSDF } from '../src/worker/sdf/evaluate';
 import { computeBounds } from '../src/worker/sdf/bounds';
 import { bakeMeshField } from '../src/worker/sdf/meshField';
+import { buildHullPlanes } from '../src/worker/sdf/hull';
 import type { SDFNode, Vec3 } from '../src/worker/sdf/types';
 
 /**
@@ -131,6 +132,11 @@ const CASES: [string, SDFNode][] = [
   ['draft(box)', { kind: 'draft', axis: 'y', angle: 12, reference: 0, child: { kind: 'box', size: [30, 20, 40] } }],
   ['twist(translated box)', { kind: 'twist', axis: 'y', angle: 120, origin: 0, extent: 30, child: { kind: 'transform', child: { kind: 'box', size: [12, 24, 8] }, tx: 8, ty: 0, tz: 0, rx: 0, ry: 0, rz: 0, sx: 1, sy: 1, sz: 1 } }],
   ['bend(translated box)', { kind: 'bend', axis: 'y', direction: 'x', angle: 70, origin: 0, extent: 30, child: { kind: 'transform', child: { kind: 'box', size: [8, 40, 10] }, tx: 3, ty: 0, tz: 0, rx: 0, ry: 0, rz: 0, sx: 1, sy: 1, sz: 1 } }],
+  ['hull(separated spheres)', (() => {
+    const a: SDFNode = { kind: 'transform', child: { kind: 'sphere', radius: 4 }, tx: -9, ty: 0, tz: 0, rx: 0, ry: 0, rz: 0, sx: 1, sy: 1, sz: 1 };
+    const b: SDFNode = { kind: 'transform', child: { kind: 'sphere', radius: 3 }, tx: 8, ty: 3, tz: 0, rx: 0, ry: 0, rz: 0, sx: 1, sy: 1, sz: 1 };
+    return { kind: 'hull', a, b, detail: 32, planes: buildHullPlanes(a, b, computeBounds(a), computeBounds(b), 32) };
+  })()],
   ['shell', { kind: 'shell', thickness: 4, child: { kind: 'box', size: [30, 30, 30] } }],
   ['smooth union', {
     kind: 'union', k: 5,

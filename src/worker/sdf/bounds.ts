@@ -53,6 +53,8 @@ export function computeBounds(node: SDFNode): BBox {
       };
       return expandBounds(result, node.k);
     }
+    case 'hull':
+      return mergeBounds(computeBounds(node.a), computeBounds(node.b), 0);
     // Surface evaluation re-distances in world space. These are computational
     // safety bounds, so they retain the maximum correction factor: finite
     // gradient sampling can land a fraction beyond the analytic Minkowski box
@@ -293,6 +295,7 @@ export function fieldScale(node: SDFNode): number {
     case 'subtract':
     case 'intersect':
       return Math.max(fieldScale(node.a), fieldScale(node.b));
+    case 'hull': return 1;
     case 'offset':
       if (Math.abs(node.distance) <= SDF_PARAM_EPSILON) return fieldScale(node.child);
       return fieldScale(node.child) * MODIFIER_DISTANCE_SAFETY;

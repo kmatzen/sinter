@@ -27,7 +27,7 @@ export const NODE_KINDS = {
   // palette. There is no useful default mesh to drag in; one only exists once a
   // file has been imported, so it arrives through the importer instead.
   primitives: ['box', 'sphere', 'cylinder', 'torus', 'cone', 'capsule', 'ellipsoid'] as const,
-  booleans: ['union', 'subtract', 'intersect'] as const,
+  booleans: ['union', 'subtract', 'intersect', 'hull'] as const,
   modifiers: ['shell', 'offset', 'round', 'chamfer', 'draft', 'twist', 'bend', 'mirror', 'halfSpace'] as const,
   patterns: ['linearPattern', 'circularPattern'] as const,
   transforms: ['translate', 'rotate', 'scale'] as const,
@@ -46,6 +46,7 @@ export const NODE_LABELS: Record<string, string> = {
   union: 'Union',
   subtract: 'Subtract',
   intersect: 'Intersect',
+  hull: 'Hull',
   shell: 'Shell',
   offset: 'Offset',
   round: 'Round',
@@ -77,6 +78,7 @@ export const NODE_DEFAULTS: Record<string, Record<string, number>> = {
   union: { smooth: 0 },
   subtract: { smooth: 0 },
   intersect: { smooth: 0 },
+  hull: { detail: 32 },
   shell: { thickness: 2 },
   offset: { distance: 1 },
   round: { radius: 2 },
@@ -163,6 +165,7 @@ export function nodeSummary(node: SDFNodeUI): string {
     case 'ellipsoid': return `${p.width}\u00d7${p.height}\u00d7${p.depth}`;
     case 'union': case 'subtract': case 'intersect':
       return p.smooth > 0 ? `smooth=${p.smooth}` : 'sharp';
+    case 'hull': return `${p.detail} planes`;
     case 'shell': return `${p.thickness}mm`;
     case 'offset': return `${p.distance}mm`;
     case 'round': return `r=${p.radius}`;

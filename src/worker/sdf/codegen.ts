@@ -482,6 +482,13 @@ function emitNode(node: SDFNode, pVar: string, lines: string[]): string {
       if (hasBBox) lines.push(`}`);
       return result;
     }
+    case 'hull': {
+      lines.push(`float ${result} = -1.0e30;`);
+      for (const plane of node.planes) {
+        lines.push(`${result} = max(${result}, dot(${pVar}, vec3(${up(plane.normal[0])}, ${up(plane.normal[1])}, ${up(plane.normal[2])})) - ${up(plane.offset)});`);
+      }
+      return result;
+    }
     case 'shell': {
       const child = emitDistanceFunction(node.child);
       lines.push(`float ${result} = (abs(${child}(${pVar})) - ${up(node.thickness / 2)}) / ${up(fieldScale(node.child) * MODIFIER_DISTANCE_SAFETY)};`);

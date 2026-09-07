@@ -2,6 +2,8 @@ import type { SDFNodeUI } from '../../types/operations';
 import type { SDFNode } from './types';
 import { bakeMeshField } from './meshField';
 import { MeshFieldCache } from './meshFieldCache';
+import { computeBounds } from './bounds';
+import { buildHullPlanes } from './hull';
 
 /**
  * Baked mesh fields, keyed by the mesh data and the resolution asked for.
@@ -98,6 +100,12 @@ export function toSDFNode(ui: SDFNodeUI): SDFNode | null {
       if (!a) return null;
       if (!b) return markWarn(a);
       return { kind: 'subtract', a, b, k: p.smooth || 0 };
+    }
+
+    case 'hull': {
+      const [a, b] = compiledChildren;
+      if (!a || !b) return a || b ? markWarn((a || b)!) : null;
+      return { kind: 'hull', a, b, detail: p.detail, planes: buildHullPlanes(a, b, computeBounds(a), computeBounds(b), p.detail) };
     }
 
     case 'shell':

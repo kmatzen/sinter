@@ -237,6 +237,17 @@ describe('Modeler editing scenarios', () => {
       expect(updated.children).toHaveLength(2);
       expect(isTreeValid(updated)).toBe(true);
     });
+
+    it('changes a binary node to hull as one undoable edit', () => {
+      getState().addPrimitive('box');
+      getState().addPrimitive('sphere');
+      const unionId = getState().tree!.id;
+      getState().changeNodeKind(unionId, 'hull');
+      expect(getState().tree).toMatchObject({ kind: 'hull', params: { detail: 32 } });
+      expect(getState().tree!.children).toHaveLength(2);
+      getState().undo();
+      expect(getState().tree).toMatchObject({ kind: 'union' });
+    });
   });
 
   // ─── Scenario 3: Rounded enclosure ─────────────────────────────────

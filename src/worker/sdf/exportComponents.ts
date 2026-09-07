@@ -16,7 +16,7 @@ export function sourceFeatureSize(node: SDFNode): Feature3 {
     case 'ellipsoid': return [...node.size];
     case 'text': return [Math.max(node.glyphWidth ?? node.size, 0.1), node.size, node.depth];
     case 'mesh': return [0, 1, 2].map((axis) => (node.field.bbox.max[axis] - node.field.bbox.min[axis]) / Math.max(1, node.field.res - 1)) as Feature3;
-    case 'union': case 'intersect': return min3(sourceFeatureSize(node.a), sourceFeatureSize(node.b));
+    case 'union': case 'intersect': case 'hull': return min3(sourceFeatureSize(node.a), sourceFeatureSize(node.b));
     case 'subtract': {
       const feature = min3(sourceFeatureSize(node.a), sourceFeatureSize(node.b));
       const a = computeBounds(node.a), b = computeBounds(node.b);

@@ -1,3 +1,5 @@
+import type { HullPlane } from './hull';
+
 export type Vec3 = [number, number, number];
 
 /**
@@ -18,6 +20,7 @@ export type SDFNode =
   | { kind: 'union'; a: SDFNode; b: SDFNode; k: number; warn?: boolean }
   | { kind: 'subtract'; a: SDFNode; b: SDFNode; k: number; warn?: boolean }
   | { kind: 'intersect'; a: SDFNode; b: SDFNode; k: number; warn?: boolean }
+  | { kind: 'hull'; a: SDFNode; b: SDFNode; planes: HullPlane[]; detail: number; warn?: boolean }
   | { kind: 'shell'; child: SDFNode; thickness: number; warn?: boolean }
   | { kind: 'offset'; child: SDFNode; distance: number; warn?: boolean }
   | { kind: 'round'; child: SDFNode; radius: number; warn?: boolean }

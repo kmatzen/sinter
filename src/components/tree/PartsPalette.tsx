@@ -14,7 +14,7 @@ import {
 const ICONS: Record<string, ReactNode> = {
   box: <Box size={14} />, sphere: <Circle size={14} />, cylinder: <Cylinder size={14} />,
   torus: <Donut size={14} />, cone: <Cone size={14} />, capsule: <Pill size={14} />, ellipsoid: <Egg size={14} />,
-  union: <Merge size={13} />, subtract: <Minus size={13} />, intersect: <Combine size={13} />,
+  union: <Merge size={13} />, subtract: <Minus size={13} />, intersect: <Combine size={13} />, hull: <Combine size={13} />,
   shell: <Shell size={13} />, offset: <Expand size={13} />, round: <CircleDot size={13} />, chamfer: <CircleDot size={13} />, draft: <Scaling size={13} />, twist: <RotateCcw size={13} />, bend: <RotateCcw size={13} />,
   mirror: <FlipHorizontal size={13} />, halfSpace: <Scissors size={13} />,
   linearPattern: <Repeat size={13} />, circularPattern: <CircleDashed size={13} />,

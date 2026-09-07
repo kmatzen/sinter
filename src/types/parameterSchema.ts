@@ -22,6 +22,7 @@ export const PARAMETER_SCHEMAS: Record<string, Schema> = {
   union: { smooth: bounded(0, 20) },
   subtract: { smooth: bounded(0, 20) },
   intersect: { smooth: bounded(0, 20) },
+  hull: { detail: bounded(6, 98, true) },
   shell: { thickness: bounded(0.1, 20) },
   offset: { distance: bounded(-20, 20) },
   round: { radius: bounded(0, 20) },
