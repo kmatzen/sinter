@@ -201,6 +201,18 @@ export function evalAt(node: SDFNode, px: number, py: number, pz: number): numbe
         (cachedFieldScale(node.child) * MODIFIER_DISTANCE_SAFETY * Math.hypot(1, slope));
       return Math.max(wall, bounds.min[index] - coordinate, coordinate - bounds.max[index]);
     }
+    case 'twist': {
+      if (Math.abs(node.angle) <= SDF_PARAM_EPSILON) return evalAt(node.child, px, py, pz);
+      const coordinate = node.axis === 'x' ? px : node.axis === 'z' ? pz : py;
+      const fraction = Math.max(-0.5, Math.min(0.5, (coordinate - node.origin) / node.extent));
+      const angle = -fraction * node.angle * Math.PI / 180;
+      const c = Math.cos(angle), s = Math.sin(angle);
+      let qx = px, qy = py, qz = pz;
+      if (node.axis === 'x') { qy = c * py - s * pz; qz = s * py + c * pz; }
+      else if (node.axis === 'z') { qx = c * px - s * py; qy = s * px + c * py; }
+      else { qx = c * px + s * pz; qz = -s * px + c * pz; }
+      return evalAt(node.child, qx, qy, qz) / cachedFieldScale(node);
+    }
     case 'transform': {
       // Inverse transform the point: R^-1((p - t) / s).
       let qx = (px - node.tx) / node.sx;

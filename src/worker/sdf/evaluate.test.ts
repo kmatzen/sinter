@@ -288,6 +288,27 @@ describe('evaluateSDF', () => {
     });
   });
 
+  describe('twist', () => {
+    it('keeps the origin plane fixed and reaches half the total angle at each extent end', () => {
+      const child: SDFNode = { kind: 'transform', child: { kind: 'box', size: [2, 100, 2] }, tx: 5, ty: 0, tz: 0, rx: 0, ry: 0, rz: 0, sx: 1, sy: 1, sz: 1 };
+      const twist: SDFNode = { kind: 'twist', child, axis: 'y', angle: 90, origin: 0, extent: 20 };
+      expect(evaluateSDF(twist, [5, 0, 0])).toBeLessThan(0);
+      const a = Math.PI / 4;
+      expect(evaluateSDF(twist, [5 * Math.cos(a), 10, -5 * Math.sin(a)])).toBeLessThan(0);
+      expect(evaluateSDF(twist, [5 * Math.cos(a), 30, -5 * Math.sin(a)])).toBeLessThan(0);
+    });
+
+    it('supports all axes, clamps exterior rotation, and preserves sub-epsilon identity', () => {
+      const box: SDFNode = { kind: 'box', size: [8, 10, 12] };
+      for (const axis of ['x', 'y', 'z'] as const) {
+        const twist: SDFNode = { kind: 'twist', child: box, axis, angle: 720, origin: 0, extent: 0.1 };
+        expect(Number.isFinite(evaluateSDF(twist, [3, 4, 5]))).toBe(true);
+      }
+      const identity: SDFNode = { kind: 'twist', child: box, axis: 'x', angle: 1e-7, origin: 99, extent: 0.1 };
+      expect(evaluateSDF(identity, [3, 4, 5])).toBe(evaluateSDF(box, [3, 4, 5]));
+    });
+  });
+
   describe('halfSpace', () => {
     it('below plane is inside', () => {
       const hs: SDFNode = { kind: 'halfSpace', axis: 'y', position: 5, flip: false };

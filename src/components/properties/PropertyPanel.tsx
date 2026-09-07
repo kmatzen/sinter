@@ -531,6 +531,21 @@ function NodeEditor({ node, onUpdate, onUpdateStr }: { node: SDFNodeUI; onUpdate
         </>
       );
     }
+    case 'twist': {
+      const axis = p.axis === 0 ? 'x' : p.axis === 2 ? 'z' : 'y';
+      return (
+        <>
+          <SectionLabel>Twist</SectionLabel>
+          <XYZPicker label="Twist axis" value={axis} onChange={(value) => onUpdate({ axis: value === 'x' ? 0 : value === 'z' ? 2 : 1 })} />
+          <NumberInput label="Total angle" value={p.angle} min={-720} max={720} step={5} unit="deg" onChange={(v) => onUpdate({ angle: v })} />
+          <NumberInput label="Origin plane" value={p.origin} unit="mm" onChange={(v) => onUpdate({ origin: v })} />
+          <NumberInput label="Extent" value={p.extent} min={0.1} step={1} unit="mm" onChange={(v) => onUpdate({ extent: v })} />
+          <div className="px-2 pt-1 text-[10px] leading-snug" style={{ color: 'var(--text-muted)' }}>
+            Rotation is zero at the origin plane and clamps to half the total angle at each end.
+          </div>
+        </>
+      );
+    }
     case 'translate':
       return (
         <>

@@ -37,6 +37,7 @@ describe('operations types', () => {
     expect(expectedChildren('round')).toBe(1);
     expect(expectedChildren('chamfer')).toBe(1);
     expect(expectedChildren('draft')).toBe(1);
+    expect(expectedChildren('twist')).toBe(1);
     expect(expectedChildren('mirror')).toBe(1);
     expect(expectedChildren('translate')).toBe(1);
   });
@@ -84,6 +85,7 @@ describe('operations types', () => {
     expect(nodeSummary(mk('round', { radius: 1.5 }))).toBe('r=1.5');
     expect(nodeSummary(mk('chamfer', { distance: 2.5 }))).toBe('2.5mm');
     expect(nodeSummary(mk('draft', { axis: 1, angle: 5, reference: 2 }))).toBe('Y 5\u00b0 @ 2mm');
+    expect(nodeSummary(mk('twist', { axis: 2, angle: 90, extent: 40 }))).toBe('Z 90\u00b0 / 40mm');
     expect(nodeSummary(mk('translate', { x: 1, y: 2, z: 3 }))).toBe('1, 2, 3');
     expect(nodeSummary(mk('rotate', { x: 90, y: 0, z: 0 }))).toBe('90°, 0°, 0°');
     expect(nodeSummary(mk('scale', { x: 1, y: 1, z: 2 }))).toBe('1, 1, 2');

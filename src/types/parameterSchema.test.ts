@@ -19,6 +19,7 @@ describe('parameter schemas', () => {
     expect(normalizeNodeParams('mesh', { resolution: 101.8 })).toMatchObject({ resolution: 96 });
     expect(normalizeNodeParams('halfSpace', { axis: 20, position: 0, flip: -5 })).toMatchObject({ axis: 2, flip: 1 });
     expect(normalizeNodeParams('draft', { axis: -4, angle: 89, reference: Infinity })).toMatchObject({ axis: 0, angle: 45, reference: 0 });
+    expect(normalizeNodeParams('twist', { axis: 9, angle: -900, origin: Infinity, extent: 0 })).toMatchObject({ axis: 2, angle: -720, origin: 0, extent: 0.1 });
   });
 
   it('enforces torus cross-field constraints', () => {

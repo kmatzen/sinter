@@ -40,6 +40,15 @@ export function sourceFeatureSize(node: SDFNode): Feature3 {
       const run = Math.abs(Math.tan(node.angle * Math.PI / 180)) * (bounds.max[axis] - bounds.min[axis]);
       return min3(sourceFeatureSize(node.child), [run, run, run]);
     }
+    case 'twist': {
+      if (Math.abs(node.angle) <= SDF_PARAM_EPSILON) return sourceFeatureSize(node.child);
+      const bounds = computeBounds(node.child);
+      const axis = node.axis === 'x' ? 0 : node.axis === 'z' ? 2 : 1;
+      const axial = Math.min(node.extent, bounds.max[axis] - bounds.min[axis]);
+      const turns = Math.max(1, Math.abs(node.angle) / 180);
+      const pitch = axial / turns;
+      return min3(sourceFeatureSize(node.child), [pitch, pitch, pitch]);
+    }
     case 'transform': {
       const child = sourceFeatureSize(node.child);
       const smallest = Math.min(child[0] * Math.abs(node.sx), child[1] * Math.abs(node.sy), child[2] * Math.abs(node.sz));
