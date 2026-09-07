@@ -63,7 +63,7 @@ Change types:
 - **capsule**: \`{ radius, height }\` (mm) — cylinder with hemispherical ends
 - **ellipsoid**: \`{ width, height, depth }\` (mm)
 - **extrude**: \`{ depth, plane }\` + data containing a JSON-encoded \`profile\` with an outer \`[[u,v], ...]\` loop, optional hole loops, and optional per-edge \`bulges\`/\`holeBulges\` where bulge=tan(arcSweep/4) — plane 0=XY, 1=XZ, 2=YZ; outer CCW, holes clockwise
-- **revolve**: \`{ axis, angle, plane }\` + the same line/arc profile representation, with points interpreted as [radius, axial position] — axis 0=X, 1=Y, 2=Z; plane selects the oriented sketch plane (0=XY, 1=XZ, 2=YZ); angle 1–360°
+- **revolve**: \`{ axis, axisEdge, angle, plane }\` + the same line/arc profile representation — axisEdge=-1 uses radius/axial points and named axis 0=X, 1=Y, 2=Z; a non-negative axisEdge selects that straight outer-loop edge as the axis and interprets points as sketch coordinates; plane 0=XY, 1=XZ, 2=YZ; angle 1–360°
 
 ### Booleans (2 children)
 - **union**: \`{ smooth }\` — merges children. smooth=0 sharp, >0 = fillet radius

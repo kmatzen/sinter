@@ -4,7 +4,7 @@ import { bakeMeshField } from './meshField';
 import { MeshFieldCache } from './meshFieldCache';
 import { computeBounds } from './bounds';
 import { buildHullPlanes } from './hull';
-import { parseProfile, parseRevolveProfile } from './profile';
+import { parseProfile, parseRevolveProfile, revolveProfileAroundEdge } from './profile';
 
 /**
  * Baked mesh fields, keyed by the mesh data and the resolution asked for.
@@ -69,7 +69,11 @@ export function toSDFNode(ui: SDFNodeUI): SDFNode | null {
       const zMax = p.extentMode === 1 ? p.depth : p.extentMode === 2 ? p.depth : p.depth / 2;
       return { kind: 'extrude', profile: parseProfile(ui.data?.profile), depth: zMax - zMin, zMin, zMax, taper: p.taper, wallThickness: p.wallThickness, plane: profilePlane };
     }
-    case 'revolve': return { kind: 'revolve', profile: parseRevolveProfile(ui.data?.profile), axis: p.axis === 0 ? 'x' : p.axis === 2 ? 'z' : 'y', angle: p.angle, plane: profilePlane };
+    case 'revolve': {
+      const source = parseRevolveProfile(ui.data?.profile, p.axisEdge >= 0);
+      const selected = p.axisEdge >= 0 ? revolveProfileAroundEdge(source, p.axisEdge, profilePlane) : undefined;
+      return { kind: 'revolve', profile: selected?.profile ?? source, axis: p.axis === 0 ? 'x' : p.axis === 2 ? 'z' : 'y', angle: p.angle, plane: profilePlane, frame: selected?.frame };
+    }
 
     case 'mesh': {
       const b64 = ui.data?.meshPositions;

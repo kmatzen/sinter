@@ -140,6 +140,10 @@ const CASES: [string, SDFNode][] = [
   ['partial YZ profile revolve', { kind: 'revolve', axis: 'y', angle: 140, plane: 'yz', profile: {
     outer: [[0, -10], [8, -10], [14, -5], [14, 5], [8, 10], [0, 10]], holes: [],
   } }],
+  ['selected profile-edge revolve', { kind: 'revolve', axis: 'y', angle: 210, plane: 'xy',
+    frame: { origin: [2, 1, 0], axial: [-1, 0, 0], radial: [0, 1, 0], normal: [0, 0, 1] },
+    profile: { outer: [[0, 0], [0, -4], [3, -4], [3, 0]], holes: [] },
+  }],
   ['round(ellipsoid)', { kind: 'round', radius: 6, child: { kind: 'ellipsoid', size: [60, 10, 20] } }],
   ['chamfer(box)', { kind: 'chamfer', distance: 4, child: { kind: 'box', size: [30, 20, 40] } }],
   ['draft(box)', { kind: 'draft', axis: 'y', angle: 12, reference: 0, child: { kind: 'box', size: [30, 20, 40] } }],

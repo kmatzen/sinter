@@ -11,7 +11,7 @@ import { formatLength } from '../../types/units';
 import { ImportMesh } from '../projects/ImportMesh';
 import { ProfileImport } from '../projects/ProfileImport';
 import { ProfileEditor } from '../projects/ProfileEditor';
-import { parseProfile, parseRevolveProfile } from '../../worker/sdf/profile';
+import { parseProfile, parseRevolveProfile, revolveProfileAroundEdge } from '../../worker/sdf/profile';
 
 function findNode(tree: SDFNodeUI, id: string): SDFNodeUI | null {
   if (tree.id === id) return tree;
@@ -527,7 +527,22 @@ function NodeEditor({ node, onUpdate, onUpdateStr }: { node: SDFNodeUI; onUpdate
           <ProfileImport revolve={false} onCommit={(profile) => onUpdateStr({ profile })} />
         </>
       );
-    case 'revolve':
+    case 'revolve': {
+      let revolveEdges: Array<{ index: number; a: [number, number]; b: [number, number] }> = [];
+      const revolvePlane = p.plane === 1 ? 'xz' : p.plane === 2 ? 'yz' : 'xy';
+      try {
+        const profile = parseProfile(node.data?.profile || DEFAULT_REVOLVE_PROFILE_TEXT);
+        revolveEdges = profile.outer.map((a, index) => ({ index, a, b: profile.outer[(index + 1) % profile.outer.length] }))
+          .filter(({ index }) => {
+            try { revolveProfileAroundEdge(profile, index, revolvePlane); return true; }
+            catch { return false; }
+          });
+      } catch { /* The profile editors display the actionable validation error. */ }
+      const validateRevolve = (source?: string) => {
+        const profile = parseRevolveProfile(source, p.axisEdge >= 0);
+        if (p.axisEdge >= 0) revolveProfileAroundEdge(profile, p.axisEdge, revolvePlane);
+        return profile;
+      };
       return (
         <>
           <SectionLabel>Revolution</SectionLabel>
@@ -537,16 +552,25 @@ function NodeEditor({ node, onUpdate, onUpdateStr }: { node: SDFNodeUI; onUpdate
               <option value={0}>XY</option><option value={1}>XZ</option><option value={2}>YZ</option>
             </select>
           </label>
-          <XYZPicker label="Revolve axis" value={p.axis === 0 ? 'x' : p.axis === 2 ? 'z' : 'y'} onChange={(axis) => onUpdate({ axis: axis === 'x' ? 0 : axis === 'z' ? 2 : 1 })} />
+          <label className="mx-2 mb-1 flex items-center gap-2 text-[11px]" style={{ color: 'var(--text-muted)' }}>Revolve axis
+            <select aria-label="Revolve axis" value={p.axisEdge >= 0 ? `edge-${p.axisEdge}` : `named-${p.axis}`} onChange={(event) => {
+              const edge = event.target.value.startsWith('edge-') ? Number(event.target.value.slice(5)) : -1;
+              onUpdate(edge >= 0 ? { axisEdge: edge } : { axisEdge: -1, axis: Number(event.target.value.slice(6)) });
+            }} className="min-w-0 flex-1 h-7 rounded px-1" style={{ background: 'var(--bg-surface)', color: 'var(--text-primary)' }}>
+              <option value="named-0">Named X axis</option><option value="named-1">Named Y axis</option><option value="named-2">Named Z axis</option>
+              {revolveEdges.map(({ index, a, b }) => <option key={index} value={`edge-${index}`}>Edge {index + 1}: ({a[0]}, {a[1]}) → ({b[0]}, {b[1]})</option>)}
+            </select>
+          </label>
           <NumberInput label="Angle" value={p.angle} min={1} max={360} step={5} unit="deg" onChange={(v) => onUpdate({ angle: v })} />
           <SectionLabel>Radius / axial profile</SectionLabel>
-          <ProfileEditor value={node.data?.profile} fallback={DEFAULT_REVOLVE_PROFILE_TEXT} revolve validate={parseRevolveProfile} onCommit={(profile) => onUpdateStr({ profile })} />
+          <ProfileEditor value={node.data?.profile} fallback={DEFAULT_REVOLVE_PROFILE_TEXT} revolve={p.axisEdge < 0} validate={validateRevolve} onCommit={(profile) => onUpdateStr({ profile })} />
           <details className="mx-2 mt-2"><summary className="text-[10px] cursor-pointer" style={{ color: 'var(--text-muted)' }}>Advanced profile JSON</summary>
-            <ProfileLoopEditor key={node.data?.profile || 'default-revolve'} value={node.data?.profile} fallback={DEFAULT_REVOLVE_PROFILE_TEXT} validate={parseRevolveProfile} commit={(profile) => onUpdateStr({ profile })} />
+            <ProfileLoopEditor key={node.data?.profile || 'default-revolve'} value={node.data?.profile} fallback={DEFAULT_REVOLVE_PROFILE_TEXT} validate={validateRevolve} commit={(profile) => onUpdateStr({ profile })} />
           </details>
-          <ProfileImport revolve onCommit={(profile) => onUpdateStr({ profile })} />
+          <ProfileImport revolve={p.axisEdge < 0} validate={validateRevolve} onCommit={(profile) => onUpdateStr({ profile })} />
         </>
       );
+    }
     case 'union': case 'subtract': case 'intersect':
       return (
         <>

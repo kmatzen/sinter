@@ -138,9 +138,9 @@ export function parseProfile(source?: string): PolygonProfile {
   return profile;
 }
 
-export function parseRevolveProfile(source?: string): PolygonProfile {
+export function parseRevolveProfile(source?: string, allowAxisSelection = false): PolygonProfile {
   const profile = parseProfile(source || JSON.stringify(DEFAULT_REVOLVE_PROFILE));
-  if ([profile.outer, ...profile.holes].some((loop) => loop.some((point) => point[0] < 0))) {
+  if (!allowAxisSelection && [profile.outer, ...profile.holes].some((loop) => loop.some((point) => point[0] < 0))) {
     throw new ProfileValidationError('revolve radius coordinates must be non-negative');
   }
   return profile;
@@ -260,6 +260,45 @@ export function extrudeDistance(profile: PolygonProfile, depth: number, p: Vec3,
 }
 
 export type ProfilePlane = 'xy' | 'xz' | 'yz';
+export interface RevolveFrame { origin: Vec3; axial: Vec3; radial: Vec3; normal: Vec3 }
+
+function planeVector(u: number, v: number, n: number, plane: ProfilePlane): Vec3 {
+  const clean = (value: number) => Object.is(value, -0) ? 0 : value;
+  if (plane === 'xz') return [clean(u), clean(n), clean(v)];
+  if (plane === 'yz') return [clean(n), clean(u), clean(v)];
+  return [clean(u), clean(v), clean(n)];
+}
+
+/** Convert a sketch profile to radius/axial coordinates about one straight
+ * outer edge while retaining its model-space evaluation frame. */
+export function revolveProfileAroundEdge(profile: PolygonProfile, edge: number, plane: ProfilePlane = 'xy'): { profile: PolygonProfile; frame: RevolveFrame } {
+  if (!Number.isInteger(edge) || edge < 0 || edge >= profile.outer.length) throw new ProfileValidationError(`revolve axis edge ${edge} does not exist`);
+  if (profile.bulges?.[edge]) throw new ProfileValidationError('revolve axis must be a straight profile edge');
+  const a = profile.outer[edge], b = profile.outer[(edge + 1) % profile.outer.length];
+  const length = Math.hypot(b[0] - a[0], b[1] - a[1]);
+  if (!(length > 1e-9)) throw new ProfileValidationError('revolve axis edge is degenerate');
+  const dx = (b[0] - a[0]) / length, dy = (b[1] - a[1]) / length;
+  // A CCW loop lies left of a→b. Pair that radial direction with the reverse
+  // edge direction so the mapped profile keeps its original winding.
+  const radial2: Vec2 = [-dy, dx], axial2: Vec2 = [-dx, -dy];
+  const mapPoint = (point: Vec2): Vec2 => {
+    const x = point[0] - a[0], y = point[1] - a[1];
+    return [x * radial2[0] + y * radial2[1], x * axial2[0] + y * axial2[1]];
+  };
+  const mapped: PolygonProfile = {
+    outer: profile.outer.map(mapPoint), holes: profile.holes.map((loop) => loop.map(mapPoint)),
+    ...(profile.bulges ? { bulges: [...profile.bulges] } : {}),
+    ...(profile.holeBulges ? { holeBulges: profile.holeBulges.map((values) => [...values]) } : {}),
+  };
+  const tolerance = Math.max(1, ...profile.outer.flatMap((point) => point.map(Math.abs))) * 1e-9;
+  if ([mapped.outer, ...mapped.holes].some((loop, index) => profileLoopBoundsPoints(loop, index ? mapped.holeBulges?.[index - 1] : mapped.bulges).some(([radius]) => radius < -tolerance))) {
+    throw new ProfileValidationError('revolve axis must bound the profile with all material on one side');
+  }
+  return { profile: mapped, frame: {
+    origin: planeVector(a[0], a[1], 0, plane), axial: planeVector(axial2[0], axial2[1], 0, plane),
+    radial: planeVector(radial2[0], radial2[1], 0, plane), normal: planeVector(0, 0, 1, plane),
+  } };
+}
 
 /** Map a world-local point into profile U/V and plane-normal coordinates. */
 export function profilePlaneCoordinates(p: Vec3, plane: ProfilePlane = 'xy'): Vec3 {
@@ -296,8 +335,12 @@ export function sectorDistance(u: number, v: number, angleDegrees: number): numb
   return Math.abs(theta) <= half ? -distance : distance;
 }
 
-export function revolveDistance(profile: PolygonProfile, axis: 'x' | 'y' | 'z', angle: number, p: Vec3, plane: ProfilePlane = 'xy'): number {
-  const [axial, u, v] = revolveCoordinates(p, axis, plane);
+export function revolveDistance(profile: PolygonProfile, axis: 'x' | 'y' | 'z', angle: number, p: Vec3, plane: ProfilePlane = 'xy', frame?: RevolveFrame): number {
+  const [axial, u, v] = frame ? (() => {
+    const q: Vec3 = [p[0] - frame.origin[0], p[1] - frame.origin[1], p[2] - frame.origin[2]];
+    const dot = (direction: Vec3) => q[0] * direction[0] + q[1] * direction[1] + q[2] * direction[2];
+    return [dot(frame.axial), dot(frame.radial), dot(frame.normal)] as Vec3;
+  })() : revolveCoordinates(p, axis, plane);
   const radial = Math.hypot(u, v);
   const section = revolvedProfileDistance(profile, radial, axial);
   return Math.max(section, sectorDistance(u, v, angle));

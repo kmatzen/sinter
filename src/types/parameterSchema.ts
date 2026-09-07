@@ -18,7 +18,7 @@ export const PARAMETER_SCHEMAS: Record<string, Schema> = {
   capsule: { radius: positive, height: positive },
   ellipsoid: { width: positive, height: positive, depth: positive },
   extrude: { depth: positive, extentMode: bounded(0, 2, true), negativeDepth: positive, taper: bounded(-45, 45), wallThickness: bounded(0, 20), plane: bounded(0, 2, true) },
-  revolve: { axis: bounded(0, 2, true), angle: bounded(1, 360), plane: bounded(0, 2, true) },
+  revolve: { axis: bounded(0, 2, true), axisEdge: bounded(-1, 255, true), angle: bounded(1, 360), plane: bounded(0, 2, true) },
   text: { size: { min: 1, max: MODEL_SPATIAL_LIMIT_MM }, depth: positive },
   mesh: { resolution: bounded(8, 96, true) },
   union: { smooth: bounded(0, 20) },

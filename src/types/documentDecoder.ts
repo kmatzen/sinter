@@ -32,7 +32,7 @@ const MAX_EXPRESSION_CHARS = 512;
 const KNOWN_KINDS = new Set([...Object.keys(NODE_DEFAULTS), '_empty']);
 const ADDITIVE_OPTIONAL_PARAMS: Record<string, Set<string>> = {
   extrude: new Set(['extentMode', 'negativeDepth', 'taper', 'wallThickness', 'plane']),
-  revolve: new Set(['plane']),
+  revolve: new Set(['plane', 'axisEdge']),
 };
 
 export class DocumentDecodeError extends Error {

@@ -511,13 +511,22 @@ function emitNode(node: SDFNode, pVar: string, lines: string[]): string {
     }
     case 'revolve': {
       const fn = emitProfileDistanceHelper(node.profile, true);
-      const axial = node.axis === 'x' ? `${pVar}.x` : node.axis === 'z' ? `${pVar}.z` : `${pVar}.y`;
+      let axial: string, u: string, v: string;
+      if (node.frame) {
+        const vector = (value: [number, number, number]) => `vec3(${up(value[0])}, ${up(value[1])}, ${up(value[2])})`;
+        lines.push(`vec3 rq_${result} = ${pVar} - ${vector(node.frame.origin)};`);
+        axial = `dot(rq_${result}, ${vector(node.frame.axial)})`;
+        u = `dot(rq_${result}, ${vector(node.frame.radial)})`;
+        v = `dot(rq_${result}, ${vector(node.frame.normal)})`;
+      } else {
+        axial = node.axis === 'x' ? `${pVar}.x` : node.axis === 'z' ? `${pVar}.z` : `${pVar}.y`;
       const planeAxes = node.plane === 'xz' ? ['x', 'z'] : node.plane === 'yz' ? ['y', 'z'] : ['x', 'y'];
       const other = planeAxes.find((candidate) => candidate !== node.axis);
       const normalAxis = ['x', 'y', 'z'].find((candidate) => !planeAxes.includes(candidate));
       const uAxis = planeAxes.includes(node.axis) && other ? other : node.axis === 'x' ? 'y' : 'x';
       const vAxis = planeAxes.includes(node.axis) && normalAxis ? normalAxis : node.axis === 'z' ? 'y' : 'z';
-      const u = `${pVar}.${uAxis}`, v = `${pVar}.${vAxis}`;
+        u = `${pVar}.${uAxis}`; v = `${pVar}.${vAxis}`;
+      }
       lines.push(`vec2 rv_${result} = vec2(${u}, ${v});`);
       lines.push(`float rl_${result} = length(rv_${result});`);
       lines.push(`float rp_${result} = ${fn}(vec2(rl_${result}, ${axial}));`);

@@ -195,6 +195,11 @@ export function computeBounds(node: SDFNode): BBox {
       const outline = profileLoopBoundsPoints(node.profile.outer, node.profile.bulges);
       const radius = Math.max(...outline.map((p) => p[0]));
       const axial = outline.map((p) => p[1]), lo = Math.min(...axial), hi = Math.max(...axial);
+      if (node.frame) {
+        const min = [0, 1, 2].map((index) => node.frame!.origin[index] + Math.min(node.frame!.axial[index] * lo, node.frame!.axial[index] * hi) - radius * Math.sqrt(Math.max(0, 1 - node.frame!.axial[index] ** 2))) as Vec3;
+        const max = [0, 1, 2].map((index) => node.frame!.origin[index] + Math.max(node.frame!.axial[index] * lo, node.frame!.axial[index] * hi) + radius * Math.sqrt(Math.max(0, 1 - node.frame!.axial[index] ** 2))) as Vec3;
+        return { min, max };
+      }
       if (node.axis === 'x') return { min: [lo, -radius, -radius], max: [hi, radius, radius] };
       if (node.axis === 'z') return { min: [-radius, -radius, lo], max: [radius, radius, hi] };
       return { min: [-radius, lo, -radius], max: [radius, hi, radius] };

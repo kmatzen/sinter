@@ -22,7 +22,7 @@ describe('parameter schemas', () => {
     expect(normalizeNodeParams('twist', { axis: 9, angle: -900, origin: Infinity, extent: 0 })).toMatchObject({ axis: 2, angle: -720, origin: 0, extent: 0.1 });
     expect(normalizeNodeParams('bend', { axis: 1, direction: 1, angle: 900, origin: Infinity, extent: 0 })).toMatchObject({ axis: 1, direction: 2, angle: 170, origin: 0, extent: 0.1 });
     expect(normalizeNodeParams('hull', { detail: 999.4 })).toMatchObject({ detail: 98 });
-    expect(normalizeNodeParams('revolve', { axis: 8, angle: -5, plane: 8 })).toMatchObject({ axis: 2, angle: 1, plane: 2 });
+    expect(normalizeNodeParams('revolve', { axis: 8, axisEdge: 999, angle: -5, plane: 8 })).toMatchObject({ axis: 2, axisEdge: 255, angle: 1, plane: 2 });
     expect(normalizeNodeParams('extrude', { depth: 0, negativeDepth: -2, extentMode: 8, taper: 90, wallThickness: -1 }))
       .toMatchObject({ depth: 0.1, negativeDepth: 0.1, extentMode: 2, taper: 45, wallThickness: 0 });
   });

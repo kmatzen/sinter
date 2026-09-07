@@ -155,7 +155,7 @@ export function evalAt(node: SDFNode, px: number, py: number, pz: number): numbe
     case 'extrude':
       return extrudeDistance(node.profile, node.depth, profilePlaneCoordinates([px, py, pz], node.plane), node);
     case 'revolve':
-      return revolveDistance(node.profile, node.axis, node.angle, [px, py, pz], node.plane);
+      return revolveDistance(node.profile, node.axis, node.angle, [px, py, pz], node.plane, node.frame);
     case 'union': {
       const a = evalAt(node.a, px, py, pz);
       const b = evalAt(node.b, px, py, pz);

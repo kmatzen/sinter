@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { parseRevolveProfile } from '../../worker/sdf/profile';
 import { parseDxfProfile, parseSvgProfile, profileUnitScaleToMm, rescaleProfileImport, type ProfileImportResult, type ProfileUnit } from '../../worker/sdf/profileImport';
 
-export function ProfileImport({ revolve, onCommit }: { revolve: boolean; onCommit: (profile: string) => void }) {
+export function ProfileImport({ revolve, validate, onCommit }: { revolve: boolean; validate?: (source: string) => unknown; onCommit: (profile: string) => void }) {
   const [preview, setPreview] = useState<ProfileImportResult | null>(null);
   const [source, setSource] = useState<{ name: string; text: string } | null>(null);
   const [chordTolerance, setChordTolerance] = useState(0.25);
@@ -14,7 +14,8 @@ export function ProfileImport({ revolve, onCommit }: { revolve: boolean; onCommi
       ? parseDxfProfile(text, tolerance)
       : parseSvgProfile(text, tolerance);
     const result = scale ? rescaleProfileImport(imported, scale.scaleToMm, scale.unit) : imported;
-    if (revolve) parseRevolveProfile(JSON.stringify(result.profile));
+    if (validate) validate(JSON.stringify(result.profile));
+    else if (revolve) parseRevolveProfile(JSON.stringify(result.profile));
     return result;
   };
   const choose = async (file?: File) => {
@@ -28,7 +29,7 @@ export function ProfileImport({ revolve, onCommit }: { revolve: boolean; onCommi
   };
   const rescale = (scale: number, unit?: ProfileUnit) => {
     if (!preview) return;
-    try { const next = rescaleProfileImport(preview, scale, unit); if (revolve) parseRevolveProfile(JSON.stringify(next.profile)); setPreview(next); setError(null); }
+    try { const next = rescaleProfileImport(preview, scale, unit); if (validate) validate(JSON.stringify(next.profile)); else if (revolve) parseRevolveProfile(JSON.stringify(next.profile)); setPreview(next); setError(null); }
     catch (cause) { setError(cause instanceof Error ? cause.message : 'Invalid scale'); }
   };
 
