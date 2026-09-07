@@ -26,7 +26,7 @@ export const NODE_KINDS = {
   // children — but it is deliberately not in this list, which drives the
   // palette. There is no useful default mesh to drag in; one only exists once a
   // file has been imported, so it arrives through the importer instead.
-  primitives: ['box', 'sphere', 'cylinder', 'torus', 'cone', 'capsule', 'ellipsoid', 'extrude'] as const,
+  primitives: ['box', 'sphere', 'cylinder', 'torus', 'cone', 'capsule', 'ellipsoid', 'extrude', 'revolve'] as const,
   booleans: ['union', 'subtract', 'intersect', 'hull'] as const,
   modifiers: ['shell', 'offset', 'round', 'chamfer', 'draft', 'twist', 'bend', 'mirror', 'halfSpace'] as const,
   patterns: ['linearPattern', 'circularPattern'] as const,
@@ -42,6 +42,7 @@ export const NODE_LABELS: Record<string, string> = {
   capsule: 'Capsule',
   ellipsoid: 'Ellipsoid',
   extrude: 'Profile Extrude',
+  revolve: 'Profile Revolve',
   text: 'Text',
   mesh: 'Imported Mesh',
   union: 'Union',
@@ -73,6 +74,7 @@ export const NODE_DEFAULTS: Record<string, Record<string, number>> = {
   capsule: { radius: 10, height: 30 },
   ellipsoid: { width: 30, height: 20, depth: 40 },
   extrude: { depth: 5 },
+  revolve: { axis: 1, angle: 360 },
   text: { size: 10, depth: 2 },
   // Grid resolution for the baked field. 48 keeps the bake to ~110k
   // closest-point queries and the atlas texture to 336x336.
@@ -166,6 +168,7 @@ export function nodeSummary(node: SDFNodeUI): string {
     case 'capsule': return `r=${p.radius} h=${p.height}`;
     case 'ellipsoid': return `${p.width}\u00d7${p.height}\u00d7${p.depth}`;
     case 'extrude': return `${p.depth}mm profile`;
+    case 'revolve': return `${['X', 'Y', 'Z'][p.axis] ?? 'Y'} ${p.angle}°`;
     case 'union': case 'subtract': case 'intersect':
       return p.smooth > 0 ? `smooth=${p.smooth}` : 'sharp';
     case 'hull': return `${p.detail} planes`;

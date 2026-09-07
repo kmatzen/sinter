@@ -19,6 +19,13 @@ export function sourceFeatureSize(node: SDFNode): Feature3 {
       const feature = profileFeatureSize(node.profile);
       return [feature, feature, node.depth];
     }
+    case 'revolve': {
+      const feature = profileFeatureSize(node.profile);
+      const angular = node.angle < 360
+        ? Math.max(...node.profile.outer.map((p) => p[0])) * Math.min(node.angle, 360 - node.angle) * Math.PI / 180
+        : Infinity;
+      return [Math.min(feature, angular), feature, Math.min(feature, angular)];
+    }
     case 'text': return [Math.max(node.glyphWidth ?? node.size, 0.1), node.size, node.depth];
     case 'mesh': return [0, 1, 2].map((axis) => (node.field.bbox.max[axis] - node.field.bbox.min[axis]) / Math.max(1, node.field.res - 1)) as Feature3;
     case 'union': case 'intersect': case 'hull': return min3(sourceFeatureSize(node.a), sourceFeatureSize(node.b));

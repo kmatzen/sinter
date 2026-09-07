@@ -386,27 +386,30 @@ function emitGlyphHelper(
   return fnName;
 }
 
-function emitProfileHelper(node: Extract<SDFNode, { kind: 'extrude' }>): string {
+function emitProfileDistanceHelper(profile: Extract<SDFNode, { kind: 'extrude' }>['profile'], ignoreAxisEdges = false): string {
   if (!glyphHelpersEmitted) {
     helperFunctions.push(GLYPH_HELPERS);
     glyphHelpersEmitted = true;
   }
-  const body: string[] = ['vec2 q = ep.xy;'];
-  const loops = [node.profile.outer, ...node.profile.holes];
+  const body: string[] = [];
+  const loops = [profile.outer, ...profile.holes];
   loops.forEach((loop, li) => {
     body.push(`float pd${li} = 1.0e30;`, `float pw${li} = 0.0;`);
     loop.forEach((a, i) => {
       const b = loop[(i + 1) % loop.length];
+      if (ignoreAxisEdges && a[0] === 0 && b[0] === 0) {
+        body.push(`pw${li} += glyph_windLine(q, vec2(${g(a[0])}, ${g(a[1])}), vec2(${g(b[0])}, ${g(b[1])}));`);
+        return;
+      }
       body.push(`glyph_accLine(q, vec2(${g(a[0])}, ${g(a[1])}), vec2(${g(b[0])}, ${g(b[1])}), pd${li}, pw${li});`);
     });
     body.push(`pd${li} *= (pw${li} != 0.0 ? -1.0 : 1.0);`);
   });
   body.push('float d2d = pd0;');
   for (let i = 1; i < loops.length; i++) body.push(`d2d = max(d2d, -pd${i});`);
-  body.push(`float dz = abs(ep.z) - ${g(node.depth / 2)};`);
-  body.push('return min(max(d2d, dz), 0.0) + length(max(vec2(d2d, dz), 0.0));');
+  body.push('return d2d;');
   const fnName = `sdf_profile_${helperCounter++}`;
-  helperFunctions.push(`float ${fnName}(vec3 ep) {\n  ${body.join('\n  ')}\n}`);
+  helperFunctions.push(`float ${fnName}(vec2 q) {\n  ${body.join('\n  ')}\n}`);
   return fnName;
 }
 
@@ -468,8 +471,29 @@ function emitNode(node: SDFNode, pVar: string, lines: string[]): string {
       return result;
     }
     case 'extrude': {
-      const fn = emitProfileHelper(node);
-      lines.push(`float ${result} = ${fn}(${pVar});`);
+      const fn = emitProfileDistanceHelper(node.profile);
+      lines.push(`float pe_${result} = ${fn}(${pVar}.xy);`);
+      lines.push(`float pz_${result} = abs(${pVar}.z) - ${up(node.depth / 2)};`);
+      lines.push(`float ${result} = min(max(pe_${result}, pz_${result}), 0.0) + length(max(vec2(pe_${result}, pz_${result}), 0.0));`);
+      return result;
+    }
+    case 'revolve': {
+      const fn = emitProfileDistanceHelper(node.profile, true);
+      const axial = node.axis === 'x' ? `${pVar}.x` : node.axis === 'z' ? `${pVar}.z` : `${pVar}.y`;
+      const u = node.axis === 'x' ? `${pVar}.y` : `${pVar}.x`;
+      const v = node.axis === 'z' ? `${pVar}.y` : `${pVar}.z`;
+      lines.push(`vec2 rv_${result} = vec2(${u}, ${v});`);
+      lines.push(`float rl_${result} = length(rv_${result});`);
+      lines.push(`float rp_${result} = ${fn}(vec2(rl_${result}, ${axial}));`);
+      if (node.angle >= 360) lines.push(`float ${result} = rp_${result};`);
+      else {
+        lines.push(`float rh_${result} = ${up(node.angle)} * 0.00872664626;`);
+        lines.push(`vec2 rr0_${result} = vec2(cos(rh_${result}), sin(rh_${result}));`);
+        lines.push(`vec2 rr1_${result} = vec2(rr0_${result}.x, -rr0_${result}.y);`);
+        lines.push(`float rs_${result} = min(length(rv_${result} - rr0_${result} * max(0.0, dot(rv_${result}, rr0_${result}))), length(rv_${result} - rr1_${result} * max(0.0, dot(rv_${result}, rr1_${result}))));`);
+        lines.push(`rs_${result} *= abs(atan(rv_${result}.y, rv_${result}.x)) <= rh_${result} ? -1.0 : 1.0;`);
+        lines.push(`float ${result} = max(rp_${result}, rs_${result});`);
+      }
       return result;
     }
     case 'union': {

@@ -23,6 +23,10 @@ const leaf: fc.Arbitrary<SDFNode> = fc.oneof(
     kind: 'extrude' as const, depth,
     profile: { outer: [[-width / 2, -height / 2], [width / 2, -height / 2], [width / 2, height / 2], [-width / 2, height / 2]] as [number, number][], holes: [] },
   })),
+  fc.tuple(num(2, 20), num(2, 30), num(5, 360), fc.constantFrom('x' as const, 'y' as const, 'z' as const)).map(([radius, height, angle, axis]) => ({
+    kind: 'revolve' as const, axis, angle,
+    profile: { outer: [[0, -height / 2], [radius, -height / 2], [radius, height / 2], [0, height / 2]] as [number, number][], holes: [] },
+  })),
 );
 
 /** Random tree over every node kind the evaluator supports. */

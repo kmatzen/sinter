@@ -314,6 +314,15 @@ export function evaluateInterval(node: SDFNode, box: BBox): Interval {
       const inside = minK(maxI(maxI(q[0], q[1]), q[2]), 0);
       return I(add(outside, inside).lo, Infinity);
     }
+    case 'revolve': {
+      const bounds = computeBounds(node);
+      const centres = [0, 1, 2].map((axis) => (bounds.max[axis] + bounds.min[axis]) / 2);
+      const halves = [0, 1, 2].map((axis) => (bounds.max[axis] - bounds.min[axis]) / 2);
+      const q = [x, y, z].map((value, axis) => addK(absI(addK(value, -centres[axis])), -halves[axis]));
+      const outside = lengthI(q.map((c) => maxK(c, 0)));
+      const inside = minK(maxI(maxI(q[0], q[1]), q[2]), 0);
+      return I(add(outside, inside).lo, Infinity);
+    }
     case 'mesh': {
       // The baked field is at worst sqrt(3)-Lipschitz: trilinear interpolation
       // of samples of a 1-Lipschitz function has each partial derivative

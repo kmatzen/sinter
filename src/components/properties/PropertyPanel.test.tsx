@@ -91,4 +91,16 @@ describe('property formulas', () => {
     expect(useModelerStore.getState().tree?.data?.profile).toBe(profile);
     expect(useModelerStore.getState().historyIndex).toBe(before + 1);
   });
+
+  it('rejects negative revolve radii before committing profile data', () => {
+    const revolve = { id: 'knob', kind: 'revolve', label: 'Knob', params: { axis: 1, angle: 360 }, children: [], enabled: true };
+    useModelerStore.getState().resetDocument(revolve, 'Revolve test', []);
+    useModelerStore.getState().selectNode('knob');
+    render(<PropertyContent />);
+    const editor = screen.getByLabelText('Profile loops JSON');
+    fireEvent.change(editor, { target: { value: '{"outer":[[-1,-1],[2,-1],[2,1],[-1,1]],"holes":[]}' } });
+    fireEvent.blur(editor);
+    expect(screen.getByRole('alert')).toHaveTextContent('radius coordinates must be non-negative');
+    expect(useModelerStore.getState().tree?.data?.profile).toBeUndefined();
+  });
 });

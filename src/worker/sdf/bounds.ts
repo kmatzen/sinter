@@ -179,6 +179,13 @@ export function computeBounds(node: SDFNode): BBox {
       const xs = node.profile.outer.map((p) => p[0]), ys = node.profile.outer.map((p) => p[1]);
       return { min: [Math.min(...xs), Math.min(...ys), -node.depth / 2], max: [Math.max(...xs), Math.max(...ys), node.depth / 2] };
     }
+    case 'revolve': {
+      const radius = Math.max(...node.profile.outer.map((p) => p[0]));
+      const axial = node.profile.outer.map((p) => p[1]), lo = Math.min(...axial), hi = Math.max(...axial);
+      if (node.axis === 'x') return { min: [lo, -radius, -radius], max: [hi, radius, radius] };
+      if (node.axis === 'z') return { min: [-radius, -radius, lo], max: [radius, radius, hi] };
+      return { min: [-radius, lo, -radius], max: [radius, hi, radius] };
+    }
     case 'halfSpace':
       // A half-space really is unbounded, so say so rather than substituting a
       // 1000mm box: `intersect` takes the tighter of the two bounds per axis,
@@ -301,6 +308,7 @@ export function fieldScale(node: SDFNode): number {
     case 'intersect':
       return Math.max(fieldScale(node.a), fieldScale(node.b));
     case 'hull': return 1;
+    case 'revolve': return 1;
     case 'offset':
       if (Math.abs(node.distance) <= SDF_PARAM_EPSILON) return fieldScale(node.child);
       return fieldScale(node.child) * MODIFIER_DISTANCE_SAFETY;

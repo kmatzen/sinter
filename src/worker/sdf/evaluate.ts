@@ -4,7 +4,7 @@ import { sampleMeshField } from './meshField';
 import { linearWindow, circularWindow } from './patternWindow';
 import { computeBounds, fieldScale, MODIFIER_DISTANCE_SAFETY } from './bounds';
 import { axisIndex, inverseBendPoint } from './bend';
-import { extrudeDistance } from './profile';
+import { extrudeDistance, revolveDistance } from './profile';
 
 /**
  * Evaluate the field at a point.
@@ -154,6 +154,8 @@ export function evalAt(node: SDFNode, px: number, py: number, pz: number): numbe
     }
     case 'extrude':
       return extrudeDistance(node.profile, node.depth, [px, py, pz]);
+    case 'revolve':
+      return revolveDistance(node.profile, node.axis, node.angle, [px, py, pz]);
     case 'union': {
       const a = evalAt(node.a, px, py, pz);
       const b = evalAt(node.b, px, py, pz);

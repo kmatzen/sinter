@@ -9,7 +9,7 @@ import { NumberInput } from './NumberInput';
 import { useViewportStore } from '../../store/viewportStore';
 import { formatLength } from '../../types/units';
 import { ImportMesh } from '../projects/ImportMesh';
-import { parseProfile } from '../../worker/sdf/profile';
+import { parseProfile, parseRevolveProfile } from '../../worker/sdf/profile';
 
 function findNode(tree: SDFNodeUI, id: string): SDFNodeUI | null {
   if (tree.id === id) return tree;
@@ -417,12 +417,13 @@ function ReimportMeshControl({ node }: { node: SDFNodeUI }) {
 }
 
 const DEFAULT_PROFILE_TEXT = '{"outer":[[-20,-15],[20,-15],[20,15],[-20,15]],"holes":[]}';
+const DEFAULT_REVOLVE_PROFILE_TEXT = '{"outer":[[0,-15],[12,-15],[18,-8],[18,8],[12,15],[0,15]],"holes":[]}';
 
-function ProfileLoopEditor({ value, commit }: { value?: string; commit: (value: string) => void }) {
-  const [draft, setDraft] = useState(value || DEFAULT_PROFILE_TEXT);
+function ProfileLoopEditor({ value, commit, fallback = DEFAULT_PROFILE_TEXT, validate = parseProfile }: { value?: string; commit: (value: string) => void; fallback?: string; validate?: (value: string) => unknown }) {
+  const [draft, setDraft] = useState(value || fallback);
   const [error, setError] = useState<string | null>(null);
   const finish = () => {
-    try { parseProfile(draft); setError(null); if (draft !== value) commit(draft); }
+    try { validate(draft); setError(null); if (draft !== value) commit(draft); }
     catch (cause) { setError(cause instanceof Error ? cause.message : 'Invalid profile'); }
   };
   return <div className="px-2 mb-1">
@@ -504,6 +505,19 @@ function NodeEditor({ node, onUpdate, onUpdateStr }: { node: SDFNodeUI; onUpdate
           <ProfileLoopEditor key={node.data?.profile || ''} value={node.data?.profile} commit={(profile) => onUpdateStr({ profile })} />
           <div className="px-2 text-[10px] leading-snug" style={{ color: 'var(--text-muted)' }}>
             XY coordinates in millimetres. Outer loop winds counter-clockwise; holes wind clockwise.
+          </div>
+        </>
+      );
+    case 'revolve':
+      return (
+        <>
+          <SectionLabel>Revolution</SectionLabel>
+          <XYZPicker label="Revolve axis" value={p.axis === 0 ? 'x' : p.axis === 2 ? 'z' : 'y'} onChange={(axis) => onUpdate({ axis: axis === 'x' ? 0 : axis === 'z' ? 2 : 1 })} />
+          <NumberInput label="Angle" value={p.angle} min={1} max={360} step={5} unit="deg" onChange={(v) => onUpdate({ angle: v })} />
+          <SectionLabel>Radius / axial profile (JSON)</SectionLabel>
+          <ProfileLoopEditor key={node.data?.profile || 'default-revolve'} value={node.data?.profile} fallback={DEFAULT_REVOLVE_PROFILE_TEXT} validate={parseRevolveProfile} commit={(profile) => onUpdateStr({ profile })} />
+          <div className="px-2 text-[10px] leading-snug" style={{ color: 'var(--text-muted)' }}>
+            Each point is [radius, axial position] in millimetres. Radius must stay non-negative.
           </div>
         </>
       );
