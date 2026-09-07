@@ -8,6 +8,7 @@ import { parameterUnitFor, resolveNamedParameters } from '../../types/formulas';
 import { NumberInput } from './NumberInput';
 import { useViewportStore } from '../../store/viewportStore';
 import { formatLength } from '../../types/units';
+import { ImportMesh } from '../projects/ImportMesh';
 
 function findNode(tree: SDFNodeUI, id: string): SDFNodeUI | null {
   if (tree.id === id) return tree;
@@ -402,6 +403,18 @@ function FitPrimitive({ node }: { node: SDFNodeUI }) {
   );
 }
 
+function ReimportMeshControl({ node }: { node: SDFNodeUI }) {
+  const [open, setOpen] = useState(false);
+  return <div className="px-2 mb-2">
+    <button onClick={() => setOpen(true)} className="w-full h-7 tap-h rounded text-[11px] font-medium"
+      style={{ background: 'var(--bg-elevated)', color: 'var(--text-secondary)', border: '1px solid var(--border-default)' }}>
+      Reimport / rebake…
+    </button>
+    <div className="mt-1 text-[10px] leading-snug" style={{ color: 'var(--text-muted)' }}>Choose the source file again to update geometry with the saved import settings.</div>
+    {open && <ImportMesh replaceNode={node} onDone={() => setOpen(false)} />}
+  </div>;
+}
+
 function NodeEditor({ node, onUpdate, onUpdateStr }: { node: SDFNodeUI; onUpdate: (p: Record<string, number>) => void; onUpdateStr: (d: Record<string, string>) => void }) {
   const p = node.params;
 
@@ -529,6 +542,7 @@ function NodeEditor({ node, onUpdate, onUpdateStr }: { node: SDFNodeUI; onUpdate
                title={node.data?.meshName || 'Imported mesh'}>
             {node.data?.meshName || 'Imported mesh'}
           </div>
+          <ReimportMeshControl node={node} />
           <div role="status" className="mx-2 mb-2 px-2 py-1.5 rounded text-[10px] leading-snug"
                style={{ background: 'var(--bg-elevated)', color: 'var(--accent-orange, #d9a441)' }}>
             Closed-manifold edges verified. Self-intersections are not checked;

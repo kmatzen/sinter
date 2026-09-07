@@ -197,6 +197,22 @@ describe('document decoder', () => {
     expect(() => decodeTree(mesh(btoa(binary)))).toThrow(/not a valid solid.*boundary edge/);
   });
 
+  it('preserves validated declared 3MF units', () => {
+    const positions = new Float32Array([
+      0,0,0, 0,1,0, 1,0,0,
+      0,0,0, 1,0,0, 0,0,1,
+      1,0,0, 0,1,0, 0,0,1,
+      0,1,0, 0,0,0, 0,0,1,
+    ]);
+    const payload = btoa(String.fromCharCode(...new Uint8Array(positions.buffer)));
+    const mesh = {
+      id: 'mesh', kind: 'mesh', label: 'Mesh', params: { resolution: 48 },
+      data: { meshPositions: payload, meshName: 'part.3mf', meshImportUnit: 'mm', meshImportDeclaredUnit: 'inch' }, children: [], enabled: true,
+    };
+    expect(decodeTree(mesh)!.data?.meshImportDeclaredUnit).toBe('inch');
+    expect(() => decodeTree({ ...mesh, data: { ...mesh.data, meshImportDeclaredUnit: 'parsec' } })).toThrow(/meshImportDeclaredUnit/);
+  });
+
   it('validates text outline containers, metrics, tags, coordinates, and count', () => {
     const text = (glyph: unknown) => ({
       id: 'text', kind: 'text', label: 'Text', params: { size: 10, depth: 2 },
