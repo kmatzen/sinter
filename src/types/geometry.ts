@@ -99,6 +99,10 @@ export interface MeshFitResult {
   acceptable: boolean;
   /** The tree to swap in, if the user accepts it. */
   node: SDFNodeUI;
+  /** Fit-eligible normal-continuous regions found before primitive recovery. */
+  surfaceRegionCount: number;
+  /** Actionable topology/quality findings from the segmentation pass. */
+  segmentationDiagnostics: string[];
 }
 
 export type WorkerResponse =

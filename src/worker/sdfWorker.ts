@@ -9,6 +9,7 @@ import { computeBounds } from './sdf/bounds';
 import { verifiedBounds } from './sdf/interval';
 import { evaluateCPUWithProgress } from './sdf/gridEval';
 import { fitPrimitive } from './sdf/fitPrimitive';
+import { segmentMeshSurfaces } from './sdf/meshSegmentation';
 import { bakeMeshField } from './sdf/meshField';
 import { decodeMeshPositions, DEFAULT_MESH_RESOLUTION } from './sdf/convert';
 import type { MeshFitResult } from '../types/geometry';
@@ -199,6 +200,7 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
         const positions = decodeMeshPositions(req.meshPositions);
         const res = Math.max(8, Math.min(96, Math.round(req.resolution || DEFAULT_MESH_RESOLUTION)));
         const fit = fitPrimitive(bakeMeshField(positions, res));
+        const segmentation = segmentMeshSurfaces(positions);
         const out: MeshFitResult | null = fit === null ? null : {
           kind: fit.kind,
           surfaceMax: fit.surfaceMax,
@@ -206,6 +208,8 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
           relativeError: fit.relativeError,
           acceptable: fit.acceptable,
           node: toUINode(fit.node),
+          surfaceRegionCount: segmentation.regions.filter((region) => region.eligible).length,
+          segmentationDiagnostics: segmentation.diagnostics,
         };
         self.postMessage({ type: 'fitResult', rid, fit: out });
         break;
