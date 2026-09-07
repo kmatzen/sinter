@@ -219,6 +219,12 @@ describe('computeBounds', () => {
     expect(bb.max).toEqual([4, 4, 2]);
   });
 
+  it('draft keeps its axial caps and conservatively expands perpendicular bounds', () => {
+    const bb = computeBounds({ kind: 'draft', child: { kind: 'box', size: [20, 20, 20] }, axis: 'y', angle: 45, reference: 0 });
+    expect(bb.min).toEqual([-20, -10, -20]);
+    expect(bb.max).toEqual([20, 10, 20]);
+  });
+
   /**
    * Metrics alone do not make a glyph. Without outlines both evaluators draw
    * the character-width box, so the bound has to describe that box — reading

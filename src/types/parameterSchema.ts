@@ -26,6 +26,7 @@ export const PARAMETER_SCHEMAS: Record<string, Schema> = {
   offset: { distance: bounded(-20, 20) },
   round: { radius: bounded(0, 20) },
   chamfer: { distance: bounded(0, 20) },
+  draft: { axis: bounded(0, 2, true), angle: bounded(-45, 45), reference: bounded(-MODEL_SPATIAL_LIMIT_MM, MODEL_SPATIAL_LIMIT_MM) },
   translate: { x: bounded(-MODEL_SPATIAL_LIMIT_MM, MODEL_SPATIAL_LIMIT_MM), y: bounded(-MODEL_SPATIAL_LIMIT_MM, MODEL_SPATIAL_LIMIT_MM), z: bounded(-MODEL_SPATIAL_LIMIT_MM, MODEL_SPATIAL_LIMIT_MM) },
   // Finite angles have no spatial magnitude. They are reduced to one turn
   // below, before they reach float32 shader uniforms.

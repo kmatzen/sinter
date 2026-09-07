@@ -2,7 +2,7 @@ import type { SDFNode, Vec3 } from './types';
 import { hasGlyphOutlines, SDF_PARAM_EPSILON } from './types';
 import { sampleMeshField } from './meshField';
 import { linearWindow, circularWindow } from './patternWindow';
-import { fieldScale, MODIFIER_DISTANCE_SAFETY } from './bounds';
+import { computeBounds, fieldScale, MODIFIER_DISTANCE_SAFETY } from './bounds';
 
 /**
  * Evaluate the field at a point.
@@ -191,6 +191,16 @@ export function evalAt(node: SDFNode, px: number, py: number, pz: number): numbe
     case 'chamfer':
       if (node.distance <= SDF_PARAM_EPSILON) return evalAt(node.child, px, py, pz);
       return chamferDistance(node.child, node.distance, px, py, pz);
+    case 'draft': {
+      if (Math.abs(node.angle) <= SDF_PARAM_EPSILON) return evalAt(node.child, px, py, pz);
+      const bounds = computeBounds(node.child);
+      const coordinate = node.axis === 'x' ? px : node.axis === 'z' ? pz : py;
+      const index = node.axis === 'x' ? 0 : node.axis === 'z' ? 2 : 1;
+      const slope = Math.tan(node.angle * Math.PI / 180);
+      const wall = (localDistance(node.child, px, py, pz) - slope * (coordinate - node.reference)) /
+        (cachedFieldScale(node.child) * MODIFIER_DISTANCE_SAFETY * Math.hypot(1, slope));
+      return Math.max(wall, bounds.min[index] - coordinate, coordinate - bounds.max[index]);
+    }
     case 'transform': {
       // Inverse transform the point: R^-1((p - t) / s).
       let qx = (px - node.tx) / node.sx;

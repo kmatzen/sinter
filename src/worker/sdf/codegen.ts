@@ -1,7 +1,7 @@
 import type { SDFNode } from './types';
 import { hasGlyphOutlines, SDF_PARAM_EPSILON } from './types';
 import { linearWindow, circularWindow } from './patternWindow';
-import { fieldScale, MODIFIER_DISTANCE_SAFETY } from './bounds';
+import { computeBounds, fieldScale, MODIFIER_DISTANCE_SAFETY } from './bounds';
 
 let varCounter = 0;
 let paramIndex = 0;
@@ -512,6 +512,17 @@ function emitNode(node: SDFNode, pVar: string, lines: string[]): string {
       );`);
       lines.push(`float cs_${result} = length(${grad}) > 1e-12 ? max(max(abs(${grad}.x), abs(${grad}.y)), abs(${grad}.z)) / length(${grad}) : 1.0;`);
       lines.push(`float ${result} = (${child}(${pVar}) - ${up(node.distance)} * cs_${result}) / ${up(fieldScale(node.child) * MODIFIER_DISTANCE_SAFETY)};`);
+      return result;
+    }
+    case 'draft': {
+      if (Math.abs(node.angle) <= SDF_PARAM_EPSILON) return emitNode(node.child, pVar, lines);
+      const child = emitDistanceFunction(node.child);
+      const bounds = computeBounds(node.child);
+      const index = node.axis === 'x' ? 0 : node.axis === 'z' ? 2 : 1;
+      const component = `${pVar}.${node.axis}`;
+      const slope = Math.tan(node.angle * Math.PI / 180);
+      lines.push(`float dw_${result} = (${child}(${pVar}) - ${up(slope)} * (${component} - ${up(node.reference)})) / ${up(fieldScale(node.child) * MODIFIER_DISTANCE_SAFETY * Math.hypot(1, slope))};`);
+      lines.push(`float ${result} = max(dw_${result}, max(${up(bounds.min[index])} - ${component}, ${component} - ${up(bounds.max[index])}));`);
       return result;
     }
     case 'transform': {

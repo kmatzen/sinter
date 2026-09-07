@@ -517,6 +517,20 @@ function NodeEditor({ node, onUpdate, onUpdateStr }: { node: SDFNodeUI; onUpdate
           </div>
         </>
       );
+    case 'draft': {
+      const axis = p.axis === 0 ? 'x' : p.axis === 2 ? 'z' : 'y';
+      return (
+        <>
+          <SectionLabel>Draft</SectionLabel>
+          <XYZPicker label="Draft axis" value={axis} onChange={(value) => onUpdate({ axis: value === 'x' ? 0 : value === 'z' ? 2 : 1 })} />
+          <NumberInput label="Angle" value={p.angle} min={-45} max={45} step={1} unit="deg" onChange={(v) => onUpdate({ angle: v })} />
+          <NumberInput label="Reference" value={p.reference} unit="mm" onChange={(v) => onUpdate({ reference: v })} />
+          <div className="px-2 pt-1 text-[10px] leading-snug" style={{ color: 'var(--text-muted)' }}>
+            Positive angles expand toward the positive axis. The reference plane stays unchanged.
+          </div>
+        </>
+      );
+    }
     case 'translate':
       return (
         <>
