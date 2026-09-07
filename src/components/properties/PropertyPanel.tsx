@@ -9,6 +9,7 @@ import { NumberInput } from './NumberInput';
 import { useViewportStore } from '../../store/viewportStore';
 import { formatLength } from '../../types/units';
 import { ImportMesh } from '../projects/ImportMesh';
+import { ProfileImport } from '../projects/ProfileImport';
 import { parseProfile, parseRevolveProfile } from '../../worker/sdf/profile';
 
 function findNode(tree: SDFNodeUI, id: string): SDFNodeUI | null {
@@ -506,6 +507,7 @@ function NodeEditor({ node, onUpdate, onUpdateStr }: { node: SDFNodeUI; onUpdate
           <div className="px-2 text-[10px] leading-snug" style={{ color: 'var(--text-muted)' }}>
             XY coordinates in millimetres. Outer loop winds counter-clockwise; holes wind clockwise.
           </div>
+          <ProfileImport revolve={false} onCommit={(profile) => onUpdateStr({ profile })} />
         </>
       );
     case 'revolve':
@@ -519,6 +521,7 @@ function NodeEditor({ node, onUpdate, onUpdateStr }: { node: SDFNodeUI; onUpdate
           <div className="px-2 text-[10px] leading-snug" style={{ color: 'var(--text-muted)' }}>
             Each point is [radius, axial position] in millimetres. Radius must stay non-negative.
           </div>
+          <ProfileImport revolve onCommit={(profile) => onUpdateStr({ profile })} />
         </>
       );
     case 'union': case 'subtract': case 'intersect':
