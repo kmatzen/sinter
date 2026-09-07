@@ -45,6 +45,7 @@ describe('regional analytic surface fitting', () => {
     if (fit.parameters.kind === 'cylinder') {
       expect(fit.parameters.radius).toBeCloseTo(4, 5);
       expect(Math.abs(fit.parameters.axis[2])).toBeCloseTo(1, 5);
+      expect(fit.parameters.outward).toBe(true);
     }
     expect(fit.surfaceMax).toBeLessThan(1e-5);
   });

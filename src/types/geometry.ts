@@ -109,8 +109,8 @@ export interface MeshFitResult {
 
 export type MeshRegionSurfaceParameters =
   | { kind: 'plane'; origin: [number, number, number]; normal: [number, number, number] }
-  | { kind: 'cylinder'; origin: [number, number, number]; axis: [number, number, number]; radius: number; axialMin: number; axialMax: number }
-  | { kind: 'sphere'; center: [number, number, number]; radius: number };
+  | { kind: 'cylinder'; origin: [number, number, number]; axis: [number, number, number]; radius: number; axialMin: number; axialMax: number; outward: boolean }
+  | { kind: 'sphere'; center: [number, number, number]; radius: number; outward: boolean };
 
 export interface MeshRegionSurfaceFit {
   regionKey: string;
