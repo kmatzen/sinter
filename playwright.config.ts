@@ -12,15 +12,13 @@ export default defineConfig({
   // machine contention rather than the code under test. 60s leaves room for a
   // slow app boot while still catching a genuine hang.
   timeout: 60000,
-  // Suite ceiling, raised in step with the per-test budget and the move to a
-  // single CI worker below: ~9 min of work under a 10 min cap left no margin.
+  // Suite ceiling also applies when reproducing an individual CI shard.
   globalTimeout: 1200000, // 20 min max for entire suite
-  // One worker on CI. Every spec here drives a WebGL context that CI renders in
-  // software, so two workers on a two-core runner oversubscribe it: whichever
-  // test is marching pixels starves the other, and the symptom lands on the
-  // victim rather than the cause — `sdf-parity`'s `page.goto` was timing out at
-  // 60s while the marcher spec rendered. Serial costs little wall-clock here,
-  // because `app.spec.ts` alone is ~9 of the ~10 minutes.
+  // Each CI runner still uses one worker because WebGL is rendered in software.
+  // `fullyParallel` lets Playwright distribute individual tests—not only whole
+  // spec files—across the isolated runners selected with `--shard`. This is
+  // essential because app.spec.ts otherwise dominates one shard by itself.
+  fullyParallel: !!process.env.CI,
   workers: process.env.CI ? 1 : undefined,
   use: {
     baseURL: 'http://localhost:5174',
