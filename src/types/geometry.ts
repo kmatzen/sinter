@@ -105,6 +105,17 @@ export interface MeshFitResult {
   segmentationDiagnostics: string[];
   /** Accepted analytic hypotheses for the segmented source surfaces. */
   surfaceFits: MeshRegionSurfaceFit[];
+  /** Occupancy-verified regional primitives available to CSG assembly. */
+  regionalPrimitives: MeshRegionalPrimitive[];
+}
+
+export interface MeshRegionalPrimitive {
+  node: SDFNodeUI;
+  polarity: 'add' | 'subtract';
+  regionKeys: string[];
+  surfaceRms: number;
+  surfaceMax: number;
+  occupancyAgreement: number;
 }
 
 export type MeshRegionSurfaceParameters =

@@ -381,6 +381,7 @@ function FitPrimitive({ node }: { node: SDFNodeUI }) {
             </div>
             <div className="mt-0.5">Detected {fit.surfaceRegionCount} fit-eligible surface {fit.surfaceRegionCount === 1 ? 'region' : 'regions'}.</div>
             <div className="mt-0.5">Classified {fit.surfaceFits.length} analytic surface {fit.surfaceFits.length === 1 ? 'hypothesis' : 'hypotheses'}.</div>
+            {fit.regionalPrimitives.length > 0 && <div className="mt-0.5">Verified {fit.regionalPrimitives.length} regional primitive {fit.regionalPrimitives.length === 1 ? 'candidate' : 'candidates'} against mesh occupancy.</div>}
             {fit.segmentationDiagnostics.map((diagnostic) => <div key={diagnostic} role="note" className="mt-0.5" style={{ color: 'var(--accent-amber, #d4a04a)' }}>{diagnostic}</div>)}
             {fit.acceptable ? (
               <>
