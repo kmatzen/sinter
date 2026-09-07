@@ -28,6 +28,7 @@ export const PARAMETER_SCHEMAS: Record<string, Schema> = {
   chamfer: { distance: bounded(0, 20) },
   draft: { axis: bounded(0, 2, true), angle: bounded(-45, 45), reference: bounded(-MODEL_SPATIAL_LIMIT_MM, MODEL_SPATIAL_LIMIT_MM) },
   twist: { axis: bounded(0, 2, true), angle: bounded(-720, 720), origin: bounded(-MODEL_SPATIAL_LIMIT_MM, MODEL_SPATIAL_LIMIT_MM), extent: bounded(0.1, MODEL_SPATIAL_LIMIT_MM) },
+  bend: { axis: bounded(0, 2, true), direction: bounded(0, 2, true), angle: bounded(-170, 170), origin: bounded(-MODEL_SPATIAL_LIMIT_MM, MODEL_SPATIAL_LIMIT_MM), extent: bounded(0.1, MODEL_SPATIAL_LIMIT_MM) },
   translate: { x: bounded(-MODEL_SPATIAL_LIMIT_MM, MODEL_SPATIAL_LIMIT_MM), y: bounded(-MODEL_SPATIAL_LIMIT_MM, MODEL_SPATIAL_LIMIT_MM), z: bounded(-MODEL_SPATIAL_LIMIT_MM, MODEL_SPATIAL_LIMIT_MM) },
   // Finite angles have no spatial magnitude. They are reduced to one turn
   // below, before they reach float32 shader uniforms.
@@ -80,6 +81,7 @@ export function normalizeNodeParams(kind: string, input: Record<string, number> 
       && Math.hypot(out.axisX ?? 0, out.axisY ?? 0, out.axisZ ?? 0) < 1e-8) {
     Object.assign(out, kind === 'linearPattern' ? { axisX: 1, axisY: 0, axisZ: 0 } : { axisX: 0, axisY: 1, axisZ: 0 });
   }
+  if (kind === 'bend' && out.direction === out.axis) out.direction = (out.axis + 1) % 3;
   return out;
 }
 

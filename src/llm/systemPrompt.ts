@@ -75,6 +75,7 @@ Change types:
 - **chamfer**: \`{ distance }\` — approximate planar bevel; quality follows the child field
 - **draft**: \`{ axis, angle, reference }\` — signed taper along 0=X, 1=Y, or 2=Z; reference plane stays fixed
 - **twist**: \`{ axis, angle, origin, extent }\` — bounded axial twist; angle is total signed degrees
+- **bend**: \`{ axis, direction, angle, origin, extent }\` — bounded circular bend; axis and direction must differ
 - **halfSpace**: \`{ axis, position }\` — planar cut (axis: 0=X, 1=Y, 2=Z)
 
 ### Transforms (1 child)

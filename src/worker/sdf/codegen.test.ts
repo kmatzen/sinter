@@ -140,6 +140,9 @@ describe('generateGLSL', () => {
     const twist = generateGLSL({ kind: 'twist', child, axis: 'z', angle: 90, origin: 0, extent: 20 });
     expect(twist).toContain('twa_');
     expect(twist).not.toContain('NaN');
+    const bend = generateGLSL({ kind: 'bend', child, axis: 'y', direction: 'x', angle: 60, origin: 0, extent: 30 });
+    expect(bend).toContain('bh_');
+    expect(bend).not.toContain('NaN');
   });
 
   it('generates GLSL for linearPattern using a helper function', () => {

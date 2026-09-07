@@ -309,6 +309,44 @@ describe('evaluateSDF', () => {
     });
   });
 
+  describe('bend', () => {
+    const forward = (sourceU: number, sourceV: number, angle: number, extent: number): [number, number] => {
+      const rate = angle * Math.PI / 180 / extent;
+      const radius = 1 / rate;
+      const half = extent / 2;
+      const clamped = Math.max(-half, Math.min(half, sourceU));
+      const theta = rate * clamped;
+      const centerU = radius * Math.sin(theta);
+      const centerV = radius * (1 - Math.cos(theta));
+      const tail = sourceU - clamped;
+      return [centerU + Math.cos(theta) * tail - Math.sin(theta) * sourceV,
+        centerV + Math.sin(theta) * tail + Math.cos(theta) * sourceV];
+    };
+
+    it('keeps the origin tangent fixed and follows the circular centerline through rigid tails', () => {
+      const child: SDFNode = { kind: 'transform', child: { kind: 'box', size: [2, 100, 2] }, tx: 2, ty: 0, tz: 0, rx: 0, ry: 0, rz: 0, sx: 1, sy: 1, sz: 1 };
+      const bend: SDFNode = { kind: 'bend', child, axis: 'y', direction: 'x', angle: 90, origin: 0, extent: 20 };
+      for (const sourceU of [0, 10, 30, -30]) {
+        const [worldU, worldV] = forward(sourceU, 2, 90, 20);
+        expect(evaluateSDF(bend, [worldV, worldU, 0]), `${sourceU}`).toBeLessThan(0);
+      }
+    });
+
+    it('honors signed direction, all axis pairs, finite extremes, and exact zero identity', () => {
+      const child: SDFNode = { kind: 'box', size: [4, 40, 6] };
+      const positive = forward(10, 0, 60, 40);
+      const negative = forward(10, 0, -60, 40);
+      expect(positive[1]).toBeGreaterThan(0);
+      expect(negative[1]).toBeLessThan(0);
+      for (const [axis, direction] of [['x', 'y'], ['x', 'z'], ['y', 'x'], ['y', 'z'], ['z', 'x'], ['z', 'y']] as const) {
+        const bend: SDFNode = { kind: 'bend', child, axis, direction, angle: 170, origin: 0, extent: 0.1 };
+        expect(Number.isFinite(evaluateSDF(bend, [3, 4, 5]))).toBe(true);
+      }
+      const identity: SDFNode = { kind: 'bend', child, axis: 'y', direction: 'x', angle: 1e-7, origin: 99, extent: 0.1 };
+      expect(evaluateSDF(identity, [1, 2, 3])).toBe(evaluateSDF(child, [1, 2, 3]));
+    });
+  });
+
   describe('halfSpace', () => {
     it('below plane is inside', () => {
       const hs: SDFNode = { kind: 'halfSpace', axis: 'y', position: 5, flip: false };

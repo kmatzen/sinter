@@ -59,4 +59,11 @@ describe('resolved modeling envelope', () => {
       transform(box(), { sx: MAX_MODEL_SCALE_RATIO + 1, sy: 1, sz: 1 }),
     )).toThrow(ModelingEnvelopeError);
   });
+
+  it('rejects a bend whose radius approaches the child cross-section', () => {
+    const singular: SDFNode = { kind: 'bend', child: box([20, 20, 20]), axis: 'y', direction: 'x', angle: 90, origin: 0, extent: 10 };
+    expect(() => validateModelingEnvelope(singular)).toThrow(/bend radius intersects or approaches/i);
+    const safe: SDFNode = { kind: 'bend', child: box([2, 20, 2]), axis: 'y', direction: 'x', angle: 45, origin: 0, extent: 40 };
+    expect(() => validateModelingEnvelope(safe)).not.toThrow();
+  });
 });

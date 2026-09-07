@@ -24,6 +24,7 @@ export type SDFNode =
   | { kind: 'chamfer'; child: SDFNode; distance: number; warn?: boolean }
   | { kind: 'draft'; child: SDFNode; axis: 'x' | 'y' | 'z'; angle: number; reference: number; warn?: boolean }
   | { kind: 'twist'; child: SDFNode; axis: 'x' | 'y' | 'z'; angle: number; origin: number; extent: number; warn?: boolean }
+  | { kind: 'bend'; child: SDFNode; axis: 'x' | 'y' | 'z'; direction: 'x' | 'y' | 'z'; angle: number; origin: number; extent: number; warn?: boolean }
   | { kind: 'transform'; child: SDFNode; tx: number; ty: number; tz: number; rx: number; ry: number; rz: number; sx: number; sy: number; sz: number; warn?: boolean }
   | { kind: 'mirror'; child: SDFNode; axes: Vec3; warn?: boolean }  // axes: [1,0,0] = mirror X, [0,1,0] = Y, etc. Can combine.
   | { kind: 'linearPattern'; child: SDFNode; axis: Vec3; count: number; spacing: number; warn?: boolean }

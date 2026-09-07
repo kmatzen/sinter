@@ -1,6 +1,7 @@
 import { MODEL_SPATIAL_LIMIT_MM } from '../../types/modelingEnvelope';
 import { computeBounds } from './bounds';
 import type { SDFNode } from './types';
+import { axisIndex, bendMinimumMetric, bendRate } from './bend';
 
 /** Smallest physical feature the editor promises to preserve. */
 export const MIN_MODEL_FEATURE_MM = 0.1;
@@ -74,6 +75,14 @@ export function validateModelingEnvelope(root: SDFNode): void {
       case 'twist':
         requireFeature(node.extent, scale, 'twist extent');
         visit(node.child, scale, scaleRatio); return;
+      case 'bend': {
+        requireFeature(node.extent, scale, 'bend extent');
+        const bounds = computeBounds(node.child);
+        const direction = axisIndex(node.direction);
+        const metric = bendMinimumMetric(bounds.min[direction], bounds.max[direction], bendRate(node.angle, node.extent));
+        if (metric < 0.1) throw new ModelingEnvelopeError('bend radius intersects or approaches the child cross-section');
+        visit(node.child, scale, scaleRatio); return;
+      }
       case 'transform': {
         const lo = Math.min(Math.abs(node.sx), Math.abs(node.sy), Math.abs(node.sz));
         const hi = Math.max(Math.abs(node.sx), Math.abs(node.sy), Math.abs(node.sz));

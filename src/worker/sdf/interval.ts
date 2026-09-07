@@ -2,6 +2,7 @@ import { sampleMeshField } from './meshField';
 import type { SDFNode, BBox, Vec3 } from './types';
 import { SDF_PARAM_EPSILON } from './types';
 import { computeBounds, fieldScale, MODIFIER_DISTANCE_SAFETY } from './bounds';
+import { evaluateSDF } from './evaluate';
 
 /**
  * Interval-arithmetic evaluation of the SDF tree.
@@ -219,6 +220,21 @@ export function evaluateInterval(node: SDFNode, box: BBox): Interval {
       const mapped: BBox = { min: [...box.min], max: [...box.max] };
       for (const index of perpendicular) { mapped.min[index] = -radius; mapped.max[index] = radius; }
       return mulK(evaluateInterval(node.child, mapped), 1 / fieldScale(node));
+    }
+    case 'bend': {
+      if (Math.abs(node.angle) <= SDF_PARAM_EPSILON) return evaluateInterval(node.child, box);
+      const center: Vec3 = [
+        (box.min[0] + box.max[0]) / 2,
+        (box.min[1] + box.max[1]) / 2,
+        (box.min[2] + box.max[2]) / 2,
+      ];
+      const radius = Math.hypot(
+        (box.max[0] - box.min[0]) / 2,
+        (box.max[1] - box.min[1]) / 2,
+        (box.max[2] - box.min[2]) / 2,
+      );
+      const value = evaluateSDF(node, center);
+      return I(value - radius, value + radius);
     }
     case 'transform': {
       if (!isFinite(node.sx) || !isFinite(node.sy) || !isFinite(node.sz) ||

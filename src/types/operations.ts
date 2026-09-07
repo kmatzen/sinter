@@ -28,7 +28,7 @@ export const NODE_KINDS = {
   // file has been imported, so it arrives through the importer instead.
   primitives: ['box', 'sphere', 'cylinder', 'torus', 'cone', 'capsule', 'ellipsoid'] as const,
   booleans: ['union', 'subtract', 'intersect'] as const,
-  modifiers: ['shell', 'offset', 'round', 'chamfer', 'draft', 'twist', 'mirror', 'halfSpace'] as const,
+  modifiers: ['shell', 'offset', 'round', 'chamfer', 'draft', 'twist', 'bend', 'mirror', 'halfSpace'] as const,
   patterns: ['linearPattern', 'circularPattern'] as const,
   transforms: ['translate', 'rotate', 'scale'] as const,
 };
@@ -52,6 +52,7 @@ export const NODE_LABELS: Record<string, string> = {
   chamfer: 'Chamfer',
   draft: 'Draft',
   twist: 'Twist',
+  bend: 'Bend',
   mirror: 'Mirror',
   halfSpace: 'Half-Space Cut',
   linearPattern: 'Linear Pattern',
@@ -82,6 +83,7 @@ export const NODE_DEFAULTS: Record<string, Record<string, number>> = {
   chamfer: { distance: 2 },
   draft: { axis: 1, angle: 5, reference: 0 },
   twist: { axis: 1, angle: 45, origin: 0, extent: 40 },
+  bend: { axis: 1, direction: 0, angle: 45, origin: 0, extent: 40 },
   mirror: { mirrorX: 1, mirrorY: 0, mirrorZ: 0 },
   halfSpace: { axis: 1, position: 0, flip: 0 },
   linearPattern: { axisX: 1, axisY: 0, axisZ: 0, count: 3, spacing: 20 },
@@ -167,6 +169,7 @@ export function nodeSummary(node: SDFNodeUI): string {
     case 'chamfer': return `${p.distance}mm`;
     case 'draft': return `${['X', 'Y', 'Z'][p.axis] ?? 'Y'} ${p.angle}\u00b0 @ ${p.reference}mm`;
     case 'twist': return `${['X', 'Y', 'Z'][p.axis] ?? 'Y'} ${p.angle}\u00b0 / ${p.extent}mm`;
+    case 'bend': return `${['X', 'Y', 'Z'][p.axis] ?? 'Y'}\u2192${['X', 'Y', 'Z'][p.direction] ?? 'X'} ${p.angle}\u00b0`;
     case 'translate': return `${p.x}, ${p.y}, ${p.z}`;
     case 'rotate': return `${p.x}\u00b0, ${p.y}\u00b0, ${p.z}\u00b0`;
     case 'scale': return `${p.x}, ${p.y}, ${p.z}`;

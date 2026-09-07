@@ -69,6 +69,12 @@ describe('export component partitioning', () => {
     expect(plan.resolution).toBe(6);
   });
 
+  it('accounts for bend arc segmentation when planning export resolution', () => {
+    const bend: SDFNode = { kind: 'bend', child: { kind: 'box', size: [2, 20, 2] }, axis: 'y', direction: 'x', angle: 170, origin: 0, extent: 20 };
+    const plan = planComponentSampling(bend, computeBounds(bend), 2, 384);
+    expect(plan.resolution).toBeGreaterThan(2);
+  });
+
   it('fails before meshing when a thin shell cannot be resolved safely', () => {
     const shell: SDFNode = { kind: 'shell', child: { kind: 'box', size: [100, 100, 100] }, thickness: 0.1 };
     expect(() => planComponentSampling(shell, { min: [-51, -51, -51], max: [51, 51, 51] }, 128, 384))
