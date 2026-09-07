@@ -243,7 +243,7 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
         <div className="w-px h-4 mx-1" style={{ background: 'var(--border-default)' }} />
         <IconBtn icon={<FilePlus size={14} />} title="New project" onClick={() => requestDocumentReplacement(createProject)} />
         <IconBtn icon={<FolderOpen size={14} />} title="Projects" onClick={() => setShowProjects(true)} />
-        <IconBtn icon={<Upload size={14} />} title="Import STL" onClick={() => setShowImportMesh(true)} />
+        <IconBtn icon={<Upload size={14} />} title="Import mesh" onClick={() => setShowImportMesh(true)} />
         <IconBtn icon={<Save size={14} />} title={saving ? 'Saving...' : 'Save to cloud'} onClick={handleSaveCloud} disabled={saving || !dirty} />
         {projectId && <IconBtn icon={<History size={14} />} title="Project versions" onClick={() => setShowVersions(true)} />}
         {projectId && (
@@ -336,7 +336,7 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
               setShowOverflow(false);
             }} />
             <OverflowDivider />
-            <OverflowItem label="Import STL" onClick={() => { setShowImportMesh(true); setShowOverflow(false); }} />
+            <OverflowItem label="Import mesh" onClick={() => { setShowImportMesh(true); setShowOverflow(false); }} />
             {/*
               Export resolution was desktop-only, which put the biggest cost
               lever in the app — the grid is cubic — out of reach of exactly the

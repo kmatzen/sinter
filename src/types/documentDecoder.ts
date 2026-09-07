@@ -158,7 +158,7 @@ function validateGlyphPayload(value: string, path: string): void {
 function decodeData(kind: string, input: unknown, path: string, context: Context): Record<string, string> | undefined {
   if (input === undefined) return undefined;
   const raw = record(input, `${path}.data`);
-  const allowed = kind === 'mesh' ? new Set(['meshPositions', 'meshName', 'meshTopology', 'meshImportUnit'])
+  const allowed = kind === 'mesh' ? new Set(['meshPositions', 'meshName', 'meshTopology', 'meshImportUnit', 'meshImportOrientation'])
     : kind === 'text' ? new Set(['text', 'glyphPaths']) : new Set<string>();
   const out: Record<string, string> = {};
   for (const [key, value] of Object.entries(raw)) {
@@ -170,6 +170,7 @@ function decodeData(kind: string, input: unknown, path: string, context: Context
     accountString(context, value);
     if (key === 'meshPositions') validateMeshPayload(value, path);
     else if (key === 'meshImportUnit' && !['mm', 'cm', 'm', 'in'].includes(value)) throw new DocumentDecodeError(`${path}.data.meshImportUnit is invalid`);
+    else if (key === 'meshImportOrientation' && !['x-up', 'y-up', 'z-up'].includes(value)) throw new DocumentDecodeError(`${path}.data.meshImportOrientation is invalid`);
     else if (key === 'text' && value.length > MAX_TEXT_CHARS) throw new DocumentDecodeError(`${path} text exceeds ${MAX_TEXT_CHARS} characters`);
     else if (key === 'glyphPaths') {
       if (value.length > MAX_GLYPH_CHARS) throw new DocumentDecodeError(`${path} glyph data is too large`);
