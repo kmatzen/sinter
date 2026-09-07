@@ -382,6 +382,7 @@ function FitPrimitive({ node }: { node: SDFNodeUI }) {
             <div className="mt-0.5">Detected {fit.surfaceRegionCount} fit-eligible surface {fit.surfaceRegionCount === 1 ? 'region' : 'regions'}.</div>
             <div className="mt-0.5">Classified {fit.surfaceFits.length} analytic surface {fit.surfaceFits.length === 1 ? 'hypothesis' : 'hypotheses'}.</div>
             {fit.regionalPrimitives.length > 0 && <div className="mt-0.5">Verified {fit.regionalPrimitives.length} regional primitive {fit.regionalPrimitives.length === 1 ? 'candidate' : 'candidates'} against mesh occupancy.</div>}
+            {fit.regionalPatterns.length > 0 && <div className="mt-0.5">Recovered {fit.regionalPatterns.length} editable {fit.regionalPatterns.length === 1 ? 'pattern' : 'patterns'} from repeated regions.</div>}
             {fit.csgFit?.acceptable && <>
               <div className="mt-1" style={{ color: 'var(--text-secondary)' }}>Recovered CSG tree — worst {length(fit.csgFit.surfaceMax)}, rms {length(fit.csgFit.surfaceRms)} ({(fit.csgFit.relativeError * 100).toFixed(1)}%).</div>
               <button onClick={() => apply(fit.csgFit!.node)} className="w-full h-7 tap-h rounded text-[11px] font-medium mt-2" style={{ background: 'var(--accent)', color: 'var(--bg-deep)' }}>Replace with recovered CSG</button>

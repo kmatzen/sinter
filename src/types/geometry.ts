@@ -109,6 +109,7 @@ export interface MeshFitResult {
   regionalPrimitives: MeshRegionalPrimitive[];
   /** Complete occupancy- and surface-validated regional tree, when recovered. */
   csgFit: MeshCsgFit | null;
+  regionalPatterns: MeshRegionalPattern[];
 }
 
 export interface MeshRegionalPrimitive {
@@ -127,6 +128,11 @@ export interface MeshCsgFit {
   relativeError: number;
   acceptable: boolean;
   contributors: Array<{ polarity: 'add' | 'subtract'; regionKeys: string[]; surfaceRms: number; surfaceMax: number }>;
+}
+
+export interface MeshRegionalPattern extends MeshRegionalPrimitive {
+  pattern: 'linear' | 'circular' | 'mirror';
+  instanceResiduals: Array<{ regionKeys: string[]; surfaceRms: number; surfaceMax: number }>;
 }
 
 export type MeshRegionSurfaceParameters =

@@ -23,19 +23,35 @@ const distance = (a: Vec3, b: Vec3) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2]
 const subtract = (a: Vec3, b: Vec3): Vec3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
 const dot = (a: Vec3, b: Vec3) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 const compareVec = (a: Vec3, b: Vec3) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2];
+const cross = (a: Vec3, b: Vec3): Vec3 => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+const scale = (a: Vec3, value: number): Vec3 => [a[0] * value, a[1] * value, a[2] * value];
+const add = (a: Vec3, b: Vec3): Vec3 => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
+
+function groupedPlaced(evidence: RegionalPrimitiveEvidence[]): PlacedPrimitive[][] {
+  const groups = new Map<string, PlacedPrimitive[]>();
+  for (const item of evidence.map(placedPrimitive).filter((value): value is PlacedPrimitive => value !== null)) {
+    const key = `${item.evidence.polarity}:${item.shape}`, group = groups.get(key) ?? [];
+    group.push(item); groups.set(key, group);
+  }
+  return [...groups.values()];
+}
+
+function patternResult(pattern: RegionalPatternEvidence['pattern'], node: SDFNode, ordered: PlacedPrimitive[]): RegionalPatternEvidence {
+  const source = ordered[0].evidence;
+  return {
+    node, pattern, polarity: source.polarity, regionKeys: ordered.flatMap((item) => item.evidence.regionKeys),
+    surfaceRms: Math.sqrt(ordered.reduce((sum, item) => sum + item.evidence.surfaceRms ** 2, 0) / ordered.length),
+    surfaceMax: Math.max(...ordered.map((item) => item.evidence.surfaceMax)), occupancyAgreement: Math.min(...ordered.map((item) => item.evidence.occupancyAgreement)),
+    instanceResiduals: ordered.map((item) => ({ regionKeys: item.evidence.regionKeys, surfaceRms: item.evidence.surfaceRms, surfaceMax: item.evidence.surfaceMax })),
+  };
+}
 
 /** Detect exact-shape, equal-spacing sequences. Approximate primitive grouping
  * belongs upstream in regional fitting; pattern recovery must not hide
  * dimension drift by silently averaging unlike features. */
 export function recoverLinearPatterns(evidence: RegionalPrimitiveEvidence[], relativeTolerance = 1e-4): RegionalPatternEvidence[] {
-  const placed = evidence.map(placedPrimitive).filter((value): value is PlacedPrimitive => value !== null);
-  const groups = new Map<string, PlacedPrimitive[]>();
-  for (const item of placed) {
-    const key = `${item.evidence.polarity}:${item.shape}`, group = groups.get(key) ?? [];
-    group.push(item); groups.set(key, group);
-  }
   const patterns: RegionalPatternEvidence[] = [];
-  for (const group of groups.values()) {
+  for (const group of groupedPlaced(evidence)) {
     if (group.length < 3) continue;
     let first = group[0], last = group[1], span = distance(first.center, last.center);
     for (let i = 0; i < group.length; i++) for (let j = i + 1; j < group.length; j++) {
@@ -56,14 +72,71 @@ export function recoverLinearPatterns(evidence: RegionalPrimitiveEvidence[], rel
     if (ordered.some((item, index) => Math.abs(item.projection - spacing * index) > tolerance)) continue;
     const source = ordered[0].item.evidence;
     const node: SDFNode = { kind: 'linearPattern', child: source.node, axis, count: ordered.length, spacing };
-    patterns.push({
-      node, pattern: 'linear', polarity: source.polarity,
-      regionKeys: ordered.flatMap(({ item }) => item.evidence.regionKeys),
-      surfaceRms: Math.sqrt(ordered.reduce((sum, { item }) => sum + item.evidence.surfaceRms ** 2, 0) / ordered.length),
-      surfaceMax: Math.max(...ordered.map(({ item }) => item.evidence.surfaceMax)),
-      occupancyAgreement: Math.min(...ordered.map(({ item }) => item.evidence.occupancyAgreement)),
-      instanceResiduals: ordered.map(({ item }) => ({ regionKeys: item.evidence.regionKeys, surfaceRms: item.evidence.surfaceRms, surfaceMax: item.evidence.surfaceMax })),
-    });
+    patterns.push(patternResult('linear', node, ordered.map(({ item }) => item)));
   }
   return patterns.sort((a, b) => a.regionKeys.join('/').localeCompare(b.regionKeys.join('/')));
+}
+
+function withRelativeCenter(node: SDFNode, center: Vec3): SDFNode | null {
+  if (node.kind !== 'transform') return center.every((value) => Math.abs(value) < 1e-9) ? node : null;
+  return { ...node, tx: node.tx - center[0], ty: node.ty - center[1], tz: node.tz - center[2] };
+}
+
+export function recoverCircularPatterns(evidence: RegionalPrimitiveEvidence[], relativeTolerance = 1e-4): RegionalPatternEvidence[] {
+  const patterns: RegionalPatternEvidence[] = [];
+  for (const group of groupedPlaced(evidence)) {
+    if (group.length < 3) continue;
+    const points = [...group].sort((a, b) => compareVec(a.center, b.center));
+    const a = subtract(points[1].center, points[0].center), b = subtract(points[2].center, points[0].center), rawNormal = cross(a, b), normalLength = Math.hypot(...rawNormal);
+    if (!(normalLength > 1e-9)) continue;
+    let axis = scale(rawNormal, 1 / normalLength);
+    let pivot = 0; for (let i = 1; i < 3; i++) if (Math.abs(axis[i]) > Math.abs(axis[pivot])) pivot = i;
+    if (axis[pivot] < 0) axis = scale(axis, -1);
+    const n2 = dot(rawNormal, rawNormal), aa = dot(a, a), bb = dot(b, b);
+    const center = add(points[0].center, scale(add(scale(cross(b, rawNormal), aa), scale(cross(rawNormal, a), bb)), 1 / (2 * n2)));
+    const radius = distance(center, points[0].center), tolerance = Math.max(1e-8, radius * relativeTolerance);
+    if (!(radius > 1e-9) || points.some((point) => Math.abs(dot(subtract(point.center, center), axis)) > tolerance || Math.abs(distance(point.center, center) - radius) > tolerance)) continue;
+    const u = scale(subtract(points[0].center, center), 1 / radius), v = cross(axis, u);
+    const ordered = points.map((item) => ({ item, angle: (Math.atan2(dot(subtract(item.center, center), v), dot(subtract(item.center, center), u)) + 2 * Math.PI) % (2 * Math.PI) })).sort((x, y) => x.angle - y.angle);
+    const expected = 2 * Math.PI / ordered.length;
+    const gaps = ordered.map((item, index) => ((ordered[(index + 1) % ordered.length].angle - item.angle + 2 * Math.PI) % (2 * Math.PI)));
+    if (gaps.some((gap) => Math.abs(gap - expected) > relativeTolerance)) continue;
+    const child = withRelativeCenter(ordered[0].item.evidence.node, center); if (!child) continue;
+    const circular: SDFNode = { kind: 'circularPattern', child, axis, count: ordered.length };
+    const node: SDFNode = center.some((value) => Math.abs(value) > 1e-9)
+      ? { kind: 'transform', child: circular, tx: center[0], ty: center[1], tz: center[2], rx: 0, ry: 0, rz: 0, sx: 1, sy: 1, sz: 1 }
+      : circular;
+    patterns.push(patternResult('circular', node, ordered.map(({ item }) => item)));
+  }
+  return patterns.sort((a, b) => a.regionKeys.join('/').localeCompare(b.regionKeys.join('/')));
+}
+
+export function recoverMirrorPatterns(evidence: RegionalPrimitiveEvidence[], relativeTolerance = 1e-4): RegionalPatternEvidence[] {
+  const patterns: RegionalPatternEvidence[] = [];
+  for (const group of groupedPlaced(evidence)) {
+    if (group.length !== 2) continue;
+    const ordered = [...group].sort((a, b) => compareVec(a.center, b.center));
+    const scaleValue = Math.max(1, ...ordered.flatMap((item) => item.center.map(Math.abs))), tolerance = scaleValue * relativeTolerance;
+    const mirrored = [0, 1, 2].filter((axis) => Math.abs(ordered[0].center[axis] + ordered[1].center[axis]) <= tolerance && Math.abs(ordered[0].center[axis]) > tolerance);
+    if (mirrored.length !== 1 || [0, 1, 2].some((axis) => axis !== mirrored[0] && Math.abs(ordered[0].center[axis] - ordered[1].center[axis]) > tolerance)) continue;
+    const source = ordered.find((item) => item.center[mirrored[0]] > 0)!;
+    if (source.evidence.node.kind !== 'transform' || source.evidence.node.rx || source.evidence.node.ry || source.evidence.node.rz) continue;
+    const child = { ...source.evidence.node, tx: mirrored[0] === 0 ? Math.abs(source.evidence.node.tx) : source.evidence.node.tx, ty: mirrored[0] === 1 ? Math.abs(source.evidence.node.ty) : source.evidence.node.ty, tz: mirrored[0] === 2 ? Math.abs(source.evidence.node.tz) : source.evidence.node.tz };
+    const axes: Vec3 = [mirrored[0] === 0 ? 1 : 0, mirrored[0] === 1 ? 1 : 0, mirrored[0] === 2 ? 1 : 0];
+    patterns.push(patternResult('mirror', { kind: 'mirror', child, axes }, ordered));
+  }
+  return patterns.sort((a, b) => a.regionKeys.join('/').localeCompare(b.regionKeys.join('/')));
+}
+
+/** Choose the largest deterministic set of non-overlapping pattern
+ * explanations and replace their explicit instances for CSG assembly. */
+export function compressRegionalPatterns(evidence: RegionalPrimitiveEvidence[]): { evidence: RegionalPrimitiveEvidence[]; patterns: RegionalPatternEvidence[] } {
+  const candidates = [...recoverLinearPatterns(evidence), ...recoverCircularPatterns(evidence), ...recoverMirrorPatterns(evidence)]
+    .sort((a, b) => b.instanceResiduals.length - a.instanceResiduals.length || ['linear','circular','mirror'].indexOf(a.pattern) - ['linear','circular','mirror'].indexOf(b.pattern) || a.regionKeys.join('/').localeCompare(b.regionKeys.join('/')));
+  const consumed = new Set<string>(), patterns: RegionalPatternEvidence[] = [];
+  for (const candidate of candidates) {
+    if (candidate.regionKeys.some((key) => consumed.has(key))) continue;
+    candidate.regionKeys.forEach((key) => consumed.add(key)); patterns.push(candidate);
+  }
+  return { evidence: [...evidence.filter((candidate) => candidate.regionKeys.every((key) => !consumed.has(key))), ...patterns], patterns };
 }

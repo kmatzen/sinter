@@ -12,6 +12,7 @@ import { fitPrimitive } from './sdf/fitPrimitive';
 import { segmentMeshSurfaces } from './sdf/meshSegmentation';
 import { fitSegmentedSurfaces } from './sdf/regionFit';
 import { assembleRegionalCsgTree, recoverRegionalPrimitiveEvidence } from './sdf/csgRecovery';
+import { compressRegionalPatterns } from './sdf/patternRecovery';
 import { bakeMeshField } from './sdf/meshField';
 import { decodeMeshPositions, DEFAULT_MESH_RESOLUTION } from './sdf/convert';
 import type { MeshFitResult } from '../types/geometry';
@@ -161,6 +162,12 @@ function toUINode(node: SDFNode): SDFNodeUI {
     case 'union':
     case 'subtract':
       return { id: id(), kind: node.kind, label: node.kind === 'union' ? 'Union' : 'Subtract', params: { smooth: node.k }, children: [toUINode(node.a), toUINode(node.b)], enabled: true };
+    case 'linearPattern':
+      return { id: id(), kind: 'linearPattern', label: 'Linear Pattern', params: { axisX: node.axis[0], axisY: node.axis[1], axisZ: node.axis[2], count: node.count, spacing: node.spacing }, children: [toUINode(node.child)], enabled: true };
+    case 'circularPattern':
+      return { id: id(), kind: 'circularPattern', label: 'Circular Pattern', params: { axisX: node.axis[0], axisY: node.axis[1], axisZ: node.axis[2], count: node.count }, children: [toUINode(node.child)], enabled: true };
+    case 'mirror':
+      return { id: id(), kind: 'mirror', label: 'Mirror', params: { mirrorX: node.axes[0], mirrorY: node.axes[1], mirrorZ: node.axes[2] }, children: [toUINode(node.child)], enabled: true };
     case 'transform': {
       let out = toUINode(node.child);
       if (node.rx || node.ry || node.rz) {
@@ -210,7 +217,9 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
         const surfaceFits = fitSegmentedSurfaces(positions, segmentation.regions).filter((candidate) => candidate !== null);
         const internalEvidence = recoverRegionalPrimitiveEvidence(field, surfaceFits);
         const regionalPrimitives = internalEvidence.map((candidate) => ({ ...candidate, node: toUINode(candidate.node) }));
-        const assembled = fit ? assembleRegionalCsgTree(field, fit.node, internalEvidence) : null;
+        const compressed = compressRegionalPatterns(internalEvidence);
+        const regionalPatterns = compressed.patterns.map((candidate) => ({ ...candidate, node: toUINode(candidate.node) }));
+        const assembled = fit ? assembleRegionalCsgTree(field, fit.node, compressed.evidence) : null;
         const csgFit = assembled ? { ...assembled, node: toUINode(assembled.node) } : null;
         const out: MeshFitResult | null = fit === null ? null : {
           kind: fit.kind,
@@ -224,6 +233,7 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
           surfaceFits,
           regionalPrimitives,
           csgFit,
+          regionalPatterns,
         };
         self.postMessage({ type: 'fitResult', rid, fit: out });
         break;
