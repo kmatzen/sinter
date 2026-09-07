@@ -6,8 +6,8 @@ import { STL_TOPOLOGY_STATUS } from '../../worker/sdf/stl';
 
 vi.mock('../../worker/meshImportClient', () => ({
   MeshImportSession: class {
-    async load() { return { format: 'stl', triangleCount: 4, componentCount: 1, boundsMin: [0, 0, 0], boundsMax: [1, 1, 1] }; }
-    async finish() { return { positions: new Float32Array(TETRA.flat()), triangleCount: 4 }; }
+    async load(file: File) { return { format: 'stl', triangleCount: file.name === 'large.stl' ? 60001 : 4, componentCount: 1, boundsMin: [0, 0, 0], boundsMax: [1, 1, 1], unitScaleToMillimeters: 1, estimatedProjectBytes: 1216 }; }
+    async finish(target: number) { return { positions: new Float32Array(TETRA.flat()), triangleCount: target === 60000 ? 60000 : 4, maxDeviation: target === 60000 ? 0.125 : 0 }; }
     cancel() {}
   },
 }));
@@ -75,5 +75,35 @@ describe('ImportMesh topology acknowledgement', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Import approximately' }));
     await waitFor(() => expect(useModelerStore.getState().tree?.kind).toBe('mesh'));
     expect(onDone).toHaveBeenCalledOnce();
+  });
+
+  it('reimports with saved settings and replaces the node in one undo step', async () => {
+    const original = buildMeshNode('old.stl', new Float32Array(TETRA.flat()), 64, 'in', 'y-up');
+    original.label = 'Kept label';
+    useModelerStore.getState().resetDocument(original);
+    render(<ImportMesh replaceNode={original} onDone={() => {}} />);
+
+    expect(screen.getByRole('dialog', { name: 'Reimport mesh' })).toHaveTextContent('old.stl');
+    expect(screen.queryByLabelText('Source up axis')).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Mesh file'), { target: { files: [new File([binarySTL()], 'replacement.stl', { type: 'model/stl' })] } });
+    expect(await screen.findByLabelText('Source up axis')).toHaveValue('y-up');
+    expect(screen.getByLabelText('Distance-field resolution')).toHaveValue('64');
+    fireEvent.click(screen.getByRole('button', { name: 'Import approximately' }));
+    await waitFor(() => expect(useModelerStore.getState().tree?.data?.meshName).toBe('replacement.stl'));
+    expect(useModelerStore.getState().tree).toMatchObject({ id: original.id, label: 'Kept label' });
+
+    useModelerStore.getState().undo();
+    expect(useModelerStore.getState().tree?.data?.meshName).toBe('old.stl');
+  });
+
+  it('reports simplification error before committing reduced geometry', async () => {
+    render(<ImportMesh onDone={() => {}} />);
+    fireEvent.change(screen.getByLabelText('Mesh file'), { target: { files: [new File([binarySTL()], 'large.stl', { type: 'model/stl' })] } });
+    expect(await screen.findByLabelText('Triangles after import')).toHaveValue('60000');
+    fireEvent.click(screen.getByRole('button', { name: 'Import approximately' }));
+    expect(await screen.findByRole('status')).toHaveTextContent('sampled maximum deviation 0.125 mm');
+    expect(useModelerStore.getState().tree).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm import' }));
+    await waitFor(() => expect(useModelerStore.getState().tree?.kind).toBe('mesh'));
   });
 });

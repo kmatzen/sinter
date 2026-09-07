@@ -1,7 +1,7 @@
 import type { MeshImportInfo } from './meshImport';
 
 type WorkerResponse = { type: 'preview'; info: MeshImportInfo } | { type: 'progress'; percent: number } |
-  { type: 'result'; positions: ArrayBuffer; triangleCount: number } | { type: 'error'; message: string };
+  { type: 'result'; positions: ArrayBuffer; triangleCount: number; maxDeviation: number } | { type: 'error'; message: string };
 
 export class MeshImportSession {
   private worker: Worker | null = new Worker(new URL('./meshImportWorker.ts', import.meta.url), { type: 'module' });
@@ -15,7 +15,7 @@ export class MeshImportSession {
       if (!pending) return;
       if (message.type === 'error') pending.reject(new Error(message.message));
       else if (message.type === 'preview') pending.resolve(message.info);
-      else pending.resolve({ positions: new Float32Array(message.positions), triangleCount: message.triangleCount });
+      else pending.resolve({ positions: new Float32Array(message.positions), triangleCount: message.triangleCount, maxDeviation: message.maxDeviation });
     };
     this.worker!.onerror = (event) => { const pending = this.pending; this.pending = null; pending?.reject(new Error(event.message || 'Mesh import worker failed')); };
   }
@@ -30,7 +30,7 @@ export class MeshImportSession {
     return file.arrayBuffer().then((buffer) => this.request({ type: 'load', name: file.name, buffer }, [buffer]));
   }
 
-  finish(targetTriangles: number, progress?: (percent: number) => void): Promise<{ positions: Float32Array; triangleCount: number }> {
+  finish(targetTriangles: number, progress?: (percent: number) => void): Promise<{ positions: Float32Array; triangleCount: number; maxDeviation: number }> {
     return this.request({ type: 'finish', targetTriangles }, [], progress);
   }
 
