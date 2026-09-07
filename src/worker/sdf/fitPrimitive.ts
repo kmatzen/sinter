@@ -268,6 +268,55 @@ function eulerForAxis(d: Vec3): { rx: number; ry: number } {
   return { rx: rx * deg, ry: Math.atan2(d[0], d[2]) * deg };
 }
 
+const dot3 = (a: Vec3, b: Vec3) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+const cross3 = (a: Vec3, b: Vec3): Vec3 => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+
+/** Canonical right-handed PCA frame. Eigenvector signs are arbitrary; fixing
+ * the largest component of the first two axes and deriving the third by a
+ * cross product makes identical input produce structurally identical trees. */
+function canonicalFrame(raw: Vec3[]): [Vec3, Vec3, Vec3] | null {
+  if (raw.length !== 3) return null;
+  const signed = raw.slice(0, 2).map((axis) => {
+    let pivot = 0;
+    for (let i = 1; i < 3; i++) if (Math.abs(axis[i]) > Math.abs(axis[pivot])) pivot = i;
+    const sign = axis[pivot] < 0 ? -1 : 1;
+    return axis.map((value) => value * sign) as Vec3;
+  });
+  const z = cross3(signed[0], signed[1]);
+  const length = Math.hypot(...z);
+  if (!(length > 1e-8)) return null;
+  return [signed[0], signed[1], z.map((value) => value / length) as Vec3];
+}
+
+/** XYZ Euler angles for a rotation matrix whose columns are local X/Y/Z. */
+function eulerForFrame(frame: [Vec3, Vec3, Vec3]): Vec3 {
+  const r00 = frame[0][0], r10 = frame[0][1], r20 = frame[0][2];
+  const r21 = frame[1][2], r22 = frame[2][2];
+  const r01 = frame[1][0], r11 = frame[1][1];
+  const ry = Math.asin(Math.max(-1, Math.min(1, -r20)));
+  const cy = Math.cos(ry);
+  const rx = Math.abs(cy) > 1e-8 ? Math.atan2(r21, r22) : Math.atan2(-frame[2][1], r11);
+  const rz = Math.abs(cy) > 1e-8 ? Math.atan2(r10, r00) : Math.atan2(-r01, r11);
+  const deg = 180 / Math.PI;
+  return [rx * deg, ry * deg, rz * deg];
+}
+
+function orientedBoxSeed(pts: Vec3[], centre: Vec3): { centre: Vec3; size: Vec3; rotation: Vec3 } | null {
+  const frame = canonicalFrame(principalAxes(pts, centre));
+  if (!frame) return null;
+  // A permutation/sign change of world axes is already represented exactly by
+  // the simpler axis-aligned box candidate.
+  if (frame.every((axis) => Math.max(...axis.map(Math.abs)) > 0.999)) return null;
+  const lo: Vec3 = [Infinity, Infinity, Infinity], hi: Vec3 = [-Infinity, -Infinity, -Infinity];
+  for (const point of pts) {
+    const delta: Vec3 = [point[0] - centre[0], point[1] - centre[1], point[2] - centre[2]];
+    for (let i = 0; i < 3; i++) { const value = dot3(delta, frame[i]); lo[i] = Math.min(lo[i], value); hi[i] = Math.max(hi[i], value); }
+  }
+  const localCentre: Vec3 = [(lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2, (lo[2] + hi[2]) / 2];
+  const worldCentre = centre.map((value, axis) => value + frame.reduce((sum, direction, i) => sum + direction[axis] * localCentre[i], 0)) as Vec3;
+  return { centre: worldCentre, size: [hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]], rotation: eulerForFrame(frame) };
+}
+
 /** Wrap a primitive in a translate, since the primitives are all origin-centred. */
 function placed(child: SDFNode, t: Vec3): SDFNode {
   if (t[0] === 0 && t[1] === 0 && t[2] === 0) return child;
@@ -321,6 +370,20 @@ function candidates(solidBounds: { min: Vec3; max: Vec3; centre: Vec3 }, pts: Ve
       build: (p) => placed({ kind: 'box', size: [Math.abs(p[3]), Math.abs(p[4]), Math.abs(p[5])] }, [p[0], p[1], p[2]]),
     },
   ];
+
+  const boxSeed = orientedBoxSeed(pts, centre);
+  if (boxSeed) out.push({
+    kind: 'Box (fitted orientation)',
+    // Rotation participates in the same deterministic coordinate descent as
+    // centre and dimensions. PCA is a strong seed, not an exact answer: grid
+    // crossings sample different-sized faces at different densities and can
+    // tilt the covariance axes enough to miss the strict 1% surface gate.
+    params: [...boxSeed.centre, ...boxSeed.size, ...boxSeed.rotation],
+    build: (p) => ({
+      kind: 'transform', child: { kind: 'box', size: [Math.abs(p[3]), Math.abs(p[4]), Math.abs(p[5])] },
+      tx: p[0], ty: p[1], tz: p[2], rx: p[6], ry: p[7], rz: p[8], sx: 1, sy: 1, sz: 1,
+    }),
+  });
 
   // A cylinder and a capsule per axis. The primitives are Y-axis, so the other
   // two axes come from a quarter-turn rather than from a separate node kind.

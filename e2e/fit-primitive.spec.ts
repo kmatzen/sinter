@@ -40,6 +40,34 @@ function sphereSTL(radius: number, subdiv: number): Buffer {
   return buf;
 }
 
+function rotatedBoxSTL(size: [number, number, number], degrees: [number, number, number]): Buffer {
+  const rotate = (point: number[]) => {
+    let [x, y, z] = point;
+    for (const [axis, angle] of degrees.map((value, axis) => [axis, value * Math.PI / 180] as const)) {
+      const c = Math.cos(angle), s = Math.sin(angle);
+      if (axis === 0) [y, z] = [y * c - z * s, y * s + z * c];
+      else if (axis === 1) [x, z] = [x * c + z * s, -x * s + z * c];
+      else [x, y] = [x * c - y * s, x * s + y * c];
+    }
+    return [x + 3, y - 2, z + 4];
+  };
+  const vertices = [[-1,-1,-1],[1,-1,-1],[1,1,-1],[-1,1,-1],[-1,-1,1],[1,-1,1],[1,1,1],[-1,1,1]]
+    .map((point) => rotate(point.map((value, axis) => value * size[axis] / 2)));
+  const faces = [[0,2,1],[0,3,2],[4,5,6],[4,6,7],[0,1,5],[0,5,4],[3,7,6],[3,6,2],[0,4,7],[0,7,3],[1,2,6],[1,6,5]];
+  const buffer = Buffer.alloc(84 + faces.length * 50);
+  buffer.writeUInt32LE(faces.length, 80);
+  let offset = 84;
+  for (const face of faces) {
+    offset += 12;
+    for (const index of face) {
+      for (let axis = 0; axis < 3; axis++) buffer.writeFloatLE(vertices[index][axis], offset + axis * 4);
+      offset += 12;
+    }
+    offset += 2;
+  }
+  return buffer;
+}
+
 async function enterModeler(page: Page) {
   await page.goto('/', { waitUntil: 'domcontentloaded' });
   const accept = page.locator('button:has-text("Accept")');
@@ -104,6 +132,18 @@ test.describe('Fit a primitive to an imported mesh', () => {
       { timeout: PRECONDITION_TIMEOUT },
     );
     expect(await page.evaluate(() => (window as any).__MODELER_STORE__.error)).toBeFalsy();
+  });
+
+  test('recovers a non-cardinal rotated box as a transformed box', async ({ page }) => {
+    await enterModeler(page);
+    await importAndSelect(page, rotatedBoxSTL([28, 17, 9], [27, -19, 13]));
+    await page.getByRole('button', { name: 'Find best primitive' }).click();
+    await expect(page.getByText(/Box \(fitted orientation\) — worst/)).toBeVisible({ timeout: PRECONDITION_TIMEOUT });
+    await page.getByRole('button', { name: /Replace with Box/ }).click();
+    await expect.poll(() => page.evaluate(() => {
+      const root = (window as any).__MODELER_STORE__.tree;
+      return [root?.kind, root?.children?.[0]?.kind];
+    }), { timeout: 20_000 }).toEqual(['translate', 'rotate']);
   });
 
   /**
