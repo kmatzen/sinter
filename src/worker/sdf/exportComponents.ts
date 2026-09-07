@@ -17,7 +17,8 @@ export function sourceFeatureSize(node: SDFNode): Feature3 {
     case 'ellipsoid': return [...node.size];
     case 'extrude': {
       const feature = profileFeatureSize(node.profile);
-      return [feature, feature, node.depth];
+      const wall = (node.wallThickness ?? 0) > 0 ? node.wallThickness! : feature;
+      return [Math.min(feature, wall), Math.min(feature, wall), node.depth];
     }
     case 'revolve': {
       const feature = profileFeatureSize(node.profile);

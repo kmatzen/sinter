@@ -131,6 +131,9 @@ const CASES: [string, SDFNode][] = [
     outer: [[-16, -12], [16, -12], [16, 12], [-16, 12]],
     holes: [[[-5, -5], [-5, 5], [5, 5], [5, -5]]],
   } }],
+  ['tapered thin two-sided profile extrude', { kind: 'extrude', depth: 11, zMin: -4, zMax: 7, taper: -8, wallThickness: 1.5, profile: {
+    outer: [[-12, -9], [12, -9], [12, 9], [-12, 9]], holes: [],
+  } }],
   ['partial profile revolve', { kind: 'revolve', axis: 'y', angle: 140, profile: {
     outer: [[0, -10], [8, -10], [14, -5], [14, 5], [8, 10], [0, 10]], holes: [],
   } }],

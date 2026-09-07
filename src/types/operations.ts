@@ -73,7 +73,9 @@ export const NODE_DEFAULTS: Record<string, Record<string, number>> = {
   cone: { radius: 15, height: 30 },
   capsule: { radius: 10, height: 30 },
   ellipsoid: { width: 30, height: 20, depth: 40 },
-  extrude: { depth: 5 },
+  // extentMode: 0 symmetric, 1 positive one-sided, 2 explicit two-sided.
+  // New fields default to the legacy symmetric solid, preserving old projects.
+  extrude: { depth: 5, extentMode: 0, negativeDepth: 2.5, taper: 0, wallThickness: 0 },
   revolve: { axis: 1, angle: 360 },
   text: { size: 10, depth: 2 },
   // Grid resolution for the baked field. 48 keeps the bake to ~110k
@@ -167,7 +169,7 @@ export function nodeSummary(node: SDFNodeUI): string {
     case 'cone': return `r=${p.radius} h=${p.height}`;
     case 'capsule': return `r=${p.radius} h=${p.height}`;
     case 'ellipsoid': return `${p.width}\u00d7${p.height}\u00d7${p.depth}`;
-    case 'extrude': return `${p.depth}mm profile`;
+    case 'extrude': return `${p.extentMode === 2 ? `${p.negativeDepth}+${p.depth}` : p.depth}mm ${p.wallThickness > 0 ? 'thin ' : ''}profile`;
     case 'revolve': return `${['X', 'Y', 'Z'][p.axis] ?? 'Y'} ${p.angle}°`;
     case 'union': case 'subtract': case 'intersect':
       return p.smooth > 0 ? `smooth=${p.smooth}` : 'sharp';

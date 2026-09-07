@@ -73,6 +73,8 @@ export function validateModelingEnvelope(root: SDFNode): void {
         requireFeature(Math.min(...node.size), scale, 'ellipsoid dimension'); return;
       case 'extrude':
         requireFeature(node.depth, scale, 'extrude depth');
+        if ((node.wallThickness ?? 0) > 0) requireFeature(node.wallThickness!, scale, 'extrude wall thickness');
+        if (Math.abs(node.taper ?? 0) > 45) throw new ModelingEnvelopeError('extrude taper must stay within ±45°');
         requireFeature(profileFeatureSize(node.profile), scale, 'profile edge or wall'); return;
       case 'revolve':
         requireFeature(profileFeatureSize(node.profile), scale, 'profile edge or wall');

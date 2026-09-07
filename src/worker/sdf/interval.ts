@@ -307,12 +307,17 @@ export function evaluateInterval(node: SDFNode, box: BBox): Interval {
     }
     case 'extrude': {
       const bounds = computeBounds(node);
-      const hx = (bounds.max[0] - bounds.min[0]) / 2, hy = (bounds.max[1] - bounds.min[1]) / 2;
-      const cx = (bounds.max[0] + bounds.min[0]) / 2, cy = (bounds.max[1] + bounds.min[1]) / 2;
-      const q = [addK(absI(addK(x, -cx)), -hx), addK(absI(addK(y, -cy)), -hy), addK(absI(z), -node.depth / 2)];
+      const halves = [0, 1, 2].map((axis) => (bounds.max[axis] - bounds.min[axis]) / 2);
+      const centres = [0, 1, 2].map((axis) => (bounds.max[axis] + bounds.min[axis]) / 2);
+      const q = [x, y, z].map((value, axis) => addK(absI(addK(value, -centres[axis])), -halves[axis]));
       const outside = lengthI(q.map((c) => maxK(c, 0)));
       const inside = minK(maxI(maxI(q[0], q[1]), q[2]), 0);
-      return I(add(outside, inside).lo, Infinity);
+      const lower = add(outside, inside).lo;
+      // Draft normalization deliberately scales clearance by cos(taper).
+      // Outside the AABB its geometric box distance can therefore be slightly
+      // larger than the field; apply the same factor to keep pruning sound.
+      const slopeScale = Math.hypot(1, Math.tan((node.taper ?? 0) * Math.PI / 180));
+      return I(lower > 0 ? lower / slopeScale : lower, Infinity);
     }
     case 'revolve': {
       const bounds = computeBounds(node);

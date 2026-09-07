@@ -502,7 +502,17 @@ function NodeEditor({ node, onUpdate, onUpdateStr }: { node: SDFNodeUI; onUpdate
       return (
         <>
           <SectionLabel>Extrusion</SectionLabel>
-          <NumberInput label="Depth" value={p.depth} min={0.1} step={0.5} unit="mm" onChange={(v) => onUpdate({ depth: v })} />
+          <label className="mx-2 mb-1 flex items-center gap-2 text-[11px]" style={{ color: 'var(--text-muted)' }}>Extent
+            <select aria-label="Extrude extent" value={p.extentMode} onChange={(event) => onUpdate({ extentMode: Number(event.target.value) })}
+              className="min-w-0 flex-1 h-7 rounded px-1" style={{ background: 'var(--bg-surface)', color: 'var(--text-primary)' }}>
+              <option value={0}>Symmetric</option><option value={1}>Positive one-sided</option><option value={2}>Two-sided</option>
+            </select>
+          </label>
+          <NumberInput label={p.extentMode === 0 ? 'Total depth' : 'Positive depth'} value={p.depth} min={0.1} step={0.5} unit="mm" onChange={(v) => onUpdate({ depth: v })} />
+          {p.extentMode === 2 && <NumberInput label="Negative depth" value={p.negativeDepth} min={0.1} step={0.5} unit="mm" onChange={(v) => onUpdate({ negativeDepth: v })} />}
+          <NumberInput label="Taper" value={p.taper} min={-45} max={45} step={1} unit="deg" onChange={(v) => onUpdate({ taper: v })} />
+          <NumberInput label="Wall" value={p.wallThickness} min={0} max={20} step={0.5} unit="mm" onChange={(v) => onUpdate({ wallThickness: v })} />
+          <div className="px-2 text-[10px] leading-snug" style={{ color: 'var(--text-muted)' }}>Wall 0 makes a solid. Positive taper shrinks the profile toward the positive extent.</div>
           <SectionLabel>Profile</SectionLabel>
           <ProfileEditor value={node.data?.profile} fallback={DEFAULT_PROFILE_TEXT} revolve={false} validate={parseProfile} onCommit={(profile) => onUpdateStr({ profile })} />
           <details className="mx-2 mt-2"><summary className="text-[10px] cursor-pointer" style={{ color: 'var(--text-muted)' }}>Advanced profile JSON</summary>
