@@ -1,4 +1,6 @@
+import { create } from 'zustand';
 import type { NamedParameter, SDFNodeUI } from '../types/operations';
+import type { ReusableComponent } from '../types/component';
 import { decodeTree, MAX_PROJECT_JSON_CHARS } from '../types/documentDecoder';
 
 export const COMPONENT_FILE_VERSION = 1;
@@ -6,17 +8,31 @@ export const COMPONENT_FILE_EXTENSION = '.sinter-component.json';
 const STORAGE_KEY = 'sinter.personal-components.v1';
 const MAX_COMPONENTS = 100;
 
-export interface PersonalComponent {
-  id: string;
-  name: string;
-  description: string;
-  tags: string[];
-  thumbnail: string;
-  node: SDFNodeUI;
-  parameters: NamedParameter[];
-  createdAt: string;
-  updatedAt: string;
+export type PersonalComponent = ReusableComponent;
+
+interface ProjectLibraryState {
+  components: ReusableComponent[];
+  replace: (components: ReusableComponent[]) => void;
+  add: (component: ReusableComponent) => void;
+  rename: (id: string, name: string) => void;
+  remove: (id: string) => void;
 }
+
+export const useProjectComponentStore = create<ProjectLibraryState>((set, get) => ({
+  components: [],
+  replace: (components) => set({ components: components.map(decodeComponent) }),
+  add: (component) => {
+    const decoded = decodeComponent(component);
+    if (get().components.some((item) => item.name.localeCompare(decoded.name, undefined, { sensitivity: 'accent' }) === 0)) throw new Error(`A project component named “${decoded.name}” already exists`);
+    set({ components: [decoded, ...get().components] });
+  },
+  rename: (id, name) => {
+    const normalized = name.trim();
+    if (get().components.some((item) => item.id !== id && item.name.localeCompare(normalized, undefined, { sensitivity: 'accent' }) === 0)) throw new Error(`A project component named “${normalized}” already exists`);
+    set({ components: get().components.map((item) => item.id === id ? decodeComponent({ ...item, name: normalized, updatedAt: new Date().toISOString() }) : item) });
+  },
+  remove: (id) => set({ components: get().components.filter((item) => item.id !== id) }),
+}));
 
 interface ComponentFile { version: 1; component: PersonalComponent }
 
@@ -111,10 +127,14 @@ export function createPersonalComponent(node: SDFNodeUI, name: string, descripti
   const current = readPersonalComponents();
   const normalized = name.trim();
   if (current.some((item) => item.name.localeCompare(normalized, undefined, { sensitivity: 'accent' }) === 0)) throw new Error(`A component named “${normalized}” already exists`);
-  const now = new Date().toISOString();
-  const component = decodeComponent({ id: crypto.randomUUID(), name: normalized, description, tags, thumbnail: preview(node.kind), node, parameters, createdAt: now, updatedAt: now });
+  const component = makeReusableComponent(node, normalized, description, tags, parameters);
   write([component, ...current]);
   return component;
+}
+
+export function makeReusableComponent(node: SDFNodeUI, name: string, description: string, tags: string[], parameters: NamedParameter[]): ReusableComponent {
+  const now = new Date().toISOString();
+  return decodeComponent({ id: crypto.randomUUID(), name, description, tags, thumbnail: preview(node.kind), node, parameters, createdAt: now, updatedAt: now });
 }
 
 export function renamePersonalComponent(id: string, name: string): void {
@@ -134,12 +154,16 @@ export function exportComponent(component: PersonalComponent): string {
 }
 
 export function importComponent(json: string): PersonalComponent {
-  if (json.length > MAX_PROJECT_JSON_CHARS) throw new Error('Component file is too large');
-  const file = JSON.parse(json) as Partial<ComponentFile>;
-  if (file.version !== COMPONENT_FILE_VERSION) throw new Error('Unsupported component file version');
-  const component = decodeComponent({ ...file.component, id: crypto.randomUUID(), createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+  const component = parseComponentFile(json);
   const current = readPersonalComponents();
   if (current.some((item) => item.name.localeCompare(component.name, undefined, { sensitivity: 'accent' }) === 0)) throw new Error(`A component named “${component.name}” already exists`);
   write([component, ...current]);
   return component;
+}
+
+export function parseComponentFile(json: string): ReusableComponent {
+  if (json.length > MAX_PROJECT_JSON_CHARS) throw new Error('Component file is too large');
+  const file = JSON.parse(json) as Partial<ComponentFile>;
+  if (file.version !== COMPONENT_FILE_VERSION) throw new Error('Unsupported component file version');
+  return decodeComponent({ ...file.component, id: crypto.randomUUID(), createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
 }

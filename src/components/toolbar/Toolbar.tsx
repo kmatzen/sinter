@@ -20,6 +20,7 @@ import { dimensionsOutsideBuildVolume, exportPreflightOptions, useManufacturingP
 import { commandById, OPEN_COMMAND_PALETTE_EVENT, runEditorCommand, TOOLBAR_COMMAND_EVENT } from '../../commands/editorCommands';
 import { formatLength } from '../../types/units';
 import { getEngineRef } from '../../engine/engineRef';
+import { useProjectComponentStore } from '../../store/componentLibrary';
 
 function hasImportedMesh(node: ReturnType<typeof useModelerStore.getState>['tree']): boolean {
   return !!node && (node.kind === 'mesh' || node.children.some(hasImportedMesh));
@@ -89,8 +90,9 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
     const check = () => setDirty(isCloudDirty());
     const unsubModel = useModelerStore.subscribe(check);
     const unsubProject = useProjectStore.subscribe(check);
+    const unsubComponents = useProjectComponentStore.subscribe(check);
     check();
-    return () => { unsubModel(); unsubProject(); };
+    return () => { unsubModel(); unsubProject(); unsubComponents(); };
   }, []);
 
   // Close overflow menu on outside click

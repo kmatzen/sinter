@@ -10,6 +10,7 @@ import { useViewportStore } from './viewportStore';
 import { useTreeUiStore } from './treeUiStore';
 import * as THREE from 'three';
 import { nodeWorldBounds } from '../engine/nodeBounds';
+import { useProjectComponentStore } from './componentLibrary';
 
 export interface SDFDisplayData {
   glsl: string;
@@ -1231,12 +1232,13 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
     const units = { displayUnit: viewport.measurementUnit, decimalPrecision: viewport.measurementPrecision,
       fractionalDenominator: viewport.measurementFractionalDenominator };
     return JSON.stringify({ version: 2, projectName, tree, parameters, views: viewport.namedViews,
-      measurements: viewport.pinnedMeasurements, units }, null, 2);
+      measurements: viewport.pinnedMeasurements, units, components: useProjectComponentStore.getState().components }, null, 2);
   },
 
   fromJSON: (json: string) => {
     const data = decodeProjectDocument(JSON.parse(json));
     get().resetDocument(data.tree, data.projectName, data.parameters);
+    useProjectComponentStore.getState().replace(data.components);
     const viewport = useViewportStore.getState();
     viewport.setNamedViews(data.views);
     viewport.setPinnedMeasurements(data.measurements);

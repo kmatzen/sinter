@@ -8,6 +8,7 @@ import { STLParseError, STL_TOPOLOGY_STATUS, validateSTLTopology } from '../work
 import { MODEL_SPATIAL_LIMIT_MM } from './modelingEnvelope';
 import type { PinnedMeasurement } from './measurement';
 import { DEFAULT_UNIT_PREFERENCES, type UnitPreferences } from './units';
+import type { ReusableComponent } from './component';
 
 export const CURRENT_DOCUMENT_VERSION = 2;
 export const MAX_PROJECT_CHECKPOINTS = 10;
@@ -301,6 +302,7 @@ export interface DecodedProject {
   views: NamedProjectView[];
   measurements: PinnedMeasurement[];
   units: UnitPreferences;
+  components: ReusableComponent[];
 }
 
 const MAX_NAMED_VIEWS = 20;
@@ -460,6 +462,30 @@ function decodeNamedParameters(input: unknown, path: string): NamedParameter[] {
   return definitions;
 }
 
+export function decodeReusableComponents(input: unknown, path = 'project.components'): ReusableComponent[] {
+  if (input === undefined) return [];
+  if (!Array.isArray(input) || input.length > 100) throw new DocumentDecodeError(`${path} must contain at most 100 components`);
+  const ids = new Set<string>();
+  const names = new Set<string>();
+  return input.map((item, index) => {
+    const itemPath = `${path}[${index}]`;
+    const raw = record(item, itemPath);
+    if (typeof raw.id !== 'string' || !raw.id || raw.id.length > 80 || ids.has(raw.id)) throw new DocumentDecodeError(`${itemPath}.id is missing, invalid, or duplicated`);
+    ids.add(raw.id);
+    if (typeof raw.name !== 'string' || !raw.name.trim() || raw.name.length > 80) throw new DocumentDecodeError(`${itemPath}.name is invalid`);
+    const foldedName = raw.name.trim().toLocaleLowerCase();
+    if (names.has(foldedName)) throw new DocumentDecodeError(`${itemPath}.name is duplicated`);
+    names.add(foldedName);
+    if (typeof raw.description !== 'string' || raw.description.length > 500) throw new DocumentDecodeError(`${itemPath}.description is invalid`);
+    if (!Array.isArray(raw.tags) || raw.tags.length > 10 || raw.tags.some((tag) => typeof tag !== 'string' || !tag.trim() || tag.length > 32)) throw new DocumentDecodeError(`${itemPath}.tags are invalid`);
+    if (typeof raw.thumbnail !== 'string' || !raw.thumbnail.startsWith('data:image/') || raw.thumbnail.length > MAX_THUMBNAIL_CHARS) throw new DocumentDecodeError(`${itemPath}.thumbnail is invalid`);
+    if (typeof raw.createdAt !== 'string' || !Number.isFinite(Date.parse(raw.createdAt)) || typeof raw.updatedAt !== 'string' || !Number.isFinite(Date.parse(raw.updatedAt))) throw new DocumentDecodeError(`${itemPath} timestamps are invalid`);
+    const node = decodeTree(raw.node);
+    if (!node) throw new DocumentDecodeError(`${itemPath}.node is empty`);
+    return { id: raw.id, name: raw.name.trim(), description: raw.description, tags: [...new Set(raw.tags.map((tag) => (tag as string).trim().toLowerCase()))], thumbnail: raw.thumbnail, node, parameters: decodeNamedParameters(raw.parameters, `${itemPath}.parameters`), createdAt: raw.createdAt, updatedAt: raw.updatedAt };
+  });
+}
+
 /** Decode current cloud envelopes and migrate legacy exported/local envelopes. */
 export function decodeProjectDocument(input: unknown, fallbackName = 'Untitled'): DecodedProject {
   const raw = record(input, 'project');
@@ -480,6 +506,7 @@ export function decodeProjectDocument(input: unknown, fallbackName = 'Untitled')
   const views = raw.version === 2 ? decodeNamedViews(raw.views) : [];
   const measurements = raw.version === 2 ? decodeMeasurements(raw.measurements, 'project.measurements') : [];
   const units = raw.version === 2 ? decodeUnitPreferences(raw.units, 'project.units') : { ...DEFAULT_UNIT_PREFERENCES };
+  const components = raw.version === 2 ? decodeReusableComponents(raw.components) : [];
   if (!Array.isArray(checkpointInput) || checkpointInput.length > MAX_PROJECT_CHECKPOINTS) {
     throw new DocumentDecodeError(`project checkpoints must be an array of at most ${MAX_PROJECT_CHECKPOINTS}`);
   }
@@ -533,10 +560,11 @@ export function decodeProjectDocument(input: unknown, fallbackName = 'Untitled')
     views,
     measurements,
     units,
+    components,
   };
 }
 
 export function decodeProjectFileBody(input: unknown): ProjectFileBody {
   const decoded = decodeProjectDocument(input);
-  return { version: 2, thumbnail: decoded.thumbnail, tree: decoded.tree, checkpoints: decoded.checkpoints, parameters: decoded.parameters, views: decoded.views, measurements: decoded.measurements, units: decoded.units };
+  return { version: 2, thumbnail: decoded.thumbnail, tree: decoded.tree, checkpoints: decoded.checkpoints, parameters: decoded.parameters, views: decoded.views, measurements: decoded.measurements, units: decoded.units, components: decoded.components };
 }

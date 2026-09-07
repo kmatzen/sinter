@@ -20,7 +20,7 @@ describe('GitHub gist storage', () => {
     } })));
 
     await expect(githubStorage.read('token', 'gist')).resolves.toEqual({
-      ...project, version: 2, checkpoints: [], parameters: [], views: [], measurements: [], revision: '',
+      ...project, version: 2, checkpoints: [], parameters: [], views: [], measurements: [], components: [], revision: '',
       units: { displayUnit: 'mm', decimalPrecision: 2, fractionalDenominator: 16 },
     });
   });
@@ -76,7 +76,7 @@ describe('GitHub gist storage', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     await expect(githubStorage.read('token', 'gist')).resolves.toEqual({
-      ...project, version: 2, checkpoints: [], parameters: [], views: [], measurements: [], revision: '',
+      ...project, version: 2, checkpoints: [], parameters: [], views: [], measurements: [], components: [], revision: '',
       units: { displayUnit: 'mm', decimalPrecision: 2, fractionalDenominator: 16 },
     });
     expect(fetchMock.mock.calls[1][0]).toBe('https://gist.example/raw');

@@ -2,6 +2,7 @@ import type { NamedParameter } from '../types/operations';
 import type { NamedProjectView } from '../types/view';
 import type { PinnedMeasurement } from '../types/measurement';
 import type { UnitPreferences } from '../types/units';
+import type { ReusableComponent } from '../types/component';
 
 // Shape of a project's content file (stored in Drive or as a Gist).
 // Project NAME and timestamps live in the provider's file metadata
@@ -29,6 +30,8 @@ export interface ProjectFileBody {
   views?: NamedProjectView[];
   measurements?: PinnedMeasurement[];
   units?: UnitPreferences;
+  /** Components embedded in this project and synced by its storage provider. */
+  components?: ReusableComponent[];
 }
 
 export interface ProjectReadResult extends ProjectFileBody {

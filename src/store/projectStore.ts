@@ -10,6 +10,8 @@ import { decodeProjectDocument, decodeTree } from '../types/documentDecoder';
 import type { NamedParameter, SDFNodeUI } from '../types/operations';
 import type { NamedProjectView } from '../types/view';
 import { useViewportStore } from './viewportStore';
+import { useProjectComponentStore } from './componentLibrary';
+import type { ReusableComponent } from '../types/component';
 import type { PinnedMeasurement } from '../types/measurement';
 import { DEFAULT_UNIT_PREFERENCES, type UnitPreferences } from '../types/units';
 
@@ -39,7 +41,7 @@ interface ProjectState {
   setProjectId: (id: string | null, provider?: ProviderName | null) => void;
   save: () => Promise<boolean>;
   loadProject: (provider: ProviderName, externalId: string, name: string) => Promise<void>;
-  loadLocalDocument: (name: string, tree: unknown, parameters?: NamedParameter[], views?: NamedProjectView[], measurements?: PinnedMeasurement[], units?: UnitPreferences) => void;
+  loadLocalDocument: (name: string, tree: unknown, parameters?: NamedParameter[], views?: NamedProjectView[], measurements?: PinnedMeasurement[], units?: UnitPreferences, components?: ReusableComponent[]) => void;
   createProject: () => void;
   toggleShare: () => Promise<void>;
   clearSaveError: () => void;
@@ -61,7 +63,7 @@ function bodyHash(): string {
   const { tree, projectName, namedParameters } = useModelerStore.getState();
   const viewport = useViewportStore.getState();
   return JSON.stringify({ tree, projectName, namedParameters, views: viewport.namedViews,
-    measurements: viewport.pinnedMeasurements, units: currentUnits() });
+    measurements: viewport.pinnedMeasurements, units: currentUnits(), components: useProjectComponentStore.getState().components });
 }
 
 function sameTree(a: SDFNodeUI | null, b: SDFNodeUI | null): boolean {
@@ -78,7 +80,8 @@ function checkpoint(name: string, tree: SDFNodeUI | null, parameters: NamedParam
 }
 
 function projectBody(tree: SDFNodeUI | null, thumbnail: string | null, checkpoints: LiveCheckpoint[], parameters: NamedParameter[], views: NamedProjectView[], measurements: PinnedMeasurement[], units = currentUnits()): ProjectFileBody {
-  return { version: 2, thumbnail, tree, checkpoints, parameters, views, measurements, units };
+  return { version: 2, thumbnail, tree, checkpoints, parameters, views, measurements, units,
+    components: useProjectComponentStore.getState().components };
 }
 
 let nextGeneration = 1;
@@ -294,6 +297,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     if (get().generation !== generation || authIdentity() !== identity) return;
 
     useModelerStore.getState().resetDocument(body.tree, name || 'Untitled', body.parameters);
+    useProjectComponentStore.getState().replace(body.components);
     useViewportStore.getState().setNamedViews(body.views);
     useViewportStore.getState().setPinnedMeasurements(body.measurements);
     useViewportStore.getState().setUnitPreferences(body.units);
@@ -320,6 +324,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   createProject: () => {
     const generation = ++nextGeneration;
     useModelerStore.getState().resetDocument(null, 'Untitled');
+    useProjectComponentStore.getState().replace([]);
     useViewportStore.getState().setNamedViews([]);
     useViewportStore.getState().setPinnedMeasurements([]);
     useViewportStore.getState().setUnitPreferences(DEFAULT_UNIT_PREFERENCES);
@@ -345,10 +350,11 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     });
   },
 
-  loadLocalDocument: (name, tree, parameters = [], views = [], measurements = [], units = DEFAULT_UNIT_PREFERENCES) => {
+  loadLocalDocument: (name, tree, parameters = [], views = [], measurements = [], units = DEFAULT_UNIT_PREFERENCES, components = []) => {
     const generation = ++nextGeneration;
     const modeler = useModelerStore.getState();
     modeler.resetDocument(decodeTree(tree, { legacy: true, repairMissingIds: true }), name || 'Untitled', parameters);
+    useProjectComponentStore.getState().replace(components);
     useViewportStore.getState().setNamedViews(views);
     useViewportStore.getState().setPinnedMeasurements(measurements);
     useViewportStore.getState().setUnitPreferences(units);

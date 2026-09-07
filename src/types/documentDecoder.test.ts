@@ -25,6 +25,15 @@ describe('document decoder', () => {
     expect(() => decodeProjectDocument({ version: 3, tree: box() })).toThrow(/version 3/);
   });
 
+  it('round-trips validated project components and rejects duplicate names or malformed subtrees', () => {
+    const component = { id: 'fixture', name: 'Fixture', description: 'Reusable', tags: ['jig'],
+      thumbnail: 'data:image/svg+xml,%3Csvg/%3E', node: box('component-box'), parameters: [],
+      createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z' };
+    expect(decodeProjectDocument({ version: 2, tree: box(), components: [component] }).components[0]).toMatchObject({ name: 'Fixture', node: { id: 'component-box' } });
+    expect(() => decodeProjectDocument({ version: 2, tree: box(), components: [component, { ...component, id: 'fixture-2' }] })).toThrow(/name is duplicated/);
+    expect(() => decodeProjectDocument({ version: 2, tree: box(), components: [{ ...component, node: { ...box(), kind: 'unknown' } }] })).toThrow(/kind/);
+  });
+
   it('preserves valid group metadata, migrates its absence, and rejects malformed groups', () => {
     expect(decodeTree({ ...box(), group: '  Enclosure  ' })?.group).toBe('Enclosure');
     expect(decodeTree(box())).not.toHaveProperty('group');
