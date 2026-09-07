@@ -386,6 +386,30 @@ function emitGlyphHelper(
   return fnName;
 }
 
+function emitProfileHelper(node: Extract<SDFNode, { kind: 'extrude' }>): string {
+  if (!glyphHelpersEmitted) {
+    helperFunctions.push(GLYPH_HELPERS);
+    glyphHelpersEmitted = true;
+  }
+  const body: string[] = ['vec2 q = ep.xy;'];
+  const loops = [node.profile.outer, ...node.profile.holes];
+  loops.forEach((loop, li) => {
+    body.push(`float pd${li} = 1.0e30;`, `float pw${li} = 0.0;`);
+    loop.forEach((a, i) => {
+      const b = loop[(i + 1) % loop.length];
+      body.push(`glyph_accLine(q, vec2(${g(a[0])}, ${g(a[1])}), vec2(${g(b[0])}, ${g(b[1])}), pd${li}, pw${li});`);
+    });
+    body.push(`pd${li} *= (pw${li} != 0.0 ? -1.0 : 1.0);`);
+  });
+  body.push('float d2d = pd0;');
+  for (let i = 1; i < loops.length; i++) body.push(`d2d = max(d2d, -pd${i});`);
+  body.push(`float dz = abs(ep.z) - ${g(node.depth / 2)};`);
+  body.push('return min(max(d2d, dz), 0.0) + length(max(vec2(d2d, dz), 0.0));');
+  const fnName = `sdf_profile_${helperCounter++}`;
+  helperFunctions.push(`float ${fnName}(vec3 ep) {\n  ${body.join('\n  ')}\n}`);
+  return fnName;
+}
+
 function emitNode(node: SDFNode, pVar: string, lines: string[]): string {
   const result = nextVar();
 
@@ -441,6 +465,11 @@ function emitNode(node: SDFNode, pVar: string, lines: string[]): string {
       lines.push(`vec3 ep_${result} = ${pVar} / vec3(${sx}, ${sy}, ${sz});`);
       lines.push(`float ek0_${result} = length(ep_${result});`);
       lines.push(`float ${result} = (ek0_${result} - 1.0) * min(min(${sx}, ${sy}), ${sz});`);
+      return result;
+    }
+    case 'extrude': {
+      const fn = emitProfileHelper(node);
+      lines.push(`float ${result} = ${fn}(${pVar});`);
       return result;
     }
     case 'union': {

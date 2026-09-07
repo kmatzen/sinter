@@ -1,4 +1,5 @@
 import type { HullPlane } from './hull';
+import type { PolygonProfile } from './profile';
 
 export type Vec3 = [number, number, number];
 
@@ -17,6 +18,7 @@ export type SDFNode =
   | { kind: 'cone'; radius: number; height: number; warn?: boolean }
   | { kind: 'capsule'; radius: number; height: number; warn?: boolean }
   | { kind: 'ellipsoid'; size: Vec3; warn?: boolean }
+  | { kind: 'extrude'; profile: PolygonProfile; depth: number; warn?: boolean }
   | { kind: 'union'; a: SDFNode; b: SDFNode; k: number; warn?: boolean }
   | { kind: 'subtract'; a: SDFNode; b: SDFNode; k: number; warn?: boolean }
   | { kind: 'intersect'; a: SDFNode; b: SDFNode; k: number; warn?: boolean }

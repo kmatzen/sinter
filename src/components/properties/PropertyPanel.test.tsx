@@ -72,4 +72,23 @@ describe('property formulas', () => {
     act(() => useModelerStore.getState().undo());
     expect(useModelerStore.getState().historyIndex).toBe(before);
   });
+
+  it('validates a profile inline and commits a valid gesture once on blur', () => {
+    const extrude = { id: 'plate', kind: 'extrude', label: 'Plate', params: { depth: 5 }, children: [], enabled: true };
+    useModelerStore.getState().resetDocument(extrude, 'Profile test', []);
+    useModelerStore.getState().selectNode('plate');
+    const before = useModelerStore.getState().historyIndex;
+    render(<PropertyContent />);
+    const editor = screen.getByLabelText('Profile loops JSON');
+    fireEvent.change(editor, { target: { value: '{' } });
+    fireEvent.blur(editor);
+    expect(screen.getByRole('alert')).toHaveTextContent('not valid JSON');
+    expect(useModelerStore.getState().historyIndex).toBe(before);
+
+    const profile = '{"outer":[[0,0],[10,0],[10,5],[0,5]],"holes":[]}';
+    fireEvent.change(editor, { target: { value: profile } });
+    fireEvent.blur(editor);
+    expect(useModelerStore.getState().tree?.data?.profile).toBe(profile);
+    expect(useModelerStore.getState().historyIndex).toBe(before + 1);
+  });
 });

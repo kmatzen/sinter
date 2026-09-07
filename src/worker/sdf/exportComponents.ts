@@ -1,5 +1,6 @@
 import { computeBounds } from './bounds';
 import { SDF_PARAM_EPSILON, type BBox, type SDFNode } from './types';
+import { profileFeatureSize } from './profile';
 
 type Feature3 = [number, number, number];
 const min3 = (a: Feature3, b: Feature3): Feature3 => [Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.min(a[2], b[2])];
@@ -14,6 +15,10 @@ export function sourceFeatureSize(node: SDFNode): Feature3 {
     case 'cone': return [node.radius * 2, node.height, node.radius * 2];
     case 'capsule': return [node.radius * 2, node.height + node.radius * 2, node.radius * 2];
     case 'ellipsoid': return [...node.size];
+    case 'extrude': {
+      const feature = profileFeatureSize(node.profile);
+      return [feature, feature, node.depth];
+    }
     case 'text': return [Math.max(node.glyphWidth ?? node.size, 0.1), node.size, node.depth];
     case 'mesh': return [0, 1, 2].map((axis) => (node.field.bbox.max[axis] - node.field.bbox.min[axis]) / Math.max(1, node.field.res - 1)) as Feature3;
     case 'union': case 'intersect': case 'hull': return min3(sourceFeatureSize(node.a), sourceFeatureSize(node.b));

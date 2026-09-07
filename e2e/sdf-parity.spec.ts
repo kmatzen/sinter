@@ -127,6 +127,10 @@ const CASES: [string, SDFNode][] = [
   ['capsule', { kind: 'capsule', radius: 6, height: 30 }],
   ['capsule degenerate', { kind: 'capsule', radius: 10, height: 5 }],
   ['ellipsoid', { kind: 'ellipsoid', size: [60, 10, 20] }],
+  ['profile extrude with hole', { kind: 'extrude', depth: 8, profile: {
+    outer: [[-16, -12], [16, -12], [16, 12], [-16, 12]],
+    holes: [[[-5, -5], [-5, 5], [5, 5], [5, -5]]],
+  } }],
   ['round(ellipsoid)', { kind: 'round', radius: 6, child: { kind: 'ellipsoid', size: [60, 10, 20] } }],
   ['chamfer(box)', { kind: 'chamfer', distance: 4, child: { kind: 'box', size: [30, 20, 40] } }],
   ['draft(box)', { kind: 'draft', axis: 'y', angle: 12, reference: 0, child: { kind: 'box', size: [30, 20, 40] } }],

@@ -88,6 +88,16 @@ describe('export component partitioning', () => {
     expect(plan.tolerance).toBe(0.5);
   });
 
+  it('resolves the narrowest wall in a profile extrusion', () => {
+    const plate: SDFNode = { kind: 'extrude', depth: 4, profile: {
+      outer: [[-10, -10], [10, -10], [10, 10], [-10, 10]],
+      holes: [[[-9.5, -8], [-9.5, 8], [8, 8], [8, -8]]],
+    } };
+    const plan = planComponentSampling(plate, computeBounds(plate), 2, 384);
+    expect(plan.resolution).toBe(80);
+    expect(plan.tolerance).toBe(0.25);
+  });
+
   it('fails before meshing when a thin shell cannot be resolved safely', () => {
     const shell: SDFNode = { kind: 'shell', child: { kind: 'box', size: [100, 100, 100] }, thickness: 0.1 };
     expect(() => planComponentSampling(shell, { min: [-51, -51, -51], max: [51, 51, 51] }, 128, 384))
