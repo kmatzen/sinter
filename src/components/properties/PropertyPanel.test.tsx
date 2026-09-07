@@ -92,6 +92,36 @@ describe('property formulas', () => {
     expect(useModelerStore.getState().historyIndex).toBe(before + 1);
   });
 
+  it('commits a direct profile coordinate edit as one undo step', () => {
+    const extrude = { id: 'plate', kind: 'extrude', label: 'Plate', params: { depth: 5 }, children: [], enabled: true };
+    useModelerStore.getState().resetDocument(extrude, 'Direct profile test', []);
+    useModelerStore.getState().selectNode('plate');
+    const before = useModelerStore.getState().historyIndex;
+    render(<PropertyContent />);
+    const x = screen.getByLabelText('Selected vertex X');
+    fireEvent.change(x, { target: { value: '-10' } });
+    expect(useModelerStore.getState().historyIndex).toBe(before);
+    fireEvent.blur(x);
+    expect(useModelerStore.getState().historyIndex).toBe(before + 1);
+    expect(JSON.parse(useModelerStore.getState().tree?.data?.profile || '').outer[0]).toEqual([-10, -15]);
+  });
+
+  it('groups a dragged profile vertex into one undo step', () => {
+    const extrude = { id: 'plate', kind: 'extrude', label: 'Plate', params: { depth: 5 }, children: [], enabled: true };
+    useModelerStore.getState().resetDocument(extrude, 'Profile drag test', []);
+    useModelerStore.getState().selectNode('plate');
+    const before = useModelerStore.getState().historyIndex;
+    render(<PropertyContent />);
+    const svg = screen.getByRole('img', { name: 'Profile shape editor' });
+    vi.spyOn(svg, 'getBoundingClientRect').mockReturnValue({ x: 10, y: 20, left: 10, top: 20, right: 210, bottom: 164, width: 200, height: 144, toJSON: () => ({}) });
+    fireEvent.pointerDown(screen.getByLabelText('Outer vertex 1'), { clientX: 30, clientY: 140 });
+    fireEvent.pointerMove(window, { clientX: 70, clientY: 145 });
+    expect(useModelerStore.getState().historyIndex).toBe(before);
+    fireEvent.pointerMove(window, { clientX: 75, clientY: 145 });
+    fireEvent.pointerUp(window);
+    expect(useModelerStore.getState().historyIndex).toBe(before + 1);
+  });
+
   it('rejects negative revolve radii before committing profile data', () => {
     const revolve = { id: 'knob', kind: 'revolve', label: 'Knob', params: { axis: 1, angle: 360 }, children: [], enabled: true };
     useModelerStore.getState().resetDocument(revolve, 'Revolve test', []);
