@@ -13,6 +13,32 @@ const box = (id = 'box') => ({
   params: { width: 10, height: 20, depth: 30 }, children: [], enabled: true,
 });
 
+describe('named configurations', () => {
+  it('round-trips validated overrides and the active selection', () => {
+    const parameters = [{ name: 'size', expression: '10', unit: 'mm' as const }];
+    const configuration = { id: 'large', name: 'Large', overrides: { size: '25' } };
+    const decoded = decodeProjectDocument({ version: 2, tree: box(), parameters, configurations: [configuration], activeConfigurationId: 'large' });
+    expect(decoded.configurations).toEqual([configuration]);
+    expect(decoded.activeConfigurationId).toBe('large');
+  });
+
+  it('rejects stale parameters, broken formulas, and missing active ids', () => {
+    const parameters = [{ name: 'size', expression: '10', unit: 'mm' as const }];
+    const base = { version: 2, tree: box(), parameters };
+    expect(() => decodeProjectDocument({ ...base, configurations: [{ id: 'a', name: 'A', overrides: { gone: '2' } }] })).toThrow(/missing parameter/i);
+    expect(() => decodeProjectDocument({ ...base, configurations: [{ id: 'a', name: 'A', overrides: { size: 'unknown + 2' } }] })).toThrow(/unknown/i);
+    expect(() => decodeProjectDocument({ ...base, configurations: [], activeConfigurationId: 'gone' })).toThrow(/activeConfigurationId/);
+  });
+
+  it('keeps configuration snapshots inside project versions', () => {
+    const parameters = [{ name: 'size', expression: '10', unit: 'mm' as const }];
+    const configuration = { id: 'small', name: 'Small', overrides: { size: '8' } };
+    const checkpoint = { id: 'v1', name: 'Configured', createdAt: '2026-09-06T12:00:00Z', tree: box(), parameters, configurations: [configuration], activeConfigurationId: 'small' };
+    const decoded = decodeProjectDocument({ version: 2, tree: box(), parameters, checkpoints: [checkpoint] });
+    expect(decoded.checkpoints[0]).toMatchObject({ configurations: [configuration], activeConfigurationId: 'small' });
+  });
+});
+
 describe('document decoder', () => {
   it('loads current and legacy project envelopes', () => {
     expect(decodeProjectDocument({ version: 1, thumbnail: null, tree: box() }).tree?.id).toBe('box');

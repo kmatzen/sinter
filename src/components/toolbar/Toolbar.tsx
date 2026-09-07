@@ -21,9 +21,16 @@ import { commandById, OPEN_COMMAND_PALETTE_EVENT, runEditorCommand, TOOLBAR_COMM
 import { formatLength } from '../../types/units';
 import { getEngineRef } from '../../engine/engineRef';
 import { useProjectComponentStore } from '../../store/componentLibrary';
+import { useConfigurationStore } from '../../store/configurationStore';
+import { parametersForConfiguration, type NamedConfiguration } from '../../types/configuration';
+import { resolveTreeFormulas } from '../../types/formulas';
 
 function hasImportedMesh(node: ReturnType<typeof useModelerStore.getState>['tree']): boolean {
   return !!node && (node.kind === 'mesh' || node.children.some(hasImportedMesh));
+}
+
+function safeFilePart(value: string): string {
+  return value.replace(/[^a-z0-9._-]+/gi, '-').replace(/^-+|-+$/g, '') || 'configuration';
 }
 
 export function affectedPreflightBounds(diagnostics: ExportDiagnostics) {
@@ -37,6 +44,8 @@ export function affectedPreflightBounds(diagnostics: ExportDiagnostics) {
 
 export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => void; onMobileProps?: () => void } = {}) {
   const projectName = useModelerStore((s) => s.projectName);
+  const activeConfigurationName = useConfigurationStore((state) => state.configurations.find((item) => item.id === state.activeId)?.name ?? null);
+  const exportBaseName = activeConfigurationName ? `${projectName}-${safeFilePart(activeConfigurationName)}` : projectName;
   const setProjectName = useModelerStore((s) => s.setProjectName);
   const tree = useModelerStore((s) => s.tree);
   const evaluating = useModelerStore((s) => s.evaluating);
@@ -75,6 +84,7 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
   const [showImportMesh, setShowImportMesh] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showVersions, setShowVersions] = useState(false);
+  const [showConfigurations, setShowConfigurations] = useState(false);
   const [showOverflow, setShowOverflow] = useState(false);
   const [avatarFailed, setAvatarFailed] = useState(false);
   const [exporting, setExporting] = useState<string | null>(null);
@@ -150,7 +160,7 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
       const { blob, triangleCount: triangles, diagnostics, conformance, achievedTolerance, componentCount } = await workerBridge.exportSTL(tree, onProgress, exportResolution, exportPreflightOptions(manufacturingProfile));
       if (exportEpoch.current !== epoch) return;
       getEngineRef()?.setPreflightBounds(affectedPreflightBounds(diagnostics));
-      setExportPreview({ blob, name: `${projectName}.stl`, triangles, size: blob.size, diagnostics, conformance, approximateSource: hasImportedMesh(tree), achievedTolerance, componentCount });
+      setExportPreview({ blob, name: `${exportBaseName}.stl`, triangles, size: blob.size, diagnostics, conformance, approximateSource: hasImportedMesh(tree), achievedTolerance, componentCount });
     } catch (err: any) {
       if (!isCancelled(err)) setError(`STL export failed: ${err?.message || String(err)}`);
     } finally {
@@ -168,7 +178,7 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
       const { blob, triangleCount: triangles, diagnostics, conformance, achievedTolerance, componentCount } = await workerBridge.export3MF(tree, onProgress, exportResolution, exportPreflightOptions(manufacturingProfile));
       if (exportEpoch.current !== epoch) return;
       getEngineRef()?.setPreflightBounds(affectedPreflightBounds(diagnostics));
-      setExportPreview({ blob, name: `${projectName}.3mf`, triangles, size: blob.size, diagnostics, conformance, approximateSource: hasImportedMesh(tree), achievedTolerance, componentCount });
+      setExportPreview({ blob, name: `${exportBaseName}.3mf`, triangles, size: blob.size, diagnostics, conformance, approximateSource: hasImportedMesh(tree), achievedTolerance, componentCount });
     } catch (err: any) {
       if (!isCancelled(err)) setError(`3MF export failed: ${err?.message || String(err)}`);
     } finally {
@@ -177,7 +187,40 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
     }
   };
 
+  const handleBatchExport = async (format: 'STL' | '3MF', configurations: NamedConfiguration[]) => {
+    if (!tree || exporting || !configurations.length) return;
+    const epoch = exportEpoch.current;
+    const baseParameters = useConfigurationStore.getState().baseParameters;
+    const failures: string[] = [];
+    setExporting(`Batch ${format}`);
+    try {
+      for (let index = 0; index < configurations.length; index++) {
+        if (exportEpoch.current !== epoch) return;
+        const configuration = configurations[index];
+        setExportProgress({ stage: `Exporting ${configuration.name}`, percent: index / configurations.length * 100 });
+        try {
+          const variantTree = resolveTreeFormulas(tree, parametersForConfiguration(baseParameters, configuration));
+          const artifact = format === 'STL'
+            ? await workerBridge.exportSTL(variantTree, undefined, exportResolution, exportPreflightOptions(manufacturingProfile))
+            : await workerBridge.export3MF(variantTree, undefined, exportResolution, exportPreflightOptions(manufacturingProfile));
+          if (exportEpoch.current !== epoch) return;
+          const safeName = safeFilePart(configuration.name);
+          triggerDownload(artifact.blob, `${projectName}-${safeName}.${format.toLowerCase()}`);
+        } catch (error) {
+          if (isCancelled(error)) return;
+          failures.push(`${configuration.name}: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+      if (failures.length) setError(`Batch export completed with ${failures.length} failure${failures.length === 1 ? '' : 's'}: ${failures.join('; ')}`);
+      else useModalStore.getState().showToast(`Exported ${configurations.length} ${format} variants`);
+    } finally {
+      setExporting(null);
+      setExportProgress(null);
+    }
+  };
+
   const handleSaveCloud = async () => { await save(); };
+  const openConfigurations = () => { useConfigurationStore.getState().refreshBase(); setShowConfigurations(true); };
 
   useEffect(() => {
     const handleCommand = (event: Event) => {
@@ -224,6 +267,7 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
           className="bg-transparent border-none text-sm font-medium w-24 lg:w-32 focus:outline-none rounded px-1 min-w-0 tap-h"
           style={{ color: 'var(--text-primary)' }}
         />
+        {activeConfigurationName && <button className="hidden md:block max-w-32 truncate rounded px-2 py-1 text-[11px]" style={{ background: 'var(--bg-elevated)', color: 'var(--accent-blue)' }} title={`Active configuration: ${activeConfigurationName}`} onClick={openConfigurations}>{activeConfigurationName}</button>}
         {backupStatus !== 'idle' && (
           <span role="status" title={backupError ?? undefined} className="hidden md:inline text-[10px] whitespace-nowrap"
                 style={{ color: backupStatus === 'failed' ? 'var(--accent-red)' : 'var(--text-muted)' }}>
@@ -246,6 +290,7 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
         <IconBtn icon={<Upload size={14} />} title="Import mesh" onClick={() => setShowImportMesh(true)} />
         <IconBtn icon={<Save size={14} />} title={saving ? 'Saving...' : 'Save to cloud'} onClick={handleSaveCloud} disabled={saving || !dirty} />
         {projectId && <IconBtn icon={<History size={14} />} title="Project versions" onClick={() => setShowVersions(true)} />}
+        <IconBtn icon={<SlidersHorizontal size={14} />} title="Configurations" onClick={openConfigurations} />
         {projectId && (
           shareUrl ? (
             <IconBtn
@@ -323,6 +368,7 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
             <OverflowItem label="Open Projects" onClick={() => { setShowProjects(true); setShowOverflow(false); }} />
             <OverflowItem label={saving ? 'Saving...' : 'Save'} onClick={() => { handleSaveCloud(); setShowOverflow(false); }} disabled={saving || !dirty} />
             {projectId && <OverflowItem label="Project Versions" onClick={() => { setShowVersions(true); setShowOverflow(false); }} />}
+            <OverflowItem label="Configurations & batch export" onClick={() => { openConfigurations(); setShowOverflow(false); }} />
             <OverflowDivider />
             <OverflowItem label={commandById('edit.undo')!.title} onClick={() => { runEditorCommand('edit.undo'); setShowOverflow(false); }} />
             <OverflowItem label={commandById('edit.redo')!.title} onClick={() => { runEditorCommand('edit.redo'); setShowOverflow(false); }} />
@@ -520,6 +566,7 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
         onClose={() => setShowVersions(false)}
       />
     )}
+    {showConfigurations && <ConfigurationsDialog exporting={!!exporting} onBatchExport={handleBatchExport} onClose={() => setShowConfigurations(false)} />}
     {exportPreview && (
       <ExportPreview
         triangles={exportPreview.triangles}
@@ -577,6 +624,52 @@ function VersionsDialog({ checkpoints, saving, onCreate, onRestore, onDelete, on
             </div>
           ))}
         </div>
+      </div>
+    </div>
+  );
+}
+
+function ConfigurationsDialog({ exporting, onBatchExport, onClose }: { exporting: boolean; onBatchExport: (format: 'STL' | '3MF', configurations: NamedConfiguration[]) => void; onClose: () => void }) {
+  const configurations = useConfigurationStore((state) => state.configurations);
+  const activeId = useConfigurationStore((state) => state.activeId);
+  const baseParameters = useConfigurationStore((state) => state.baseParameters);
+  const { add, duplicate, remove, rename, move, setOverride, activate } = useConfigurationStore.getState();
+  const closeRef = useRef<HTMLButtonElement>(null);
+  useDialogFocus(closeRef, onClose);
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3" style={{ background: 'rgba(0,0,0,.55)' }} role="dialog" aria-modal="true" aria-labelledby="configurations-title">
+      <div className="rounded-lg w-full max-w-3xl max-h-[90vh] overflow-y-auto p-4" style={{ background: 'var(--bg-panel)', border: '1px solid var(--border-default)' }}>
+        <div className="flex items-center justify-between gap-3 mb-3">
+          <div><h2 id="configurations-title" className="text-sm font-semibold">Named configurations</h2><p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>Variants override parameters without duplicating the model tree.</p></div>
+          <button ref={closeRef} onClick={onClose} className="rounded px-2 py-1 text-sm" aria-label="Close configurations">Close</button>
+        </div>
+        {!baseParameters.length && <p className="text-sm rounded p-3" style={{ background: 'var(--bg-elevated)', color: 'var(--text-muted)' }}>Promote model dimensions to named parameters before creating configurations.</p>}
+        <div className="space-y-2">
+          {configurations.map((configuration, index) => (
+            <div key={configuration.id} className="rounded p-2" style={{ border: activeId === configuration.id ? '1px solid var(--accent-blue)' : '1px solid var(--border-subtle)' }}>
+              <div className="flex flex-wrap items-center gap-2">
+                <input aria-label={`Configuration ${index + 1} name`} defaultValue={configuration.name} onBlur={(event) => rename(configuration.id, event.target.value)} className="min-w-32 flex-1 rounded px-2 py-1 text-sm" style={{ background: 'var(--bg-elevated)' }} />
+                <button onClick={() => activate(activeId === configuration.id ? null : configuration.id)} className="rounded px-2 py-1 text-xs" style={{ background: activeId === configuration.id ? 'var(--accent-blue)' : 'var(--bg-elevated)' }}>{activeId === configuration.id ? 'Active' : 'Activate'}</button>
+                <button aria-label={`Move ${configuration.name} up`} disabled={index === 0} onClick={() => move(configuration.id, -1)} className="px-1 disabled:opacity-30">↑</button>
+                <button aria-label={`Move ${configuration.name} down`} disabled={index === configurations.length - 1} onClick={() => move(configuration.id, 1)} className="px-1 disabled:opacity-30">↓</button>
+                <button onClick={() => duplicate(configuration.id)} className="text-xs px-1">Duplicate</button>
+                <button onClick={() => useModalStore.getState().showConfirm(`Delete configuration “${configuration.name}”?`, () => remove(configuration.id), { confirmLabel: 'Delete' })} className="text-xs px-1" style={{ color: 'var(--accent-red)' }}>Delete</button>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
+                {baseParameters.map((parameter) => (
+                  <label key={parameter.name} className="text-xs flex items-center gap-2"><span className="w-24 truncate" title={parameter.name}>{parameter.name}</span><input key={configuration.overrides[parameter.name] ?? ''} aria-label={`${configuration.name} ${parameter.name}`} defaultValue={configuration.overrides[parameter.name] ?? ''} placeholder={parameter.expression} onBlur={(event) => setOverride(configuration.id, parameter.name, event.target.value || null)} className="min-w-0 flex-1 rounded px-2 py-1" style={{ background: 'var(--bg-elevated)' }} /></label>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="flex flex-wrap gap-2 mt-4">
+          <button disabled={!baseParameters.length} onClick={() => add()} className="rounded px-3 py-1.5 text-sm disabled:opacity-40" style={{ background: 'var(--bg-elevated)' }}>Add configuration</button>
+          <div className="flex-1" />
+          <button disabled={!configurations.length || exporting} onClick={() => onBatchExport('STL', configurations)} className="rounded px-3 py-1.5 text-sm disabled:opacity-40" style={{ background: 'var(--bg-elevated)' }}>Export all STL</button>
+          <button disabled={!configurations.length || exporting} onClick={() => onBatchExport('3MF', configurations)} className="rounded px-3 py-1.5 text-sm disabled:opacity-40" style={{ background: 'var(--bg-elevated)' }}>Export all 3MF</button>
+        </div>
+        <p className="text-[11px] mt-3" style={{ color: 'var(--text-muted)' }}>Configuration table changes are project metadata and do not enter geometry Undo/Redo history.</p>
       </div>
     </div>
   );

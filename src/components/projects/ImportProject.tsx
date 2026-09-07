@@ -44,7 +44,8 @@ export function ImportProject({ onDone }: Props) {
           const tree = data.tree;
           await storage.create(accessToken, name, {
             version: 2, thumbnail: data.thumbnail, tree, checkpoints: data.checkpoints, parameters: data.parameters, views: data.views,
-            measurements: data.measurements, units: data.units,
+            measurements: data.measurements, units: data.units, components: data.components,
+            configurations: data.configurations, activeConfigurationId: data.activeConfigurationId,
           });
           importResults.push({ name, ok: true });
         } catch (err: unknown) {

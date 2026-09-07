@@ -9,6 +9,8 @@ import { MODEL_SPATIAL_LIMIT_MM } from './modelingEnvelope';
 import type { PinnedMeasurement } from './measurement';
 import { DEFAULT_UNIT_PREFERENCES, type UnitPreferences } from './units';
 import type { ReusableComponent } from './component';
+import type { NamedConfiguration } from './configuration';
+import { parametersForConfiguration } from './configuration';
 
 export const CURRENT_DOCUMENT_VERSION = 2;
 export const MAX_PROJECT_CHECKPOINTS = 10;
@@ -305,6 +307,8 @@ export interface DecodedProject {
   measurements: PinnedMeasurement[];
   units: UnitPreferences;
   components: ReusableComponent[];
+  configurations: NamedConfiguration[];
+  activeConfigurationId: string | null;
 }
 
 const MAX_NAMED_VIEWS = 20;
@@ -464,6 +468,37 @@ function decodeNamedParameters(input: unknown, path: string): NamedParameter[] {
   return definitions;
 }
 
+function decodeConfigurations(input: unknown, activeInput: unknown, parameters: NamedParameter[], root = 'project'): { configurations: NamedConfiguration[]; activeConfigurationId: string | null } {
+  if (input === undefined) return { configurations: [], activeConfigurationId: null };
+  if (!Array.isArray(input) || input.length > 50) throw new DocumentDecodeError(`${root}.configurations must contain at most 50 configurations`);
+  const ids = new Set<string>();
+  const names = new Set<string>();
+  const parameterNames = new Set(parameters.map((item) => item.name));
+  const configurations = input.map((item, index): NamedConfiguration => {
+    const path = `${root}.configurations[${index}]`;
+    const raw = record(item, path);
+    if (typeof raw.id !== 'string' || !raw.id || raw.id.length > 128 || ids.has(raw.id)) throw new DocumentDecodeError(`${path}.id is missing, invalid, or duplicated`);
+    ids.add(raw.id);
+    if (typeof raw.name !== 'string' || !raw.name.trim() || raw.name.length > 80 || names.has(raw.name.trim().toLocaleLowerCase())) throw new DocumentDecodeError(`${path}.name is missing, invalid, or duplicated`);
+    names.add(raw.name.trim().toLocaleLowerCase());
+    const source = record(raw.overrides, `${path}.overrides`);
+    if (Object.keys(source).length > MAX_NAMED_PARAMETERS) throw new DocumentDecodeError(`${path}.overrides has too many entries`);
+    const overrides: Record<string, string> = {};
+    for (const [name, expression] of Object.entries(source)) {
+      if (!parameterNames.has(name)) throw new DocumentDecodeError(`${path}.overrides references missing parameter “${name}”`);
+      if (typeof expression !== 'string' || !expression.trim() || expression.length > MAX_EXPRESSION_CHARS) throw new DocumentDecodeError(`${path}.overrides.${name} is invalid`);
+      overrides[name] = expression.trim();
+    }
+    const configuration = { id: raw.id, name: raw.name.trim(), overrides };
+    try { resolveNamedParameters(parametersForConfiguration(parameters, configuration)); }
+    catch (error) { throw new DocumentDecodeError(`${path}: ${error instanceof Error ? error.message : 'invalid overrides'}`); }
+    return configuration;
+  });
+  const activeConfigurationId = activeInput === undefined || activeInput === null ? null : activeInput;
+  if (activeConfigurationId !== null && (typeof activeConfigurationId !== 'string' || !ids.has(activeConfigurationId))) throw new DocumentDecodeError(`${root}.activeConfigurationId is invalid`);
+  return { configurations, activeConfigurationId };
+}
+
 export function decodeReusableComponents(input: unknown, path = 'project.components'): ReusableComponent[] {
   if (input === undefined) return [];
   if (!Array.isArray(input) || input.length > 100) throw new DocumentDecodeError(`${path} must contain at most 100 components`);
@@ -509,6 +544,7 @@ export function decodeProjectDocument(input: unknown, fallbackName = 'Untitled')
   const measurements = raw.version === 2 ? decodeMeasurements(raw.measurements, 'project.measurements') : [];
   const units = raw.version === 2 ? decodeUnitPreferences(raw.units, 'project.units') : { ...DEFAULT_UNIT_PREFERENCES };
   const components = raw.version === 2 ? decodeReusableComponents(raw.components) : [];
+  const configurationData = raw.version === 2 ? decodeConfigurations(raw.configurations, raw.activeConfigurationId, parameters) : { configurations: [], activeConfigurationId: null };
   if (!Array.isArray(checkpointInput) || checkpointInput.length > MAX_PROJECT_CHECKPOINTS) {
     throw new DocumentDecodeError(`project checkpoints must be an array of at most ${MAX_PROJECT_CHECKPOINTS}`);
   }
@@ -535,6 +571,8 @@ export function decodeProjectDocument(input: unknown, fallbackName = 'Untitled')
       ? decodeMeasurements(checkpoint.measurements, `project.checkpoints[${index}].measurements`) : undefined;
     const checkpointUnits = Object.prototype.hasOwnProperty.call(checkpoint, 'units')
       ? decodeUnitPreferences(checkpoint.units, `project.checkpoints[${index}].units`) : undefined;
+    const checkpointConfigurationData = Object.prototype.hasOwnProperty.call(checkpoint, 'configurations')
+      ? decodeConfigurations(checkpoint.configurations, checkpoint.activeConfigurationId, checkpointParameters, `project.checkpoints[${index}]`) : undefined;
     let tree = decodeTree(checkpoint.tree);
     try { tree = resolveTreeFormulas(tree, checkpointParameters); }
     catch (error) { throw new DocumentDecodeError(`project.checkpoints[${index}]: ${error instanceof Error ? error.message : 'invalid formulas'}`); }
@@ -547,6 +585,7 @@ export function decodeProjectDocument(input: unknown, fallbackName = 'Untitled')
       ...(checkpointViews ? { views: checkpointViews } : {}),
       ...(checkpointMeasurements ? { measurements: checkpointMeasurements } : {}),
       ...(checkpointUnits ? { units: checkpointUnits } : {}),
+      ...(checkpointConfigurationData ? checkpointConfigurationData : {}),
     };
   });
   let tree = decodeTree(raw.tree, { legacy, repairMissingIds: legacy });
@@ -563,10 +602,13 @@ export function decodeProjectDocument(input: unknown, fallbackName = 'Untitled')
     measurements,
     units,
     components,
+    ...configurationData,
   };
 }
 
 export function decodeProjectFileBody(input: unknown): ProjectFileBody {
   const decoded = decodeProjectDocument(input);
-  return { version: 2, thumbnail: decoded.thumbnail, tree: decoded.tree, checkpoints: decoded.checkpoints, parameters: decoded.parameters, views: decoded.views, measurements: decoded.measurements, units: decoded.units, components: decoded.components };
+  return { version: 2, thumbnail: decoded.thumbnail, tree: decoded.tree, checkpoints: decoded.checkpoints, parameters: decoded.parameters, views: decoded.views, measurements: decoded.measurements, units: decoded.units, components: decoded.components,
+    ...(decoded.configurations.length ? { configurations: decoded.configurations } : {}),
+    ...(decoded.activeConfigurationId ? { activeConfigurationId: decoded.activeConfigurationId } : {}) };
 }

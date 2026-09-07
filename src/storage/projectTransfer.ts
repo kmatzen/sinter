@@ -27,6 +27,10 @@ export function encodeTransferredProject(projectName: string, input: unknown, pr
     parameters: project.parameters,
     views: project.views,
     measurements: project.measurements,
+    units: project.units,
+    components: project.components,
+    configurations: project.configurations,
+    activeConfigurationId: project.activeConfigurationId,
   }, null, pretty ? 2 : undefined);
 }
 
