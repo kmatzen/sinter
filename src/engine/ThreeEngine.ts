@@ -562,9 +562,18 @@ export class ThreeEngine {
     const complete = elapsed >= transition.duration - 1e-6;
     const raw = complete ? 1 : Math.min(1, Math.max(0, elapsed / transition.duration));
     const t = 1 - (1 - raw) ** 3;
-    this.camera.position.lerpVectors(transition.fromPosition, transition.toPosition, t);
-    this.controls.target.lerpVectors(transition.fromTarget, transition.toTarget, t);
-    this.camera.up.lerpVectors(transition.fromUp, transition.toUp, t).normalize();
+    if (complete) {
+      // lerpVectors(a, b, 1) still performs a subtraction and addition, so it
+      // can leave a one-ulp residue instead of b. A completed transition is a
+      // state boundary: make the requested pose authoritative and exact.
+      this.camera.position.copy(transition.toPosition);
+      this.controls.target.copy(transition.toTarget);
+      this.camera.up.copy(transition.toUp);
+    } else {
+      this.camera.position.lerpVectors(transition.fromPosition, transition.toPosition, t);
+      this.controls.target.lerpVectors(transition.fromTarget, transition.toTarget, t);
+      this.camera.up.lerpVectors(transition.fromUp, transition.toUp, t).normalize();
+    }
     if (transition.fromHalfHeight !== null && transition.toHalfHeight !== null && this.camera instanceof THREE.OrthographicCamera) {
       this.setOrthographicHalfHeight(THREE.MathUtils.lerp(transition.fromHalfHeight, transition.toHalfHeight, t));
     }
