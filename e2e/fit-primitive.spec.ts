@@ -140,6 +140,7 @@ test.describe('Fit a primitive to an imported mesh', () => {
     await page.getByRole('button', { name: 'Find best primitive' }).click();
     await expect(page.getByText(/Box \(fitted orientation\) — worst/)).toBeVisible({ timeout: PRECONDITION_TIMEOUT });
     await expect(page.getByText('Detected 6 fit-eligible surface regions.')).toBeVisible();
+    await expect(page.getByText('Classified 6 analytic surface hypotheses.')).toBeVisible();
     await page.getByRole('button', { name: /Replace with Box/ }).click();
     await expect.poll(() => page.evaluate(() => {
       const root = (window as any).__MODELER_STORE__.tree;

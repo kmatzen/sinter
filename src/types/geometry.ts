@@ -103,6 +103,23 @@ export interface MeshFitResult {
   surfaceRegionCount: number;
   /** Actionable topology/quality findings from the segmentation pass. */
   segmentationDiagnostics: string[];
+  /** Accepted analytic hypotheses for the segmented source surfaces. */
+  surfaceFits: MeshRegionSurfaceFit[];
+}
+
+export type MeshRegionSurfaceParameters =
+  | { kind: 'plane'; origin: [number, number, number]; normal: [number, number, number] }
+  | { kind: 'cylinder'; origin: [number, number, number]; axis: [number, number, number]; radius: number; axialMin: number; axialMax: number }
+  | { kind: 'sphere'; center: [number, number, number]; radius: number };
+
+export interface MeshRegionSurfaceFit {
+  regionKey: string;
+  triangleIds: number[];
+  bounds: { min: [number, number, number]; max: [number, number, number] };
+  parameters: MeshRegionSurfaceParameters;
+  surfaceRms: number;
+  surfaceMax: number;
+  relativeError: number;
 }
 
 export type WorkerResponse =

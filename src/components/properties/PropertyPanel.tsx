@@ -380,6 +380,7 @@ function FitPrimitive({ node }: { node: SDFNodeUI }) {
               {fit.kind} — worst {length(fit.surfaceMax)}, rms {length(fit.surfaceRms)}
             </div>
             <div className="mt-0.5">Detected {fit.surfaceRegionCount} fit-eligible surface {fit.surfaceRegionCount === 1 ? 'region' : 'regions'}.</div>
+            <div className="mt-0.5">Classified {fit.surfaceFits.length} analytic surface {fit.surfaceFits.length === 1 ? 'hypothesis' : 'hypotheses'}.</div>
             {fit.segmentationDiagnostics.map((diagnostic) => <div key={diagnostic} role="note" className="mt-0.5" style={{ color: 'var(--accent-amber, #d4a04a)' }}>{diagnostic}</div>)}
             {fit.acceptable ? (
               <>
