@@ -32,7 +32,7 @@ No Sinter account is needed for any of that: OpenRouter bills your own OpenRoute
 ## Features
 
 ### Modeling
-- **Primitives**: Box, Sphere, Cylinder, Torus, Cone, Capsule, Ellipsoid, polygon-profile extrusion and revolve, with closed SVG and ASCII DXF profile import
+- **Primitives**: Box, Sphere, Cylinder, Torus, Cone, Capsule, Ellipsoid, visually editable polygon-profile extrusion and revolve, with closed SVG and ASCII DXF profile import
 - **Booleans**: Union, Subtract, Intersect (with smooth/fillet parameter), and a bounded faceted Hull whose support-plane detail is adjustable
 - **Modifiers**: Shell, Offset, Round, Chamfer, Draft, Twist, Bend, Mirror, Half-Space Cut (with flip). Chamfer is a generic SDF approximation, so its visual quality follows the child field. Draft, Twist, and Bend provide bounded mechanical deformations with fixed reference/origin planes.
 - **Patterns**: Linear Pattern, Circular Pattern

@@ -10,6 +10,7 @@ import { useViewportStore } from '../../store/viewportStore';
 import { formatLength } from '../../types/units';
 import { ImportMesh } from '../projects/ImportMesh';
 import { ProfileImport } from '../projects/ProfileImport';
+import { ProfileEditor } from '../projects/ProfileEditor';
 import { parseProfile, parseRevolveProfile } from '../../worker/sdf/profile';
 
 function findNode(tree: SDFNodeUI, id: string): SDFNodeUI | null {
@@ -502,11 +503,11 @@ function NodeEditor({ node, onUpdate, onUpdateStr }: { node: SDFNodeUI; onUpdate
         <>
           <SectionLabel>Extrusion</SectionLabel>
           <NumberInput label="Depth" value={p.depth} min={0.1} step={0.5} unit="mm" onChange={(v) => onUpdate({ depth: v })} />
-          <SectionLabel>Profile loops (JSON)</SectionLabel>
-          <ProfileLoopEditor key={node.data?.profile || ''} value={node.data?.profile} commit={(profile) => onUpdateStr({ profile })} />
-          <div className="px-2 text-[10px] leading-snug" style={{ color: 'var(--text-muted)' }}>
-            XY coordinates in millimetres. Outer loop winds counter-clockwise; holes wind clockwise.
-          </div>
+          <SectionLabel>Profile</SectionLabel>
+          <ProfileEditor value={node.data?.profile} fallback={DEFAULT_PROFILE_TEXT} revolve={false} validate={parseProfile} onCommit={(profile) => onUpdateStr({ profile })} />
+          <details className="mx-2 mt-2"><summary className="text-[10px] cursor-pointer" style={{ color: 'var(--text-muted)' }}>Advanced profile JSON</summary>
+            <ProfileLoopEditor key={node.data?.profile || ''} value={node.data?.profile} commit={(profile) => onUpdateStr({ profile })} />
+          </details>
           <ProfileImport revolve={false} onCommit={(profile) => onUpdateStr({ profile })} />
         </>
       );
@@ -516,11 +517,11 @@ function NodeEditor({ node, onUpdate, onUpdateStr }: { node: SDFNodeUI; onUpdate
           <SectionLabel>Revolution</SectionLabel>
           <XYZPicker label="Revolve axis" value={p.axis === 0 ? 'x' : p.axis === 2 ? 'z' : 'y'} onChange={(axis) => onUpdate({ axis: axis === 'x' ? 0 : axis === 'z' ? 2 : 1 })} />
           <NumberInput label="Angle" value={p.angle} min={1} max={360} step={5} unit="deg" onChange={(v) => onUpdate({ angle: v })} />
-          <SectionLabel>Radius / axial profile (JSON)</SectionLabel>
-          <ProfileLoopEditor key={node.data?.profile || 'default-revolve'} value={node.data?.profile} fallback={DEFAULT_REVOLVE_PROFILE_TEXT} validate={parseRevolveProfile} commit={(profile) => onUpdateStr({ profile })} />
-          <div className="px-2 text-[10px] leading-snug" style={{ color: 'var(--text-muted)' }}>
-            Each point is [radius, axial position] in millimetres. Radius must stay non-negative.
-          </div>
+          <SectionLabel>Radius / axial profile</SectionLabel>
+          <ProfileEditor value={node.data?.profile} fallback={DEFAULT_REVOLVE_PROFILE_TEXT} revolve validate={parseRevolveProfile} onCommit={(profile) => onUpdateStr({ profile })} />
+          <details className="mx-2 mt-2"><summary className="text-[10px] cursor-pointer" style={{ color: 'var(--text-muted)' }}>Advanced profile JSON</summary>
+            <ProfileLoopEditor key={node.data?.profile || 'default-revolve'} value={node.data?.profile} fallback={DEFAULT_REVOLVE_PROFILE_TEXT} validate={parseRevolveProfile} commit={(profile) => onUpdateStr({ profile })} />
+          </details>
           <ProfileImport revolve onCommit={(profile) => onUpdateStr({ profile })} />
         </>
       );
