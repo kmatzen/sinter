@@ -12,6 +12,33 @@ const box = new Float32Array([
   ...triangle([1,0,0],[1,1,0],[1,1,1]), ...triangle([1,0,0],[1,1,1],[1,0,1]),
 ]);
 
+function ring(outer: number, inner: number, height: number, segments = 16): Float32Array {
+  const values: number[] = [];
+  const point = (radius: number, index: number, z: number) => [radius * Math.cos(index * 2 * Math.PI / segments), radius * Math.sin(index * 2 * Math.PI / segments), z];
+  for (let index = 0; index < segments; index++) {
+    const next = (index + 1) % segments;
+    const ob = point(outer, index, -height / 2), onb = point(outer, next, -height / 2);
+    const ot = point(outer, index, height / 2), ont = point(outer, next, height / 2);
+    const ib = point(inner, index, -height / 2), inb = point(inner, next, -height / 2);
+    const it = point(inner, index, height / 2), int = point(inner, next, height / 2);
+    values.push(...triangle(ot, ob, onb), ...triangle(ot, onb, ont));
+    if (inner === 0) {
+      values.push(...triangle([0,0,height / 2], ot, ont), ...triangle([0,0,-height / 2], onb, ob));
+    } else {
+      values.push(...triangle(it, ot, ont), ...triangle(it, ont, int));
+      values.push(...triangle(ib, inb, onb), ...triangle(ib, onb, ob));
+      values.push(...triangle(it, int, inb), ...triangle(it, inb, ib));
+    }
+  }
+  return new Float32Array(values);
+}
+
+function translated(source: Float32Array, x: number, y: number, z: number): Float32Array {
+  const output = new Float32Array(source);
+  for (let index = 0; index < output.length; index += 3) { output[index] += x; output[index + 1] += y; output[index + 2] += z; }
+  return output;
+}
+
 describe('mesh surface segmentation', () => {
   it('merges tessellation seams but preserves the six sharp box faces', () => {
     const result = segmentMeshSurfaces(box);
@@ -27,6 +54,24 @@ describe('mesh surface segmentation', () => {
       const original = segmentMeshSurfaces(box), next = segmentMeshSurfaces(shuffled);
       return JSON.stringify(next.regions.map((region) => region.key)) === JSON.stringify(original.regions.map((region) => region.key));
     }), { numRuns: 100 });
+  });
+
+  it('keeps smooth cylinders coherent and separates annular-hole surfaces', () => {
+    const cylinder = segmentMeshSurfaces(ring(4, 0, 3));
+    expect(cylinder.regions).toHaveLength(3);
+    expect(cylinder.diagnostics).toEqual([]);
+    const washer = segmentMeshSurfaces(ring(5, 2, 2));
+    expect(washer.regions).toHaveLength(4);
+    expect(washer.regions.map((region) => region.triangleIds.length).sort((a, b) => a - b)).toEqual([32, 32, 32, 32]);
+    expect(washer.diagnostics).toEqual([]);
+  });
+
+  it('does not join disconnected repeated solids', () => {
+    const repeated = new Float32Array([...translated(box, -3, 0, 0), ...translated(box, 3, 0, 0)]);
+    const result = segmentMeshSurfaces(repeated);
+    expect(result.regions).toHaveLength(12);
+    expect(result.regions.flatMap((region) => region.triangleIds)).toHaveLength(24);
+    expect(result.diagnostics).toEqual([]);
   });
 
   it('assigns every triangle exactly once and reports open, non-manifold, and degenerate input', () => {
