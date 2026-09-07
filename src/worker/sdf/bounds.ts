@@ -175,6 +175,10 @@ export function computeBounds(node: SDFNode): BBox {
       const hw = totalW / 2, hh = node.size / 2, hd = node.depth / 2;
       return { min: [-hw, -hh, -hd], max: [hw, hh, hd] };
     }
+    case 'extrude': {
+      const xs = node.profile.outer.map((p) => p[0]), ys = node.profile.outer.map((p) => p[1]);
+      return { min: [Math.min(...xs), Math.min(...ys), -node.depth / 2], max: [Math.max(...xs), Math.max(...ys), node.depth / 2] };
+    }
     case 'halfSpace':
       // A half-space really is unbounded, so say so rather than substituting a
       // 1000mm box: `intersect` takes the tighter of the two bounds per axis,
@@ -291,6 +295,7 @@ export function fieldScale(node: SDFNode): number {
       const hi = Math.max(h[0], h[1], h[2]);
       return lo > 1e-9 ? hi / lo : 1;
     }
+    case 'extrude': return 1;
     case 'union':
     case 'subtract':
     case 'intersect':

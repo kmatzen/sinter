@@ -62,6 +62,7 @@ Change types:
 - **cone**: \`{ radius, height }\` (mm) — base at bottom, apex at top
 - **capsule**: \`{ radius, height }\` (mm) — cylinder with hemispherical ends
 - **ellipsoid**: \`{ width, height, depth }\` (mm)
+- **extrude**: \`{ depth }\` + data containing a JSON-encoded \`profile\` with an outer \`[[x,y], ...]\` loop and optional hole loops — symmetric Z extrusion; outer CCW, holes clockwise
 
 ### Booleans (2 children)
 - **union**: \`{ smooth }\` — merges children. smooth=0 sharp, >0 = fillet radius

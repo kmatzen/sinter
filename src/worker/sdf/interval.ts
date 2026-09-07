@@ -305,6 +305,15 @@ export function evaluateInterval(node: SDFNode, box: BBox): Interval {
       const inside = minK(maxI(maxI(q[0], q[1]), q[2]), 0);
       return I(add(outside, inside).lo, Infinity);
     }
+    case 'extrude': {
+      const bounds = computeBounds(node);
+      const hx = (bounds.max[0] - bounds.min[0]) / 2, hy = (bounds.max[1] - bounds.min[1]) / 2;
+      const cx = (bounds.max[0] + bounds.min[0]) / 2, cy = (bounds.max[1] + bounds.min[1]) / 2;
+      const q = [addK(absI(addK(x, -cx)), -hx), addK(absI(addK(y, -cy)), -hy), addK(absI(z), -node.depth / 2)];
+      const outside = lengthI(q.map((c) => maxK(c, 0)));
+      const inside = minK(maxI(maxI(q[0], q[1]), q[2]), 0);
+      return I(add(outside, inside).lo, Infinity);
+    }
     case 'mesh': {
       // The baked field is at worst sqrt(3)-Lipschitz: trilinear interpolation
       // of samples of a 1-Lipschitz function has each partial derivative

@@ -19,6 +19,10 @@ const leaf: fc.Arbitrary<SDFNode> = fc.oneof(
   // height deliberately allowed below 2*radius — that is the degenerate case
   fc.record({ kind: fc.constant('capsule' as const), radius: num(1, 15), height: num(1, 40) }),
   fc.record({ kind: fc.constant('ellipsoid' as const), size: fc.tuple(num(2, 40), num(2, 40), num(2, 40)) }),
+  fc.tuple(num(2, 40), num(2, 40), num(1, 20)).map(([width, height, depth]) => ({
+    kind: 'extrude' as const, depth,
+    profile: { outer: [[-width / 2, -height / 2], [width / 2, -height / 2], [width / 2, height / 2], [-width / 2, height / 2]] as [number, number][], holes: [] },
+  })),
 );
 
 /** Random tree over every node kind the evaluator supports. */

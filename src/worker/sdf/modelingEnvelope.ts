@@ -2,6 +2,7 @@ import { MODEL_SPATIAL_LIMIT_MM } from '../../types/modelingEnvelope';
 import { computeBounds } from './bounds';
 import type { SDFNode } from './types';
 import { axisIndex, bendMinimumMetric, bendRate } from './bend';
+import { profileFeatureSize } from './profile';
 
 /** Smallest physical feature the editor promises to preserve. */
 export const MIN_MODEL_FEATURE_MM = 0.1;
@@ -70,6 +71,9 @@ export function validateModelingEnvelope(root: SDFNode): void {
         requireFeature(Math.min(node.radius, node.height), scale, 'capsule dimension'); return;
       case 'ellipsoid':
         requireFeature(Math.min(...node.size), scale, 'ellipsoid dimension'); return;
+      case 'extrude':
+        requireFeature(node.depth, scale, 'extrude depth');
+        requireFeature(profileFeatureSize(node.profile), scale, 'profile edge or wall'); return;
       case 'text':
         requireFeature(Math.min(node.size, node.depth), scale, 'text dimension'); return;
       case 'shell':

@@ -14,6 +14,7 @@ import {
 const ICONS: Record<string, ReactNode> = {
   box: <Box size={14} />, sphere: <Circle size={14} />, cylinder: <Cylinder size={14} />,
   torus: <Donut size={14} />, cone: <Cone size={14} />, capsule: <Pill size={14} />, ellipsoid: <Egg size={14} />,
+  extrude: <Scaling size={14} />,
   union: <Merge size={13} />, subtract: <Minus size={13} />, intersect: <Combine size={13} />, hull: <Combine size={13} />,
   shell: <Shell size={13} />, offset: <Expand size={13} />, round: <CircleDot size={13} />, chamfer: <CircleDot size={13} />, draft: <Scaling size={13} />, twist: <RotateCcw size={13} />, bend: <RotateCcw size={13} />,
   mirror: <FlipHorizontal size={13} />, halfSpace: <Scissors size={13} />,
@@ -31,7 +32,10 @@ const CAT_COLORS: Record<string, string> = {
 };
 
 function simpleNodeData(kind: string): string {
-  return JSON.stringify({ kind, label: NODE_LABELS[kind] || kind, params: NODE_DEFAULTS[kind] || {} });
+  return JSON.stringify({
+    kind, label: NODE_LABELS[kind] || kind, params: NODE_DEFAULTS[kind] || {},
+    ...(kind === 'extrude' ? { data: { profile: JSON.stringify({ outer: [[-20, -15], [20, -15], [20, 15], [-20, 15]], holes: [] }) } } : {}),
+  });
 }
 
 function presetNodeData(builder: () => SDFNodeUI): string {

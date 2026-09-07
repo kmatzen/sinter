@@ -739,6 +739,22 @@ describe('Modeler editing scenarios', () => {
       expect(getState().tree!.data?.text).toBe('Hello');
     });
 
+    it('commits a profile edit as one undoable data change', () => {
+      getState().addPrimitive('extrude');
+      const id = getState().tree!.id;
+      const profile = JSON.stringify({ outer: [[0, 0], [10, 0], [10, 5], [0, 5]], holes: [] });
+      const before = getState().historyIndex;
+      getState().updateNodeData(id, { profile });
+      expect(getState().historyIndex).toBe(before + 1);
+      expect(getState().tree!.data?.profile).toBe(profile);
+      const json = getState().toJSON();
+      getState().undo();
+      expect(getState().tree!.data?.profile).toBeUndefined();
+      reset();
+      getState().fromJSON(json);
+      expect(getState().tree!.data?.profile).toBe(profile);
+    });
+
     it('is a no-op with no tree', () => {
       getState().updateNodeData('missing', { text: 'x' });
       expect(getState().tree).toBeNull();

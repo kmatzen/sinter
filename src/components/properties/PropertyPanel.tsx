@@ -9,6 +9,7 @@ import { NumberInput } from './NumberInput';
 import { useViewportStore } from '../../store/viewportStore';
 import { formatLength } from '../../types/units';
 import { ImportMesh } from '../projects/ImportMesh';
+import { parseProfile } from '../../worker/sdf/profile';
 
 function findNode(tree: SDFNodeUI, id: string): SDFNodeUI | null {
   if (tree.id === id) return tree;
@@ -415,6 +416,24 @@ function ReimportMeshControl({ node }: { node: SDFNodeUI }) {
   </div>;
 }
 
+const DEFAULT_PROFILE_TEXT = '{"outer":[[-20,-15],[20,-15],[20,15],[-20,15]],"holes":[]}';
+
+function ProfileLoopEditor({ value, commit }: { value?: string; commit: (value: string) => void }) {
+  const [draft, setDraft] = useState(value || DEFAULT_PROFILE_TEXT);
+  const [error, setError] = useState<string | null>(null);
+  const finish = () => {
+    try { parseProfile(draft); setError(null); if (draft !== value) commit(draft); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : 'Invalid profile'); }
+  };
+  return <div className="px-2 mb-1">
+    <textarea value={draft} onChange={(e) => setDraft(e.target.value)} onBlur={finish}
+      aria-label="Profile loops JSON" aria-invalid={!!error} rows={7} spellCheck={false}
+      className="w-full rounded p-2 font-mono text-[10px] focus:outline-none"
+      style={{ background: 'var(--bg-surface)', color: 'var(--text-primary)', border: `1px solid ${error ? 'var(--accent-red, #e06c6c)' : 'var(--border-default)'}` }} />
+    {error && <div role="alert" className="pt-1 text-[10px]" style={{ color: 'var(--accent-red, #e06c6c)' }}>{error}</div>}
+  </div>;
+}
+
 function NodeEditor({ node, onUpdate, onUpdateStr }: { node: SDFNodeUI; onUpdate: (p: Record<string, number>) => void; onUpdateStr: (d: Record<string, string>) => void }) {
   const p = node.params;
 
@@ -474,6 +493,18 @@ function NodeEditor({ node, onUpdate, onUpdateStr }: { node: SDFNodeUI; onUpdate
           <NumberInput label="Width" value={p.width} min={0.1} onChange={(v) => onUpdate({ width: v })} />
           <NumberInput label="Height" value={p.height} min={0.1} onChange={(v) => onUpdate({ height: v })} />
           <NumberInput label="Depth" value={p.depth} min={0.1} onChange={(v) => onUpdate({ depth: v })} />
+        </>
+      );
+    case 'extrude':
+      return (
+        <>
+          <SectionLabel>Extrusion</SectionLabel>
+          <NumberInput label="Depth" value={p.depth} min={0.1} step={0.5} unit="mm" onChange={(v) => onUpdate({ depth: v })} />
+          <SectionLabel>Profile loops (JSON)</SectionLabel>
+          <ProfileLoopEditor key={node.data?.profile || ''} value={node.data?.profile} commit={(profile) => onUpdateStr({ profile })} />
+          <div className="px-2 text-[10px] leading-snug" style={{ color: 'var(--text-muted)' }}>
+            XY coordinates in millimetres. Outer loop winds counter-clockwise; holes wind clockwise.
+          </div>
         </>
       );
     case 'union': case 'subtract': case 'intersect':
