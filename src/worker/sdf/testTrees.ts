@@ -34,6 +34,7 @@ export function sdfTree(maxDepth = 3): fc.Arbitrary<SDFNode> {
       fc.record({ kind: fc.constant('round' as const), child: tie('node'), radius: num(0, 10) }),
       fc.record({ kind: fc.constant('draft' as const), child: tie('node'), axis: fc.constantFrom('x' as const, 'y' as const, 'z' as const), angle: num(-30, 30), reference: num(-10, 10) }),
       fc.record({ kind: fc.constant('twist' as const), child: tie('node'), axis: fc.constantFrom('x' as const, 'y' as const, 'z' as const), angle: num(-180, 180), origin: num(-10, 10), extent: num(1, 50) }),
+      fc.record({ kind: fc.constant('bend' as const), child: tie('node'), axis: fc.constant('y' as const), direction: fc.constant('x' as const), angle: num(-60, 60), origin: num(-10, 10), extent: num(20, 80) }),
       fc.record({
         kind: fc.constant('transform' as const), child: tie('node'),
         tx: num(-25, 25), ty: num(-25, 25), tz: num(-25, 25),
@@ -107,6 +108,7 @@ export function expandPatterns(node: SDFNode): SDFNode {
     case 'chamfer':
     case 'draft':
     case 'twist':
+    case 'bend':
     case 'transform':
     case 'mirror':
       return { ...node, child: expandPatterns(node.child) } as SDFNode;

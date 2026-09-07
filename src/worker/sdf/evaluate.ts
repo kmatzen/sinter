@@ -3,6 +3,7 @@ import { hasGlyphOutlines, SDF_PARAM_EPSILON } from './types';
 import { sampleMeshField } from './meshField';
 import { linearWindow, circularWindow } from './patternWindow';
 import { computeBounds, fieldScale, MODIFIER_DISTANCE_SAFETY } from './bounds';
+import { axisIndex, inverseBendPoint } from './bend';
 
 /**
  * Evaluate the field at a point.
@@ -212,6 +213,11 @@ export function evalAt(node: SDFNode, px: number, py: number, pz: number): numbe
       else if (node.axis === 'z') { qx = c * px - s * py; qy = s * px + c * py; }
       else { qx = c * px + s * pz; qz = -s * px + c * pz; }
       return evalAt(node.child, qx, qy, qz) / cachedFieldScale(node);
+    }
+    case 'bend': {
+      if (Math.abs(node.angle) <= SDF_PARAM_EPSILON) return evalAt(node.child, px, py, pz);
+      const q = inverseBendPoint([px, py, pz], axisIndex(node.axis), axisIndex(node.direction), node.angle, node.origin, node.extent);
+      return evalAt(node.child, q[0], q[1], q[2]) / cachedFieldScale(node);
     }
     case 'transform': {
       // Inverse transform the point: R^-1((p - t) / s).

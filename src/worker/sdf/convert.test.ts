@@ -43,3 +43,10 @@ describe('twist conversion', () => {
     expect(toSDFNode(ui)).toEqual({ kind: 'twist', axis: 'x', angle: -90, origin: 3, extent: 20, child: { kind: 'sphere', radius: 5 } });
   });
 });
+
+describe('bend conversion', () => {
+  it('preserves axes, signed angle, origin, extent, and child', () => {
+    const ui: SDFNodeUI = { id: 'b', kind: 'bend', label: 'Bend', params: { axis: 2, direction: 0, angle: -60, origin: 3, extent: 20 }, children: [node('sphere')], enabled: true };
+    expect(toSDFNode(ui)).toEqual({ kind: 'bend', axis: 'z', direction: 'x', angle: -60, origin: 3, extent: 20, child: { kind: 'sphere', radius: 5 } });
+  });
+});

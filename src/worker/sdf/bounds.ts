@@ -1,6 +1,7 @@
 import type { SDFNode, BBox, Vec3 } from './types';
 import { SDF_PARAM_EPSILON } from './types';
 import { hasGlyphOutlines } from './types';
+import { axisIndex, bendRate, bendScale, conservativeBendBounds } from './bend';
 
 export function computeBounds(node: SDFNode): BBox {
   switch (node.kind) {
@@ -88,6 +89,9 @@ export function computeBounds(node: SDFNode): BBox {
       for (const index of perpendicular) { result.min[index] = -radius; result.max[index] = radius; }
       return result;
     }
+    case 'bend':
+      if (Math.abs(node.angle) <= SDF_PARAM_EPSILON) return computeBounds(node.child);
+      return conservativeBendBounds(computeBounds(node.child), axisIndex(node.axis), axisIndex(node.direction), node.origin);
     case 'mirror': {
       const cb = computeBounds(node.child);
       return {
@@ -310,6 +314,11 @@ export function fieldScale(node: SDFNode): number {
         for (const b of [bounds.min[perpendicular[1]], bounds.max[perpendicular[1]]]) radius = Math.max(radius, Math.hypot(a, b));
       const rate = Math.abs(node.angle) * Math.PI / 180 / node.extent;
       return fieldScale(node.child) * Math.max(1, 1 + radius * rate);
+    }
+    case 'bend': {
+      if (Math.abs(node.angle) <= SDF_PARAM_EPSILON) return fieldScale(node.child);
+      const bounds = computeBounds(node.child);
+      return fieldScale(node.child) * bendScale(bounds, axisIndex(node.direction), bendRate(node.angle, node.extent));
     }
     case 'shell':
       return fieldScale(node.child) * MODIFIER_DISTANCE_SAFETY;

@@ -232,6 +232,15 @@ describe('computeBounds', () => {
     expect(bb.max).toEqual([radius, 4, radius]);
   });
 
+  it('bend produces finite conservative bounds and preserves the unaffected axis', () => {
+    const child: SDFNode = { kind: 'box', size: [6, 20, 10] };
+    const bb = computeBounds({ kind: 'bend', child, axis: 'y', direction: 'x', angle: 90, origin: 0, extent: 20 });
+    expect(bb.min[2]).toBe(-5);
+    expect(bb.max[2]).toBe(5);
+    expect(bb.min.every(Number.isFinite)).toBe(true);
+    expect(bb.max.every(Number.isFinite)).toBe(true);
+  });
+
   /**
    * Metrics alone do not make a glyph. Without outlines both evaluators draw
    * the character-width box, so the bound has to describe that box — reading

@@ -49,6 +49,12 @@ export function sourceFeatureSize(node: SDFNode): Feature3 {
       const pitch = axial / turns;
       return min3(sourceFeatureSize(node.child), [pitch, pitch, pitch]);
     }
+    case 'bend': {
+      if (Math.abs(node.angle) <= SDF_PARAM_EPSILON) return sourceFeatureSize(node.child);
+      const segments = Math.max(1, Math.abs(node.angle) / 90);
+      const arcFeature = node.extent / segments;
+      return min3(sourceFeatureSize(node.child), [arcFeature, arcFeature, arcFeature]);
+    }
     case 'transform': {
       const child = sourceFeatureSize(node.child);
       const smallest = Math.min(child[0] * Math.abs(node.sx), child[1] * Math.abs(node.sy), child[2] * Math.abs(node.sz));

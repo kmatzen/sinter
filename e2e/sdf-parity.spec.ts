@@ -130,6 +130,7 @@ const CASES: [string, SDFNode][] = [
   ['chamfer(box)', { kind: 'chamfer', distance: 4, child: { kind: 'box', size: [30, 20, 40] } }],
   ['draft(box)', { kind: 'draft', axis: 'y', angle: 12, reference: 0, child: { kind: 'box', size: [30, 20, 40] } }],
   ['twist(translated box)', { kind: 'twist', axis: 'y', angle: 120, origin: 0, extent: 30, child: { kind: 'transform', child: { kind: 'box', size: [12, 24, 8] }, tx: 8, ty: 0, tz: 0, rx: 0, ry: 0, rz: 0, sx: 1, sy: 1, sz: 1 } }],
+  ['bend(translated box)', { kind: 'bend', axis: 'y', direction: 'x', angle: 70, origin: 0, extent: 30, child: { kind: 'transform', child: { kind: 'box', size: [8, 40, 10] }, tx: 3, ty: 0, tz: 0, rx: 0, ry: 0, rz: 0, sx: 1, sy: 1, sz: 1 } }],
   ['shell', { kind: 'shell', thickness: 4, child: { kind: 'box', size: [30, 30, 30] } }],
   ['smooth union', {
     kind: 'union', k: 5,

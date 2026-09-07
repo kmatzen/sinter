@@ -34,7 +34,7 @@ No Sinter account is needed for any of that: OpenRouter bills your own OpenRoute
 ### Modeling
 - **Primitives**: Box, Sphere, Cylinder, Torus, Cone, Capsule, Ellipsoid
 - **Booleans**: Union, Subtract, Intersect (with smooth/fillet parameter)
-- **Modifiers**: Shell, Offset, Round, Chamfer, Draft, Twist, Mirror, Half-Space Cut (with flip). Chamfer is a generic SDF approximation, so its visual quality follows the child field. Draft and Twist provide bounded mechanical deformations with fixed reference/origin planes.
+- **Modifiers**: Shell, Offset, Round, Chamfer, Draft, Twist, Bend, Mirror, Half-Space Cut (with flip). Chamfer is a generic SDF approximation, so its visual quality follows the child field. Draft, Twist, and Bend provide bounded mechanical deformations with fixed reference/origin planes.
 - **Patterns**: Linear Pattern, Circular Pattern
 - **Transforms**: Translate, Rotate, Scale
 - **Presets**: Pre-built parts (enclosures, standoffs, brackets, vents, clips). Every preset states a guaranteed outer envelope that a test checks against the geometry itself, so the size on the card is the size you get.

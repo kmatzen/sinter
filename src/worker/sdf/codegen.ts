@@ -539,6 +539,36 @@ function emitNode(node: SDFNode, pVar: string, lines: string[]): string {
       lines.push(`float ${result} = ${child} / ${up(fieldScale(node))};`);
       return result;
     }
+    case 'bend': {
+      if (Math.abs(node.angle) <= SDF_PARAM_EPSILON) return emitNode(node.child, pVar, lines);
+      const axis = node.axis;
+      const direction = node.direction;
+      const rateValue = node.angle * Math.PI / 180 / node.extent;
+      const radiusValue = 1 / rateValue;
+      const half = node.extent / 2;
+      const hiTheta = rateValue * half, loTheta = -hiTheta;
+      const hiC = Math.cos(hiTheta), hiS = Math.sin(hiTheta), loC = Math.cos(loTheta), loS = Math.sin(loTheta);
+      const hiU = radiusValue * hiS, hiV = radiusValue * (1 - hiC);
+      const loU = radiusValue * loS, loV = radiusValue * (1 - loC);
+      const bp = `bp_${result}`;
+      lines.push(`vec3 ${bp} = ${pVar};`);
+      lines.push(`float bu_${result} = ${pVar}.${axis} - ${up(node.origin)}, bv_${result} = ${pVar}.${direction};`);
+      lines.push(`float bh_${result} = (bu_${result} - ${up(hiU)}) * ${up(hiC)} + (bv_${result} - ${up(hiV)}) * ${up(hiS)};`);
+      lines.push(`float bl_${result} = (bu_${result} - ${up(loU)}) * ${up(loC)} + (bv_${result} - ${up(loV)}) * ${up(loS)};`);
+      lines.push(`if (bh_${result} > 0.0) {`);
+      lines.push(`  ${bp}.${axis} = ${up(node.origin + half)} + bh_${result};`);
+      lines.push(`  ${bp}.${direction} = -(bu_${result} - ${up(hiU)}) * ${up(hiS)} + (bv_${result} - ${up(hiV)}) * ${up(hiC)};`);
+      lines.push(`} else if (bl_${result} < 0.0) {`);
+      lines.push(`  ${bp}.${axis} = ${up(node.origin - half)} + bl_${result};`);
+      lines.push(`  ${bp}.${direction} = -(bu_${result} - ${up(loU)}) * ${up(loS)} + (bv_${result} - ${up(loV)}) * ${up(loC)};`);
+      lines.push(`} else {`);
+      lines.push(`  ${bp}.${axis} = ${up(node.origin)} + atan(${up(Math.sign(radiusValue))} * bu_${result}, ${up(Math.sign(radiusValue))} * (${up(radiusValue)} - bv_${result})) / ${up(rateValue)};`);
+      lines.push(`  ${bp}.${direction} = ${up(radiusValue)} - ${up(Math.sign(radiusValue))} * length(vec2(bu_${result}, ${up(radiusValue)} - bv_${result}));`);
+      lines.push(`}`);
+      const child = emitNode(node.child, bp, lines);
+      lines.push(`float ${result} = ${child} / ${up(fieldScale(node))};`);
+      return result;
+    }
     case 'transform': {
       const tp = `tp_${result}`;
       lines.push(`vec3 ${tp} = ${pVar} - vec3(${up(node.tx)}, ${up(node.ty)}, ${up(node.tz)});`);

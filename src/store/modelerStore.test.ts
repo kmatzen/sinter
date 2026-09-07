@@ -272,6 +272,16 @@ describe('Modeler editing scenarios', () => {
       expect(getState().tree).toMatchObject({ kind: 'box', id: boxId });
     });
 
+    it('wraps a selected node in bend as one undoable edit', () => {
+      getState().addPrimitive('box');
+      const boxId = getState().tree!.id;
+      getState().selectNode(boxId);
+      getState().wrapSelected('bend');
+      expect(getState().tree).toMatchObject({ kind: 'bend', params: { axis: 1, direction: 0, angle: 45, origin: 0, extent: 40 } });
+      getState().undo();
+      expect(getState().tree).toMatchObject({ kind: 'box', id: boxId });
+    });
+
     it('builds box → round → shell', () => {
       // Add box
       getState().addPrimitive('box');
