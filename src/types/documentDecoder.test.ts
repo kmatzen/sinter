@@ -51,10 +51,18 @@ describe('document decoder', () => {
     const profile = JSON.stringify({ outer: [[-5, -4], [5, -4], [5, 4], [-5, 4]], holes: [] });
     const oldExtrude = { id: 'plate', kind: 'extrude', label: 'Plate', params: { depth: 6 }, data: { profile }, children: [], enabled: true };
     const decoded = decodeProjectDocument({ version: 2, tree: oldExtrude }).tree!;
-    expect(decoded.params).toMatchObject({ depth: 6, extentMode: 0, taper: 0, wallThickness: 0 });
+    expect(decoded.params).toMatchObject({ depth: 6, extentMode: 0, taper: 0, wallThickness: 0, plane: 0 });
     const runtime = toSDFNode(decoded)!;
     expect(computeBounds(runtime)).toEqual({ min: [-5, -4, -3], max: [5, 4, 3] });
     expect(evaluateSDF(runtime, [0, 0, 0])).toBeLessThan(0);
+  });
+
+  it('migrates legacy profile revolves onto the XY sketch plane', () => {
+    const profile = JSON.stringify({ outer: [[0, -2], [5, -2], [5, 2], [0, 2]], holes: [] });
+    const oldRevolve = { id: 'knob', kind: 'revolve', label: 'Knob', params: { axis: 1, angle: 180 }, data: { profile }, children: [], enabled: true };
+    const decoded = decodeProjectDocument({ version: 2, tree: oldRevolve }).tree!;
+    expect(decoded.params).toMatchObject({ axis: 1, angle: 180, plane: 0 });
+    expect(toSDFNode(decoded)).toMatchObject({ kind: 'revolve', axis: 'y', angle: 180, plane: 'xy' });
   });
 
   it('rejects unknown future document versions deliberately', () => {

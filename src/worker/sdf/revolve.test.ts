@@ -31,9 +31,19 @@ describe('polygon profile revolve', () => {
     expect(() => parseRevolveProfile(JSON.stringify({ outer: [[-1, -1], [2, -1], [2, 1], [-1, 1]], holes: [] }))).toThrow(/radius.*non-negative/i);
   });
 
+  it('uses the sketch plane to orient a partial revolution', () => {
+    const xy: SDFNode = { kind: 'revolve', profile: cylinderProfile, axis: 'y', angle: 90, plane: 'xy' };
+    const yz: SDFNode = { ...xy, plane: 'yz' };
+    expect(evaluateSDF(xy, [4, 0, 0])).toBeLessThan(0);
+    expect(evaluateSDF(xy, [0, 0, 4])).toBeGreaterThan(0);
+    expect(evaluateSDF(yz, [0, 0, 4])).toBeLessThan(0);
+    expect(evaluateSDF(yz, [4, 0, 0])).toBeGreaterThan(0);
+    expect(generateSDFFunction(yz).glsl).toContain('.z');
+  });
+
   it('converts, emits shader code, and provides a sound coarse interval', () => {
     const node = toSDFNode({ id: 'r', kind: 'revolve', label: 'Knob', params: { axis: 2, angle: 120 }, data: { profile: JSON.stringify(cylinderProfile) }, children: [], enabled: true })!;
-    expect(node).toMatchObject({ kind: 'revolve', axis: 'z', angle: 120 });
+    expect(node).toMatchObject({ kind: 'revolve', axis: 'z', angle: 120, plane: 'xy' });
     expect(generateSDFFunction(node).glsl).toContain('atan');
     const interval = evaluateInterval(node, computeBounds(node));
     expect(interval.lo).toBeLessThanOrEqual(0);

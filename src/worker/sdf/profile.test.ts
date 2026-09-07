@@ -49,6 +49,19 @@ describe('polygon profile extrusion', () => {
     expect(computeBounds(thin)).toEqual({ min: [-5.5, -4.5, 0], max: [5.5, 4.5, 4] });
   });
 
+  it('maps the same extrusion onto each named sketch plane', () => {
+    const base: SDFNode = { kind: 'extrude', profile: plate, depth: 2, plane: 'xy' };
+    expect(evaluateSDF(base, [4, 0, 0])).toBeLessThan(0);
+    const xz: SDFNode = { ...base, plane: 'xz' };
+    expect(evaluateSDF(xz, [4, 0, 0])).toBeLessThan(0);
+    expect(evaluateSDF(xz, [4, 2, 0])).toBeGreaterThan(0);
+    expect(computeBounds(xz)).toEqual({ min: [-5, -1, -4], max: [5, 1, 4] });
+    const yz: SDFNode = { ...base, plane: 'yz' };
+    expect(evaluateSDF(yz, [0, 4, 0])).toBeLessThan(0);
+    expect(computeBounds(yz)).toEqual({ min: [-1, -5, -4], max: [1, 5, 4] });
+    expect(generateSDFFunction(xz).glsl).toContain('.xz');
+  });
+
   it('rejects malformed, wrongly wound, and self-intersecting loops actionably', () => {
     expect(() => parseProfile('{')).toThrow(/not valid JSON/);
     expect(() => parseProfile(JSON.stringify({ outer: [[0, 0], [0, 2], [2, 2], [2, 0]], holes: [] }))).toThrow(/counter-clockwise/);
@@ -57,7 +70,7 @@ describe('polygon profile extrusion', () => {
 
   it('converts serialized profile data and emits bounded shader and interval fields', () => {
     const node = toSDFNode({ id: 'p', kind: 'extrude', label: 'Plate', params: { depth: 3 }, data: { profile: JSON.stringify(plate) }, children: [], enabled: true })!;
-    expect(node).toMatchObject({ kind: 'extrude', depth: 3, profile: plate });
+    expect(node).toMatchObject({ kind: 'extrude', depth: 3, profile: plate, plane: 'xy' });
     expect(generateSDFFunction(node).glsl).toContain('sdf_profile_');
     const interval = evaluateInterval(node, computeBounds(node));
     expect(interval.lo).toBeLessThanOrEqual(-1);

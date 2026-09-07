@@ -157,6 +157,29 @@ export function extrudeDistance(profile: PolygonProfile, depth: number, p: Vec3,
   return Math.min(Math.max(d2, dz), 0) + Math.hypot(Math.max(d2, 0), Math.max(dz, 0));
 }
 
+export type ProfilePlane = 'xy' | 'xz' | 'yz';
+
+/** Map a world-local point into profile U/V and plane-normal coordinates. */
+export function profilePlaneCoordinates(p: Vec3, plane: ProfilePlane = 'xy'): Vec3 {
+  if (plane === 'xz') return [p[0], p[2], p[1]];
+  if (plane === 'yz') return [p[1], p[2], p[0]];
+  return p;
+}
+
+/** Axial and oriented radial-plane coordinates for a revolved sketch. */
+export function revolveCoordinates(p: Vec3, axis: 'x' | 'y' | 'z', plane: ProfilePlane = 'xy'): Vec3 {
+  const index = { x: 0, y: 1, z: 2 } as const;
+  const planeAxes: Array<'x' | 'y' | 'z'> = plane === 'xy' ? ['x', 'y'] : plane === 'xz' ? ['x', 'z'] : ['y', 'z'];
+  const other = planeAxes.find((candidate) => candidate !== axis);
+  if (planeAxes.includes(axis) && other) {
+    const normal = (['x', 'y', 'z'] as const).find((candidate) => !planeAxes.includes(candidate))!;
+    return [p[index[axis]], p[index[other]], p[index[normal]]];
+  }
+  if (axis === 'x') return [p[0], p[1], p[2]];
+  if (axis === 'z') return [p[2], p[0], p[1]];
+  return [p[1], p[0], p[2]];
+}
+
 function distanceToRay(u: number, v: number, angle: number): number {
   const dx = Math.cos(angle), dy = Math.sin(angle), t = Math.max(0, u * dx + v * dy);
   return Math.hypot(u - t * dx, v - t * dy);
@@ -171,11 +194,8 @@ export function sectorDistance(u: number, v: number, angleDegrees: number): numb
   return Math.abs(theta) <= half ? -distance : distance;
 }
 
-export function revolveDistance(profile: PolygonProfile, axis: 'x' | 'y' | 'z', angle: number, p: Vec3): number {
-  let axial: number, u: number, v: number;
-  if (axis === 'x') { axial = p[0]; u = p[1]; v = p[2]; }
-  else if (axis === 'z') { axial = p[2]; u = p[0]; v = p[1]; }
-  else { axial = p[1]; u = p[0]; v = p[2]; }
+export function revolveDistance(profile: PolygonProfile, axis: 'x' | 'y' | 'z', angle: number, p: Vec3, plane: ProfilePlane = 'xy'): number {
+  const [axial, u, v] = revolveCoordinates(p, axis, plane);
   const radial = Math.hypot(u, v);
   const section = revolvedProfileDistance(profile, radial, axial);
   return Math.max(section, sectorDistance(u, v, angle));

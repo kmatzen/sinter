@@ -183,7 +183,11 @@ export function computeBounds(node: SDFNode): BBox {
       // Wall thickness is measured normal to the drafted side; project that
       // normal offset onto XY to keep the AABB conservative at non-zero taper.
       const expansion = taperExpansion + (node.wallThickness ?? 0) / 2 * Math.hypot(1, slope);
-      return { min: [Math.min(...xs) - expansion, Math.min(...ys) - expansion, zMin], max: [Math.max(...xs) + expansion, Math.max(...ys) + expansion, zMax] };
+      const profileMin: Vec3 = [Math.min(...xs) - expansion, Math.min(...ys) - expansion, zMin];
+      const profileMax: Vec3 = [Math.max(...xs) + expansion, Math.max(...ys) + expansion, zMax];
+      if (node.plane === 'xz') return { min: [profileMin[0], profileMin[2], profileMin[1]], max: [profileMax[0], profileMax[2], profileMax[1]] };
+      if (node.plane === 'yz') return { min: [profileMin[2], profileMin[0], profileMin[1]], max: [profileMax[2], profileMax[0], profileMax[1]] };
+      return { min: profileMin, max: profileMax };
     }
     case 'revolve': {
       const radius = Math.max(...node.profile.outer.map((p) => p[0]));

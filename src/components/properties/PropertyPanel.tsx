@@ -502,6 +502,12 @@ function NodeEditor({ node, onUpdate, onUpdateStr }: { node: SDFNodeUI; onUpdate
       return (
         <>
           <SectionLabel>Extrusion</SectionLabel>
+          <label className="mx-2 mb-1 flex items-center gap-2 text-[11px]" style={{ color: 'var(--text-muted)' }}>Sketch plane
+            <select aria-label="Extrude sketch plane" value={p.plane} onChange={(event) => onUpdate({ plane: Number(event.target.value) })}
+              className="min-w-0 flex-1 h-7 rounded px-1" style={{ background: 'var(--bg-surface)', color: 'var(--text-primary)' }}>
+              <option value={0}>XY</option><option value={1}>XZ</option><option value={2}>YZ</option>
+            </select>
+          </label>
           <label className="mx-2 mb-1 flex items-center gap-2 text-[11px]" style={{ color: 'var(--text-muted)' }}>Extent
             <select aria-label="Extrude extent" value={p.extentMode} onChange={(event) => onUpdate({ extentMode: Number(event.target.value) })}
               className="min-w-0 flex-1 h-7 rounded px-1" style={{ background: 'var(--bg-surface)', color: 'var(--text-primary)' }}>
@@ -525,6 +531,12 @@ function NodeEditor({ node, onUpdate, onUpdateStr }: { node: SDFNodeUI; onUpdate
       return (
         <>
           <SectionLabel>Revolution</SectionLabel>
+          <label className="mx-2 mb-1 flex items-center gap-2 text-[11px]" style={{ color: 'var(--text-muted)' }}>Sketch plane
+            <select aria-label="Revolve sketch plane" value={p.plane} onChange={(event) => onUpdate({ plane: Number(event.target.value) })}
+              className="min-w-0 flex-1 h-7 rounded px-1" style={{ background: 'var(--bg-surface)', color: 'var(--text-primary)' }}>
+              <option value={0}>XY</option><option value={1}>XZ</option><option value={2}>YZ</option>
+            </select>
+          </label>
           <XYZPicker label="Revolve axis" value={p.axis === 0 ? 'x' : p.axis === 2 ? 'z' : 'y'} onChange={(axis) => onUpdate({ axis: axis === 'x' ? 0 : axis === 'z' ? 2 : 1 })} />
           <NumberInput label="Angle" value={p.angle} min={1} max={360} step={5} unit="deg" onChange={(v) => onUpdate({ angle: v })} />
           <SectionLabel>Radius / axial profile</SectionLabel>

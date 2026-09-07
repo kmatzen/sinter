@@ -474,18 +474,24 @@ function emitNode(node: SDFNode, pVar: string, lines: string[]): string {
       const fn = emitProfileDistanceHelper(node.profile);
       const zMin = node.zMin ?? -node.depth / 2, zMax = node.zMax ?? node.depth / 2;
       const slope = Math.tan((node.taper ?? 0) * Math.PI / 180);
-      lines.push(`float ez_${result} = clamp(${pVar}.z, ${up(zMin)}, ${up(zMax)});`);
-      lines.push(`float pe_${result} = (${fn}(${pVar}.xy) + (ez_${result} - ${up(zMin)}) * ${up(slope)}) / ${up(Math.hypot(1, slope))};`);
+      const uv = node.plane === 'xz' ? `${pVar}.xz` : node.plane === 'yz' ? `${pVar}.yz` : `${pVar}.xy`;
+      const normal = node.plane === 'xz' ? `${pVar}.y` : node.plane === 'yz' ? `${pVar}.x` : `${pVar}.z`;
+      lines.push(`float ez_${result} = clamp(${normal}, ${up(zMin)}, ${up(zMax)});`);
+      lines.push(`float pe_${result} = (${fn}(${uv}) + (ez_${result} - ${up(zMin)}) * ${up(slope)}) / ${up(Math.hypot(1, slope))};`);
       if ((node.wallThickness ?? 0) > 0) lines.push(`pe_${result} = abs(pe_${result}) - ${up(node.wallThickness! / 2)};`);
-      lines.push(`float pz_${result} = max(${up(zMin)} - ${pVar}.z, ${pVar}.z - ${up(zMax)});`);
+      lines.push(`float pz_${result} = max(${up(zMin)} - ${normal}, ${normal} - ${up(zMax)});`);
       lines.push(`float ${result} = min(max(pe_${result}, pz_${result}), 0.0) + length(max(vec2(pe_${result}, pz_${result}), 0.0));`);
       return result;
     }
     case 'revolve': {
       const fn = emitProfileDistanceHelper(node.profile, true);
       const axial = node.axis === 'x' ? `${pVar}.x` : node.axis === 'z' ? `${pVar}.z` : `${pVar}.y`;
-      const u = node.axis === 'x' ? `${pVar}.y` : `${pVar}.x`;
-      const v = node.axis === 'z' ? `${pVar}.y` : `${pVar}.z`;
+      const planeAxes = node.plane === 'xz' ? ['x', 'z'] : node.plane === 'yz' ? ['y', 'z'] : ['x', 'y'];
+      const other = planeAxes.find((candidate) => candidate !== node.axis);
+      const normalAxis = ['x', 'y', 'z'].find((candidate) => !planeAxes.includes(candidate));
+      const uAxis = planeAxes.includes(node.axis) && other ? other : node.axis === 'x' ? 'y' : 'x';
+      const vAxis = planeAxes.includes(node.axis) && normalAxis ? normalAxis : node.axis === 'z' ? 'y' : 'z';
+      const u = `${pVar}.${uAxis}`, v = `${pVar}.${vAxis}`;
       lines.push(`vec2 rv_${result} = vec2(${u}, ${v});`);
       lines.push(`float rl_${result} = length(rv_${result});`);
       lines.push(`float rp_${result} = ${fn}(vec2(rl_${result}, ${axial}));`);

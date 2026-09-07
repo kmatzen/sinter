@@ -62,8 +62,8 @@ Change types:
 - **cone**: \`{ radius, height }\` (mm) — base at bottom, apex at top
 - **capsule**: \`{ radius, height }\` (mm) — cylinder with hemispherical ends
 - **ellipsoid**: \`{ width, height, depth }\` (mm)
-- **extrude**: \`{ depth }\` + data containing a JSON-encoded \`profile\` with an outer \`[[x,y], ...]\` loop and optional hole loops — symmetric Z extrusion; outer CCW, holes clockwise
-- **revolve**: \`{ axis, angle }\` + JSON-encoded \`profile\` points interpreted as [radius, axial position] — axis 0=X, 1=Y, 2=Z; angle 1–360° centred on the positive radial direction
+- **extrude**: \`{ depth, plane }\` + data containing a JSON-encoded \`profile\` with an outer \`[[u,v], ...]\` loop and optional hole loops — plane 0=XY, 1=XZ, 2=YZ; outer CCW, holes clockwise
+- **revolve**: \`{ axis, angle, plane }\` + JSON-encoded \`profile\` points interpreted as [radius, axial position] — axis 0=X, 1=Y, 2=Z; plane selects the oriented sketch plane (0=XY, 1=XZ, 2=YZ); angle 1–360°
 
 ### Booleans (2 children)
 - **union**: \`{ smooth }\` — merges children. smooth=0 sharp, >0 = fillet radius
