@@ -120,6 +120,10 @@ export function toSDFNode(ui: SDFNodeUI): SDFNode | null {
       if (children.length < 1) return null;
       return { kind: 'draft', child: children[0], axis: p.axis === 0 ? 'x' : p.axis === 2 ? 'z' : 'y', angle: p.angle, reference: p.reference };
 
+    case 'twist':
+      if (children.length < 1) return null;
+      return { kind: 'twist', child: children[0], axis: p.axis === 0 ? 'x' : p.axis === 2 ? 'z' : 'y', angle: p.angle, origin: p.origin, extent: p.extent };
+
     case 'translate':
     case 'rotate':
     case 'scale':

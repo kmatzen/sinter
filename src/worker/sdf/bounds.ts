@@ -77,6 +77,17 @@ export function computeBounds(node: SDFNode): BBox {
       }
       return result;
     }
+    case 'twist': {
+      const bounds = computeBounds(node.child);
+      if (Math.abs(node.angle) <= SDF_PARAM_EPSILON) return bounds;
+      const result: BBox = { min: [...bounds.min], max: [...bounds.max] };
+      const perpendicular = node.axis === 'x' ? [1, 2] : node.axis === 'z' ? [0, 1] : [0, 2];
+      let radius = 0;
+      for (const a of [bounds.min[perpendicular[0]], bounds.max[perpendicular[0]]])
+        for (const b of [bounds.min[perpendicular[1]], bounds.max[perpendicular[1]]]) radius = Math.max(radius, Math.hypot(a, b));
+      for (const index of perpendicular) { result.min[index] = -radius; result.max[index] = radius; }
+      return result;
+    }
     case 'mirror': {
       const cb = computeBounds(node.child);
       return {
@@ -290,6 +301,16 @@ export function fieldScale(node: SDFNode): number {
     case 'draft':
       if (Math.abs(node.angle) <= SDF_PARAM_EPSILON) return fieldScale(node.child);
       return fieldScale(node.child) * MODIFIER_DISTANCE_SAFETY;
+    case 'twist': {
+      if (Math.abs(node.angle) <= SDF_PARAM_EPSILON) return fieldScale(node.child);
+      const bounds = computeBounds(node.child);
+      const perpendicular = node.axis === 'x' ? [1, 2] : node.axis === 'z' ? [0, 1] : [0, 2];
+      let radius = 0;
+      for (const a of [bounds.min[perpendicular[0]], bounds.max[perpendicular[0]]])
+        for (const b of [bounds.min[perpendicular[1]], bounds.max[perpendicular[1]]]) radius = Math.max(radius, Math.hypot(a, b));
+      const rate = Math.abs(node.angle) * Math.PI / 180 / node.extent;
+      return fieldScale(node.child) * Math.max(1, 1 + radius * rate);
+    }
     case 'shell':
       return fieldScale(node.child) * MODIFIER_DISTANCE_SAFETY;
     case 'mirror':

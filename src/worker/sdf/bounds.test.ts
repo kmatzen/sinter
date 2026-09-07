@@ -225,6 +225,13 @@ describe('computeBounds', () => {
     expect(bb.max).toEqual([20, 10, 20]);
   });
 
+  it('twist preserves axial bounds and encloses every perpendicular rotation', () => {
+    const bb = computeBounds({ kind: 'twist', child: { kind: 'box', size: [6, 8, 10] }, axis: 'y', angle: 180, origin: 0, extent: 8 });
+    const radius = Math.hypot(3, 5);
+    expect(bb.min).toEqual([-radius, -4, -radius]);
+    expect(bb.max).toEqual([radius, 4, radius]);
+  });
+
   /**
    * Metrics alone do not make a glyph. Without outlines both evaluators draw
    * the character-width box, so the bound has to describe that box — reading

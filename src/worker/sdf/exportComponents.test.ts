@@ -63,6 +63,12 @@ describe('export component partitioning', () => {
     expect(plan.resolution).toBe(202);
   });
 
+  it('accounts for twist pitch when planning export resolution', () => {
+    const twist: SDFNode = { kind: 'twist', child: { kind: 'box', size: [100, 100, 100] }, axis: 'y', angle: 360, origin: 0, extent: 100 };
+    const plan = planComponentSampling(twist, computeBounds(twist), 2, 384);
+    expect(plan.resolution).toBe(6);
+  });
+
   it('fails before meshing when a thin shell cannot be resolved safely', () => {
     const shell: SDFNode = { kind: 'shell', child: { kind: 'box', size: [100, 100, 100] }, thickness: 0.1 };
     expect(() => planComponentSampling(shell, { min: [-51, -51, -51], max: [51, 51, 51] }, 128, 384))

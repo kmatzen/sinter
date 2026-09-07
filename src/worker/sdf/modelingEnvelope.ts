@@ -71,6 +71,9 @@ export function validateModelingEnvelope(root: SDFNode): void {
         visit(node.child, scale, scaleRatio); return;
       case 'draft':
         visit(node.child, scale, scaleRatio); return;
+      case 'twist':
+        requireFeature(node.extent, scale, 'twist extent');
+        visit(node.child, scale, scaleRatio); return;
       case 'transform': {
         const lo = Math.min(Math.abs(node.sx), Math.abs(node.sy), Math.abs(node.sz));
         const hi = Math.max(Math.abs(node.sx), Math.abs(node.sy), Math.abs(node.sz));

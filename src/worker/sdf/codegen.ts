@@ -525,6 +525,20 @@ function emitNode(node: SDFNode, pVar: string, lines: string[]): string {
       lines.push(`float ${result} = max(dw_${result}, max(${up(bounds.min[index])} - ${component}, ${component} - ${up(bounds.max[index])}));`);
       return result;
     }
+    case 'twist': {
+      if (Math.abs(node.angle) <= SDF_PARAM_EPSILON) return emitNode(node.child, pVar, lines);
+      const tp = `twp_${result}`;
+      const coordinate = `${pVar}.${node.axis}`;
+      lines.push(`float twa_${result} = -clamp((${coordinate} - ${up(node.origin)}) / ${up(node.extent)}, -0.5, 0.5) * ${up(node.angle * Math.PI / 180)};`);
+      lines.push(`float twc_${result} = cos(twa_${result}), tws_${result} = sin(twa_${result});`);
+      lines.push(`vec3 ${tp} = ${pVar};`);
+      if (node.axis === 'x') lines.push(`${tp}.yz = mat2(twc_${result}, tws_${result}, -tws_${result}, twc_${result}) * ${pVar}.yz;`);
+      else if (node.axis === 'z') lines.push(`${tp}.xy = mat2(twc_${result}, tws_${result}, -tws_${result}, twc_${result}) * ${pVar}.xy;`);
+      else lines.push(`${tp}.xz = mat2(twc_${result}, -tws_${result}, tws_${result}, twc_${result}) * ${pVar}.xz;`);
+      const child = emitNode(node.child, tp, lines);
+      lines.push(`float ${result} = ${child} / ${up(fieldScale(node))};`);
+      return result;
+    }
     case 'transform': {
       const tp = `tp_${result}`;
       lines.push(`vec3 ${tp} = ${pVar} - vec3(${up(node.tx)}, ${up(node.ty)}, ${up(node.tz)});`);

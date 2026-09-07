@@ -36,3 +36,10 @@ describe('draft conversion', () => {
     expect(toSDFNode(ui)).toEqual({ kind: 'draft', axis: 'z', angle: -7, reference: 4, child: { kind: 'sphere', radius: 5 } });
   });
 });
+
+describe('twist conversion', () => {
+  it('preserves axis, signed angle, origin, extent, and child', () => {
+    const ui: SDFNodeUI = { id: 't', kind: 'twist', label: 'Twist', params: { axis: 0, angle: -90, origin: 3, extent: 20 }, children: [node('sphere')], enabled: true };
+    expect(toSDFNode(ui)).toEqual({ kind: 'twist', axis: 'x', angle: -90, origin: 3, extent: 20, child: { kind: 'sphere', radius: 5 } });
+  });
+});

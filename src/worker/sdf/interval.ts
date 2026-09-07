@@ -210,6 +210,16 @@ export function evaluateInterval(node: SDFNode, box: BBox): Interval {
       const upper = addK(axis, -bounds.max[index]);
       return maxI(wall, maxI(lower, upper));
     }
+    case 'twist': {
+      if (Math.abs(node.angle) <= SDF_PARAM_EPSILON) return evaluateInterval(node.child, box);
+      const perpendicular = node.axis === 'x' ? [1, 2] : node.axis === 'z' ? [0, 1] : [0, 2];
+      let radius = 0;
+      for (const a of [box.min[perpendicular[0]], box.max[perpendicular[0]]])
+        for (const b of [box.min[perpendicular[1]], box.max[perpendicular[1]]]) radius = Math.max(radius, Math.hypot(a, b));
+      const mapped: BBox = { min: [...box.min], max: [...box.max] };
+      for (const index of perpendicular) { mapped.min[index] = -radius; mapped.max[index] = radius; }
+      return mulK(evaluateInterval(node.child, mapped), 1 / fieldScale(node));
+    }
     case 'transform': {
       if (!isFinite(node.sx) || !isFinite(node.sy) || !isFinite(node.sz) ||
           Math.abs(node.sx) < 1e-9 || Math.abs(node.sy) < 1e-9 || Math.abs(node.sz) < 1e-9) return WHOLE;

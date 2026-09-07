@@ -137,6 +137,9 @@ describe('generateGLSL', () => {
     expect(draft).toContain('float sdf(vec3 p)');
     expect(draft).toContain('dw_');
     expect(draft).not.toContain('NaN');
+    const twist = generateGLSL({ kind: 'twist', child, axis: 'z', angle: 90, origin: 0, extent: 20 });
+    expect(twist).toContain('twa_');
+    expect(twist).not.toContain('NaN');
   });
 
   it('generates GLSL for linearPattern using a helper function', () => {
