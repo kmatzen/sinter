@@ -317,7 +317,14 @@ export function evaluateInterval(node: SDFNode, box: BBox): Interval {
       // Outside the AABB its geometric box distance can therefore be slightly
       // larger than the field; apply the same factor to keep pruning sound.
       const slopeScale = Math.hypot(1, Math.tan((node.taper ?? 0) * Math.PI / 180));
-      return I(lower > 0 ? lower / slopeScale : lower, Infinity);
+      const scaledLower = lower > 0 ? lower / slopeScale : lower;
+      // The exact circular-arc field can sit microscopically below the
+      // distance to its axis-aligned bounds after nested rotations (the arc
+      // centre/radius reconstruction and box rotation round independently).
+      // Never use a positive arc-profile lower bound for pruning; negative
+      // interior bounds remain useful and sound.
+      const hasArcs = node.profile.bulges?.some(Boolean) || node.profile.holeBulges?.some((values) => values.some(Boolean));
+      return I(hasArcs ? Math.min(0, scaledLower) : scaledLower, Infinity);
     }
     case 'revolve': {
       const bounds = computeBounds(node);
@@ -326,7 +333,9 @@ export function evaluateInterval(node: SDFNode, box: BBox): Interval {
       const q = [x, y, z].map((value, axis) => addK(absI(addK(value, -centres[axis])), -halves[axis]));
       const outside = lengthI(q.map((c) => maxK(c, 0)));
       const inside = minK(maxI(maxI(q[0], q[1]), q[2]), 0);
-      return I(add(outside, inside).lo, Infinity);
+      const lower = add(outside, inside).lo;
+      const hasArcs = node.profile.bulges?.some(Boolean) || node.profile.holeBulges?.some((values) => values.some(Boolean));
+      return I(hasArcs ? Math.min(0, lower) : lower, Infinity);
     }
     case 'mesh': {
       // The baked field is at worst sqrt(3)-Lipschitz: trilinear interpolation

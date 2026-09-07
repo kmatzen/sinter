@@ -2,6 +2,7 @@ import type { SDFNode, BBox, Vec3 } from './types';
 import { SDF_PARAM_EPSILON } from './types';
 import { hasGlyphOutlines } from './types';
 import { axisIndex, bendRate, bendScale, conservativeBendBounds } from './bend';
+import { profileLoopBoundsPoints } from './profile';
 
 export function computeBounds(node: SDFNode): BBox {
   switch (node.kind) {
@@ -176,7 +177,8 @@ export function computeBounds(node: SDFNode): BBox {
       return { min: [-hw, -hh, -hd], max: [hw, hh, hd] };
     }
     case 'extrude': {
-      const xs = node.profile.outer.map((p) => p[0]), ys = node.profile.outer.map((p) => p[1]);
+      const outline = profileLoopBoundsPoints(node.profile.outer, node.profile.bulges);
+      const xs = outline.map((p) => p[0]), ys = outline.map((p) => p[1]);
       const zMin = node.zMin ?? -node.depth / 2, zMax = node.zMax ?? node.depth / 2;
       const slope = Math.tan((node.taper ?? 0) * Math.PI / 180);
       const taperExpansion = Math.max(0, -(zMax - zMin) * slope);
@@ -190,8 +192,9 @@ export function computeBounds(node: SDFNode): BBox {
       return { min: profileMin, max: profileMax };
     }
     case 'revolve': {
-      const radius = Math.max(...node.profile.outer.map((p) => p[0]));
-      const axial = node.profile.outer.map((p) => p[1]), lo = Math.min(...axial), hi = Math.max(...axial);
+      const outline = profileLoopBoundsPoints(node.profile.outer, node.profile.bulges);
+      const radius = Math.max(...outline.map((p) => p[0]));
+      const axial = outline.map((p) => p[1]), lo = Math.min(...axial), hi = Math.max(...axial);
       if (node.axis === 'x') return { min: [lo, -radius, -radius], max: [hi, radius, radius] };
       if (node.axis === 'z') return { min: [-radius, -radius, lo], max: [radius, radius, hi] };
       return { min: [-radius, lo, -radius], max: [radius, hi, radius] };

@@ -2,7 +2,12 @@ import type { Vec3 } from './types';
 import { MODEL_SPATIAL_LIMIT_MM } from '../../types/modelingEnvelope';
 
 export type Vec2 = [number, number];
-export interface PolygonProfile { outer: Vec2[]; holes: Vec2[][] }
+/**
+ * Bulge is tan(sweep/4) for the edge beginning at the matching vertex.
+ * Missing arrays/entries are straight lines, which keeps every legacy polygon
+ * document valid while preserving imported circular arcs parametrically.
+ */
+export interface PolygonProfile { outer: Vec2[]; holes: Vec2[][]; bulges?: number[]; holeBulges?: number[][] }
 export const MAX_PROFILE_VERTICES = 256;
 
 export const DEFAULT_PROFILE: PolygonProfile = {
@@ -22,6 +27,9 @@ const cross = (a: Vec2, b: Vec2, c: Vec2) => (b[0] - a[0]) * (c[1] - a[1]) - (b[
 export function signedArea(loop: Vec2[]): number {
   return loop.reduce((sum, p, i) => sum + p[0] * loop[(i + 1) % loop.length][1] - loop[(i + 1) % loop.length][0] * p[1], 0) / 2;
 }
+export function profileLoopSignedArea(loop: Vec2[], bulges: number[] = []): number {
+  return signedArea(flattenLoop(loop, bulges));
+}
 function segmentsIntersect(a: Vec2, b: Vec2, c: Vec2, d: Vec2): boolean {
   const ab1 = cross(a, b, c), ab2 = cross(a, b, d), cd1 = cross(c, d, a), cd2 = cross(c, d, b);
   if (ab1 * ab2 < 0 && cd1 * cd2 < 0) return true;
@@ -40,19 +48,61 @@ export function pointInLoop(p: Vec2, loop: Vec2[]): boolean {
   }
   return inside;
 }
-function validateLoop(loop: unknown, label: string, ccw: boolean): asserts loop is Vec2[] {
-  if (!Array.isArray(loop) || loop.length < 3) throw new ProfileValidationError(`${label} must contain at least three vertices`);
+export function arcGeometry(a: Vec2, b: Vec2, bulge: number) {
+  const chord = Math.hypot(b[0] - a[0], b[1] - a[1]);
+  const sweep = 4 * Math.atan(bulge), mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2;
+  const nx = -(b[1] - a[1]) / chord, ny = (b[0] - a[0]) / chord;
+  const offset = chord / (2 * Math.tan(sweep / 2));
+  const center: Vec2 = [mx + nx * offset, my + ny * offset];
+  return { center, radius: Math.hypot(a[0] - center[0], a[1] - center[1]), start: Math.atan2(a[1] - center[1], a[0] - center[0]), sweep };
+}
+
+function flattenLoop(loop: Vec2[], bulges: number[] = []): Vec2[] {
+  const out: Vec2[] = [];
+  loop.forEach((a, i) => {
+    out.push(a);
+    const bulge = bulges[i] || 0;
+    if (!bulge) return;
+    const b = loop[(i + 1) % loop.length], arc = arcGeometry(a, b, bulge);
+    const steps = Math.max(2, Math.ceil(Math.abs(arc.sweep) / (Math.PI / 36)));
+    for (let step = 1; step < steps; step++) {
+      const angle = arc.start + arc.sweep * step / steps;
+      out.push([arc.center[0] + arc.radius * Math.cos(angle), arc.center[1] + arc.radius * Math.sin(angle)]);
+    }
+  });
+  return out;
+}
+
+export function profileLoopBoundsPoints(loop: Vec2[], bulges: number[] = []): Vec2[] {
+  const points = loop.map((point) => [...point] as Vec2);
+  loop.forEach((a, i) => {
+    const bulge = bulges[i] || 0;
+    if (!bulge) return;
+    const arc = arcGeometry(a, loop[(i + 1) % loop.length], bulge);
+    for (const angle of [0, Math.PI / 2, Math.PI, -Math.PI / 2]) if (angleAlongSweep(angle, arc.start, arc.sweep)) {
+      points.push([arc.center[0] + arc.radius * Math.cos(angle), arc.center[1] + arc.radius * Math.sin(angle)]);
+    }
+  });
+  return points;
+}
+
+function validateLoop(loop: unknown, bulges: unknown, label: string, ccw: boolean): asserts loop is Vec2[] {
+  const hasArc = Array.isArray(bulges) && bulges.some((value) => Number(value) !== 0);
+  if (!Array.isArray(loop) || loop.length < (hasArc ? 2 : 3)) throw new ProfileValidationError(`${label} must contain at least three line vertices or two vertices with an arc`);
   for (const p of loop) if (!Array.isArray(p) || p.length !== 2 || !p.every((v) => Number.isFinite(v) && Math.abs(v) <= MODEL_SPATIAL_LIMIT_MM)) throw new ProfileValidationError(`${label} vertices must be finite [x,y] pairs within ±${MODEL_SPATIAL_LIMIT_MM} mm`);
-  const area = signedArea(loop as Vec2[]);
+  if (bulges !== undefined && (!Array.isArray(bulges) || bulges.length !== loop.length || bulges.some((value) => !Number.isFinite(value) || Math.abs(value) > 10))) {
+    throw new ProfileValidationError(`${label} bulges must provide one finite value per edge between -10 and 10`);
+  }
+  const points = loop as Vec2[], expanded = flattenLoop(points, bulges as number[] | undefined);
+  const area = signedArea(expanded);
   if (Math.abs(area) < 1e-9) throw new ProfileValidationError(`${label} is degenerate`);
   if ((area > 0) !== ccw) throw new ProfileValidationError(`${label} must wind ${ccw ? 'counter-clockwise' : 'clockwise'}`);
-  const points = loop as Vec2[];
   for (let i = 0; i < points.length; i++) if (points[i][0] === points[(i + 1) % points.length][0] && points[i][1] === points[(i + 1) % points.length][1]) {
     throw new ProfileValidationError(`${label} contains a zero-length edge`);
   }
-  for (let i = 0; i < points.length; i++) for (let j = i + 1; j < points.length; j++) {
-    if (j === i + 1 || (i === 0 && j === points.length - 1)) continue;
-    if (segmentsIntersect(points[i], points[(i + 1) % points.length], points[j], points[(j + 1) % points.length])) {
+  for (let i = 0; i < expanded.length; i++) for (let j = i + 1; j < expanded.length; j++) {
+    if (j === i + 1 || (i === 0 && j === expanded.length - 1)) continue;
+    if (segmentsIntersect(expanded[i], expanded[(i + 1) % expanded.length], expanded[j], expanded[(j + 1) % expanded.length])) {
       throw new ProfileValidationError(`${label} self-intersects`);
     }
   }
@@ -64,7 +114,7 @@ export function parseProfile(source?: string): PolygonProfile {
   if (!value || typeof value !== 'object') throw new ProfileValidationError('expected an outer loop and holes');
   const profile = value as PolygonProfile;
   if (Array.isArray(profile.outer) && profile.outer.length > MAX_PROFILE_VERTICES) throw new ProfileValidationError(`profile has ${profile.outer.length} vertices; the limit is ${MAX_PROFILE_VERTICES}`);
-  validateLoop(profile.outer, 'outer loop', true);
+  validateLoop(profile.outer, profile.bulges, 'outer loop', true);
   if (!Array.isArray(profile.holes)) throw new ProfileValidationError('holes must be an array');
   let vertices = profile.outer.length;
   for (const hole of profile.holes) {
@@ -73,12 +123,18 @@ export function parseProfile(source?: string): PolygonProfile {
     if (vertices > MAX_PROFILE_VERTICES) throw new ProfileValidationError(`profile has ${vertices} vertices; the limit is ${MAX_PROFILE_VERTICES}`);
   }
   profile.holes.forEach((hole, i) => {
-    validateLoop(hole, `hole ${i + 1}`, false);
-    if (!hole.every((point) => pointInLoop(point, profile.outer)) || loopsIntersect(hole, profile.outer)) throw new ProfileValidationError(`hole ${i + 1} lies outside or crosses the outer loop`);
-    for (let j = 0; j < i; j++) if (loopsIntersect(hole, profile.holes[j]) || pointInLoop(hole[0], profile.holes[j]) || pointInLoop(profile.holes[j][0], hole)) {
+    const holeBulges = profile.holeBulges?.[i];
+    validateLoop(hole, holeBulges, `hole ${i + 1}`, false);
+    const outerExpanded = flattenLoop(profile.outer, profile.bulges), holeExpanded = flattenLoop(hole, holeBulges);
+    if (!holeExpanded.every((point) => pointInLoop(point, outerExpanded)) || loopsIntersect(holeExpanded, outerExpanded)) throw new ProfileValidationError(`hole ${i + 1} lies outside or crosses the outer loop`);
+    for (let j = 0; j < i; j++) {
+      const previous = flattenLoop(profile.holes[j], profile.holeBulges?.[j]);
+      if (loopsIntersect(holeExpanded, previous) || pointInLoop(holeExpanded[0], previous) || pointInLoop(previous[0], holeExpanded)) {
       throw new ProfileValidationError(`hole ${i + 1} overlaps hole ${j + 1}`);
+      }
     }
   });
+  if (profile.holeBulges !== undefined && (!Array.isArray(profile.holeBulges) || profile.holeBulges.length !== profile.holes.length)) throw new ProfileValidationError('holeBulges must provide one array per hole');
   return profile;
 }
 
@@ -90,15 +146,61 @@ export function parseRevolveProfile(source?: string): PolygonProfile {
   return profile;
 }
 
-function loopDistance(loop: Vec2[], x: number, y: number, ignoreAxisEdge = false): number {
+function angleAlongSweep(angle: number, start: number, sweep: number): boolean {
+  const tau = 2 * Math.PI;
+  const directed = sweep > 0 ? (angle - start + tau) % tau : (start - angle + tau) % tau;
+  return directed <= Math.abs(sweep) + 1e-12;
+}
+
+function arcDistance(p: Vec2, a: Vec2, b: Vec2, bulge: number): number {
+  const arc = arcGeometry(a, b, bulge), angle = Math.atan2(p[1] - arc.center[1], p[0] - arc.center[0]);
+  if (angleAlongSweep(angle, arc.start, arc.sweep)) return Math.abs(Math.hypot(p[0] - arc.center[0], p[1] - arc.center[1]) - arc.radius);
+  return Math.min(Math.hypot(p[0] - a[0], p[1] - a[1]), Math.hypot(p[0] - b[0], p[1] - b[1]));
+}
+
+function pointInBulgedLoop(p: Vec2, loop: Vec2[], bulges: number[] = []): boolean {
+  let crossings = 0;
+  const scale = Math.max(1, ...loop.flatMap((point) => point.map(Math.abs)));
+  const vertexEpsilon = scale * 1e-12;
+  const rayY = loop.some((point) => Math.abs(point[1] - p[1]) <= vertexEpsilon) ? p[1] + vertexEpsilon : p[1];
+  loop.forEach((a, i) => {
+    const b = loop[(i + 1) % loop.length], bulge = bulges[i] || 0;
+    if (!bulge) {
+      if ((a[1] > rayY) !== (b[1] > rayY) && p[0] < (b[0] - a[0]) * (rayY - a[1]) / (b[1] - a[1]) + a[0]) crossings++;
+      return;
+    }
+    const arc = arcGeometry(a, b, bulge), dy = rayY - arc.center[1];
+    const ys = [a[1], b[1]];
+    for (const angle of [Math.PI / 2, -Math.PI / 2]) if (angleAlongSweep(angle, arc.start, arc.sweep)) ys.push(arc.center[1] + arc.radius * Math.sin(angle));
+    if (rayY < Math.min(...ys) || rayY >= Math.max(...ys)) return;
+    if (Math.abs(dy) >= arc.radius) return; // tangent contact does not cross
+    const dx = Math.sqrt(Math.max(0, arc.radius * arc.radius - dy * dy));
+    for (const x of [arc.center[0] - dx, arc.center[0] + dx]) {
+      if (x <= p[0]) continue;
+      const endpointTolerance = 1e-10 * Math.max(1, arc.radius);
+      if (Math.hypot(x - b[0], rayY - b[1]) <= endpointTolerance) continue;
+      if (Math.hypot(x - a[0], rayY - a[1]) <= endpointTolerance) { crossings++; continue; }
+      const angle = Math.atan2(dy, x - arc.center[0]), tau = 2 * Math.PI;
+      let directed = arc.sweep > 0 ? (angle - arc.start + tau) % tau : (arc.start - angle + tau) % tau;
+      if (directed > tau - 1e-14) directed = 0;
+      // Start-inclusive/end-exclusive matches the straight-edge ray rule and
+      // counts a shared profile vertex exactly once.
+      if (directed < Math.abs(arc.sweep) - 1e-12) crossings++;
+    }
+  });
+  return crossings % 2 === 1;
+}
+
+function loopDistance(loop: Vec2[], x: number, y: number, ignoreAxisEdge = false, bulges: number[] = []): number {
   let distance2 = Infinity;
   for (let i = 0; i < loop.length; i++) {
     const a = loop[i], b = loop[(i + 1) % loop.length], dx = b[0] - a[0], dy = b[1] - a[1];
     if (ignoreAxisEdge && a[0] === 0 && b[0] === 0) continue;
+    if (bulges[i]) { const distance = arcDistance([x, y], a, b, bulges[i]); distance2 = Math.min(distance2, distance * distance); continue; }
     const t = Math.max(0, Math.min(1, ((x - a[0]) * dx + (y - a[1]) * dy) / (dx * dx + dy * dy)));
     distance2 = Math.min(distance2, (x - a[0] - t * dx) ** 2 + (y - a[1] - t * dy) ** 2);
   }
-  return Math.sqrt(distance2) * (pointInLoop([x, y], loop) ? -1 : 1);
+  return Math.sqrt(distance2) * (pointInBulgedLoop([x, y], loop, bulges) ? -1 : 1);
 }
 
 function pointSegmentDistance(p: Vec2, a: Vec2, b: Vec2): number {
@@ -113,7 +215,7 @@ function segmentDistance(a: Vec2, b: Vec2, c: Vec2, d: Vec2): number {
 
 /** Smallest explicit edge or wall separation that export must preserve. */
 export function profileFeatureSize(profile: PolygonProfile): number {
-  const loops = [profile.outer, ...profile.holes];
+  const loops = [flattenLoop(profile.outer, profile.bulges), ...profile.holes.map((loop, i) => flattenLoop(loop, profile.holeBulges?.[i]))];
   let feature = Infinity;
   for (const loop of loops) for (let i = 0; i < loop.length; i++) {
     feature = Math.min(feature, Math.hypot(loop[i][0] - loop[(i + 1) % loop.length][0], loop[i][1] - loop[(i + 1) % loop.length][1]));
@@ -135,14 +237,14 @@ export function profileFeatureSize(profile: PolygonProfile): number {
 }
 
 export function profileDistance(profile: PolygonProfile, x: number, y: number): number {
-  let distance = loopDistance(profile.outer, x, y);
-  for (const hole of profile.holes) distance = Math.max(distance, -loopDistance(hole, x, y));
+  let distance = loopDistance(profile.outer, x, y, false, profile.bulges);
+  profile.holes.forEach((hole, i) => { distance = Math.max(distance, -loopDistance(hole, x, y, false, profile.holeBulges?.[i])); });
   return distance;
 }
 
 function revolvedProfileDistance(profile: PolygonProfile, radius: number, axial: number): number {
-  let distance = loopDistance(profile.outer, radius, axial, true);
-  for (const hole of profile.holes) distance = Math.max(distance, -loopDistance(hole, radius, axial, true));
+  let distance = loopDistance(profile.outer, radius, axial, true, profile.bulges);
+  profile.holes.forEach((hole, i) => { distance = Math.max(distance, -loopDistance(hole, radius, axial, true, profile.holeBulges?.[i])); });
   return distance;
 }
 

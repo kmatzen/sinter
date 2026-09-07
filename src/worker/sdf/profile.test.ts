@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import fc from 'fast-check';
 import { computeBounds } from './bounds';
 import { generateSDFFunction } from './codegen';
 import { toSDFNode } from './convert';
@@ -60,6 +61,43 @@ describe('polygon profile extrusion', () => {
     expect(evaluateSDF(yz, [0, 4, 0])).toBeLessThan(0);
     expect(computeBounds(yz)).toEqual({ min: [-1, -5, -4], max: [1, 5, 4] });
     expect(generateSDFFunction(xz).glsl).toContain('.xz');
+  });
+
+  it('preserves and evaluates native circular-arc edges', () => {
+    const arced = parseProfile(JSON.stringify({
+      outer: [[0, 0], [10, 0], [10, 10], [0, 10]], holes: [],
+      bulges: [0, 1, 0, 0],
+    }));
+    expect(arced.bulges).toEqual([0, 1, 0, 0]);
+    const node: SDFNode = { kind: 'extrude', profile: arced, depth: 2 };
+    expect(evaluateSDF(node, [15, 5, 0])).toBeCloseTo(0, 8);
+    expect(evaluateSDF(node, [14, 5, 0])).toBeLessThan(0);
+    expect(computeBounds(node)).toEqual({ min: [0, 0, -1], max: [15, 10, 1] });
+    const shader = generateSDFFunction(node).glsl;
+    expect(shader).toContain('paon_');
+    expect(shader).toContain('pard_');
+  });
+
+  it('keeps randomized native arcs inside their bounds with conservative clearance', () => {
+    fc.assert(fc.property(
+      fc.double({ min: 4, max: 30, noNaN: true }), fc.double({ min: 4, max: 30, noNaN: true }),
+      fc.double({ min: 1, max: 12, noNaN: true }), fc.double({ min: 0.05, max: 1, noNaN: true }),
+      fc.constantFrom('xy' as const, 'xz' as const, 'yz' as const),
+      fc.tuple(fc.double({ min: -20, max: 40, noNaN: true }), fc.double({ min: -20, max: 40, noNaN: true }), fc.double({ min: -20, max: 20, noNaN: true })),
+      (width, height, depth, bulge, plane, point) => {
+        const profile = parseProfile(JSON.stringify({ outer: [[0, 0], [width, 0], [width, height], [0, height]], holes: [], bulges: [0, bulge, 0, 0] }));
+        const node: SDFNode = { kind: 'extrude', profile, depth, plane };
+        const bounds = computeBounds(node), value = evaluateSDF(node, point);
+        // Arc centre reconstruction loses sub-ulp endpoint offsets; those are
+        // numerical surface points, not meaningful clearance claims.
+        if (!Number.isFinite(value) || Math.abs(value) < 1e-7) return true;
+        if (value < 0 && point.some((coordinate, axis) => coordinate < bounds.min[axis] - 1e-7 || coordinate > bounds.max[axis] + 1e-7)) throw new Error(JSON.stringify({ reason: 'bounds', point, value, bounds }));
+        const probe: [number, number, number] = [point[0] + 0.3 * Math.abs(value), point[1] + 0.4 * Math.abs(value), point[2]];
+        const probeValue = evaluateSDF(node, probe);
+        if ((probeValue < 0) !== (value < 0)) throw new Error(JSON.stringify({ reason: 'clearance', point, value, probe, probeValue }));
+        return true;
+      },
+    ), { numRuns: 200 });
   });
 
   it('rejects malformed, wrongly wound, and self-intersecting loops actionably', () => {

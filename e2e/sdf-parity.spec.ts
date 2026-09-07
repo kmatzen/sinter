@@ -131,6 +131,9 @@ const CASES: [string, SDFNode][] = [
     outer: [[-16, -12], [16, -12], [16, 12], [-16, 12]],
     holes: [[[-5, -5], [-5, 5], [5, 5], [5, -5]]],
   } }],
+  ['native arc profile extrude', { kind: 'extrude', depth: 6, profile: {
+    outer: [[0, 0], [12, 0], [12, 10], [0, 10]], holes: [], bulges: [0, 1, 0, 0],
+  } }],
   ['tapered thin two-sided XZ profile extrude', { kind: 'extrude', depth: 11, zMin: -4, zMax: 7, taper: -8, wallThickness: 1.5, plane: 'xz', profile: {
     outer: [[-12, -9], [12, -9], [12, 9], [-12, 9]], holes: [],
   } }],
