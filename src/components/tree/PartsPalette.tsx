@@ -1,10 +1,14 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { NODE_LABELS, NODE_DEFAULTS } from '../../types/operations';
 import type { SDFNodeUI } from '../../types/operations';
 import { PRESET_CATEGORIES, formatSize } from './presets';
 import { useModelerStore } from '../../store/modelerStore';
-import { Box, Circle, Cylinder, Donut, Cone, Pill, Egg, Merge, Minus, Combine, Shell, Expand, CircleDot, FlipHorizontal, Scissors, RotateCcw, Scaling, Move, Repeat, CircleDashed, GripVertical } from 'lucide-react';
+import { Box, Circle, Cylinder, Donut, Cone, Pill, Egg, Merge, Minus, Combine, Shell, Expand, CircleDot, FlipHorizontal, Scissors, RotateCcw, Scaling, Move, Repeat, CircleDashed, GripVertical, Download, Upload, Save, Trash2, Pencil } from 'lucide-react';
 import type { ReactNode } from 'react';
+import {
+  COMPONENT_FILE_EXTENSION, componentParameters, createPersonalComponent, deletePersonalComponent, exportComponent,
+  importComponent, readPersonalComponents, renamePersonalComponent, type PersonalComponent,
+} from '../../store/componentLibrary';
 
 const ICONS: Record<string, ReactNode> = {
   box: <Box size={14} />, sphere: <Circle size={14} />, cylinder: <Cylinder size={14} />,
@@ -133,10 +137,78 @@ function SectionHeader({ children }: { children: React.ReactNode }) {
   );
 }
 
-type Tab = 'shapes' | 'operations' | 'presets';
+type Tab = 'shapes' | 'operations' | 'presets' | 'library';
+
+function findNode(node: SDFNodeUI | null, id: string | null): SDFNodeUI | null {
+  if (!node || !id) return null;
+  if (node.id === id) return node;
+  for (const child of node.children) { const found = findNode(child, id); if (found) return found; }
+  return null;
+}
+
+function LibraryCard({ component, refresh, report }: { component: PersonalComponent; refresh: () => void; report: (message: string) => void }) {
+  const addNode = useModelerStore((s) => s.addNodeFromData);
+  const selectedId = useModelerStore((s) => s.selectedNodeId);
+  const parameters = useModelerStore((s) => s.namedParameters);
+  const setParameters = useModelerStore((s) => s.setNamedParameters);
+  const beginHistoryTransaction = useModelerStore((s) => s.beginHistoryTransaction);
+  const commitHistoryTransaction = useModelerStore((s) => s.commitHistoryTransaction);
+  const insert = () => {
+    const merged = [...parameters];
+    for (const parameter of component.parameters) {
+      const existing = merged.find((item) => item.name === parameter.name);
+      if (existing && (existing.expression !== parameter.expression || existing.unit !== parameter.unit)) {
+        report(`Parameter “${parameter.name}” conflicts with this project`); return;
+      }
+      if (!existing) merged.push(parameter);
+    }
+    beginHistoryTransaction();
+    if (merged.length !== parameters.length) setParameters(merged);
+    addNode(selectedId, component.node);
+    commitHistoryTransaction();
+    report(`Inserted ${component.name} as an independent copy`);
+  };
+  const download = () => {
+    const blob = new Blob([exportComponent(component)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob); const anchor = document.createElement('a');
+    anchor.href = url; anchor.download = `${component.name.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}${COMPONENT_FILE_EXTENSION}`;
+    anchor.click(); URL.revokeObjectURL(url);
+  };
+  return <div className="flex gap-2 p-1.5 rounded" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)' }}>
+    <button type="button" onClick={insert} className="flex min-w-0 flex-1 items-center gap-2 text-left" title={`Insert ${component.name} as a copy`}>
+      <img src={component.thumbnail} alt="" width={48} height={32} className="rounded shrink-0" />
+      <span className="min-w-0"><span className="block text-[11px] font-medium truncate">{component.name}</span><span className="block text-[9px] truncate" style={{ color: 'var(--text-muted)' }}>{component.description || component.tags.join(', ') || component.node.kind}</span></span>
+    </button>
+    <span className="flex items-center gap-0.5">
+      <button type="button" aria-label={`Rename ${component.name}`} title="Rename" onClick={() => { const name = window.prompt('Component name', component.name); if (!name) return; try { renamePersonalComponent(component.id, name); refresh(); } catch (error) { report(error instanceof Error ? error.message : 'Could not rename component'); } }}><Pencil size={12} /></button>
+      <button type="button" aria-label={`Export ${component.name}`} title="Export" onClick={download}><Download size={12} /></button>
+      <button type="button" aria-label={`Delete ${component.name}`} title="Delete" onClick={() => { deletePersonalComponent(component.id); refresh(); }}><Trash2 size={12} /></button>
+    </span>
+  </div>;
+}
 
 export function PartsPalette() {
   const [tab, setTab] = useState<Tab>('shapes');
+  const [components, setComponents] = useState(readPersonalComponents);
+  const [message, setMessage] = useState('');
+  const [draft, setDraft] = useState<{ name: string; description: string; tags: string } | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const tree = useModelerStore((s) => s.tree);
+  const selectedId = useModelerStore((s) => s.selectedNodeId);
+  const parameters = useModelerStore((s) => s.namedParameters);
+  const refresh = () => setComponents(readPersonalComponents());
+  const openSave = () => {
+    const node = findNode(tree, selectedId);
+    if (!node) { setMessage('Select a complete subtree first'); return; }
+    setDraft({ name: node.label, description: '', tags: '' }); setMessage('');
+  };
+  const saveSelected = () => {
+    const node = findNode(tree, selectedId);
+    if (!node || !draft) { setMessage('The selected subtree is no longer available'); return; }
+    const tags = draft.tags.split(',').map((tag) => tag.trim()).filter(Boolean);
+    try { createPersonalComponent(node, draft.name, draft.description, tags, componentParameters(node, parameters)); refresh(); setMessage(`Saved ${draft.name} to this browser`); setDraft(null); }
+    catch (error) { setMessage(error instanceof Error ? error.message : 'Could not save component'); }
+  };
 
   return (
     <div className="flex flex-col" style={{ borderTop: '1px solid var(--border-subtle)' }}>
@@ -189,6 +261,22 @@ export function PartsPalette() {
             ))}
           </div>
         )}
+        {tab === 'library' && <div className="flex flex-col gap-1.5">
+          <div className="flex gap-1">
+            <button type="button" onClick={openSave} disabled={!selectedId} className="flex flex-1 items-center justify-center gap-1 rounded py-1 text-[10px] disabled:opacity-40" style={{ border: '1px solid var(--border-subtle)' }}><Save size={12} /> Save selection</button>
+            <button type="button" onClick={() => inputRef.current?.click()} className="flex items-center gap-1 rounded px-2 py-1 text-[10px]" style={{ border: '1px solid var(--border-subtle)' }}><Upload size={12} /> Import</button>
+            <input ref={inputRef} type="file" accept="application/json,.json" className="hidden" onChange={async (event) => { const file = event.target.files?.[0]; event.target.value = ''; if (!file) return; try { const added = importComponent(await file.text()); refresh(); setMessage(`Imported ${added.name}`); } catch (error) { setMessage(error instanceof Error ? error.message : 'Could not import component'); } }} />
+          </div>
+          {draft && <div className="flex flex-col gap-1 rounded p-1.5" style={{ border: '1px solid var(--border-default)' }}>
+            <input autoFocus aria-label="Component name" value={draft.name} maxLength={80} onChange={(event) => setDraft({ ...draft, name: event.target.value })} placeholder="Component name" className="rounded px-1.5 py-1 text-[10px]" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)' }} />
+            <input aria-label="Component description" value={draft.description} maxLength={500} onChange={(event) => setDraft({ ...draft, description: event.target.value })} placeholder="Description (optional)" className="rounded px-1.5 py-1 text-[10px]" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)' }} />
+            <input aria-label="Component tags" value={draft.tags} onChange={(event) => setDraft({ ...draft, tags: event.target.value })} placeholder="Tags, comma separated" className="rounded px-1.5 py-1 text-[10px]" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)' }} />
+            <span className="flex justify-end gap-1"><button type="button" onClick={() => setDraft(null)} className="rounded px-2 py-1 text-[10px]">Cancel</button><button type="button" onClick={saveSelected} disabled={!draft.name.trim()} className="rounded px-2 py-1 text-[10px] disabled:opacity-40" style={{ background: 'var(--accent-primary)', color: 'white' }}>Save</button></span>
+          </div>}
+          {message && <div role="status" className="text-[9px] px-0.5" style={{ color: 'var(--text-muted)' }}>{message}</div>}
+          {!components.length && <div className="text-[10px] py-4 text-center" style={{ color: 'var(--text-muted)' }}>Save a selected subtree to reuse it in other projects.</div>}
+          {components.map((component) => <LibraryCard key={component.id} component={component} refresh={refresh} report={setMessage} />)}
+        </div>}
       </div>
 
       {/* Tab bar — pinned at bottom */}
@@ -198,7 +286,7 @@ export function PartsPalette() {
         role="tablist"
         aria-label="Parts palette"
       >
-        {([['shapes', 'Shapes'], ['operations', 'Ops'], ['presets', 'Presets']] as const).map(([key, label]) => (
+        {([['shapes', 'Shapes'], ['operations', 'Ops'], ['presets', 'Presets'], ['library', 'Library']] as const).map(([key, label]) => (
           <button
             key={key}
             role="tab"
@@ -208,7 +296,7 @@ export function PartsPalette() {
             style={{
               background: tab === key ? 'var(--bg-elevated)' : 'transparent',
               color: tab === key ? 'var(--text-primary)' : 'var(--text-muted)',
-              borderRight: key !== 'presets' ? '1px solid var(--border-subtle)' : 'none',
+              borderRight: key !== 'library' ? '1px solid var(--border-subtle)' : 'none',
             }}
           >
             {label}
