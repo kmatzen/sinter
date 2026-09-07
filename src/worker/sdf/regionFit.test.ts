@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fitRegionSurface } from './regionFit';
+import { fitRegionSurface, rankRegionSurfaceCandidates } from './regionFit';
 import { segmentMeshSurfaces } from './meshSegmentation';
 
 const tri = (...points: number[][]) => points.flat();
@@ -65,9 +65,12 @@ describe('regional analytic surface fitting', () => {
     expect(fitRegionSurface(positions, region, -1)).toBeNull();
   });
 
-  it('rejects an analytically ambiguous two-ring surface', () => {
+  it('uses normals to distinguish a two-ring cylinder from its interpolating sphere', () => {
     const full = cylinderSide(), oneBand = full.slice(0, 32 * 2 * 9);
     const region = segmentMeshSurfaces(oneBand).regions[0];
-    expect(fitRegionSurface(oneBand, region)).toBeNull();
+    expect(region.eligible).toBe(true);
+    expect(region.triangleIds).toHaveLength(64);
+    expect(rankRegionSurfaceCandidates(oneBand, region).map((candidate) => candidate.parameters.kind)).toEqual(['sphere', 'cylinder']);
+    expect(fitRegionSurface(oneBand, region)?.parameters.kind).toBe('cylinder');
   });
 });

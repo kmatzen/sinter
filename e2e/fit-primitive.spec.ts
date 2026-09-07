@@ -68,6 +68,20 @@ function rotatedBoxSTL(size: [number, number, number], degrees: [number, number,
   return buffer;
 }
 
+function tubeSTL(outer: number, inner: number, height: number, segments = 32): Buffer {
+  const triangles: number[][][] = [], point = (radius: number, index: number, y: number) => [radius * Math.cos(index * 2 * Math.PI / segments), y, radius * Math.sin(index * 2 * Math.PI / segments)];
+  for (let index = 0; index < segments; index++) {
+    const next = (index + 1) % segments;
+    const ob = point(outer,index,-height/2), onb = point(outer,next,-height/2), ot = point(outer,index,height/2), ont = point(outer,next,height/2);
+    const ib = point(inner,index,-height/2), inb = point(inner,next,-height/2), it = point(inner,index,height/2), int = point(inner,next,height/2);
+    triangles.push([ot,onb,ob],[ot,ont,onb], [it,ont,ot],[it,int,ont], [ib,onb,inb],[ib,ob,onb], [it,inb,int],[it,ib,inb]);
+  }
+  const buffer = Buffer.alloc(84 + triangles.length * 50); buffer.writeUInt32LE(triangles.length, 80);
+  let offset = 84;
+  for (const triangle of triangles) { offset += 12; for (const vertex of triangle) { for (let axis = 0; axis < 3; axis++) buffer.writeFloatLE(vertex[axis], offset + axis * 4); offset += 12; } offset += 2; }
+  return buffer;
+}
+
 async function enterModeler(page: Page) {
   await page.goto('/', { waitUntil: 'domcontentloaded' });
   const accept = page.locator('button:has-text("Accept")');
@@ -146,6 +160,18 @@ test.describe('Fit a primitive to an imported mesh', () => {
       const root = (window as any).__MODELER_STORE__.tree;
       return [root?.kind, root?.children?.[0]?.kind];
     }), { timeout: 20_000 }).toEqual(['translate', 'rotate']);
+  });
+
+  test('recovers a tube as an evidence-validated subtract tree', async ({ page }) => {
+    await enterModeler(page);
+    await importAndSelect(page, tubeSTL(8, 3, 10));
+    await page.getByRole('button', { name: 'Find best primitive' }).click();
+    const replace = page.getByRole('button', { name: 'Replace with recovered CSG' });
+    await expect(replace).toBeVisible({ timeout: PRECONDITION_TIMEOUT });
+    await replace.click();
+    await expect.poll(() => page.evaluate(() => (window as any).__MODELER_STORE__.tree?.kind), { timeout: 20_000 }).toBe('subtract');
+    await page.waitForFunction(() => !(window as any).__MODELER_STORE__?.evaluating, null, { timeout: PRECONDITION_TIMEOUT });
+    expect(await page.evaluate(() => (window as any).__MODELER_STORE__.error)).toBeFalsy();
   });
 
   /**

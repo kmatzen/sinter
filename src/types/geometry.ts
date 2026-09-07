@@ -107,6 +107,8 @@ export interface MeshFitResult {
   surfaceFits: MeshRegionSurfaceFit[];
   /** Occupancy-verified regional primitives available to CSG assembly. */
   regionalPrimitives: MeshRegionalPrimitive[];
+  /** Complete occupancy- and surface-validated regional tree, when recovered. */
+  csgFit: MeshCsgFit | null;
 }
 
 export interface MeshRegionalPrimitive {
@@ -116,6 +118,15 @@ export interface MeshRegionalPrimitive {
   surfaceRms: number;
   surfaceMax: number;
   occupancyAgreement: number;
+}
+
+export interface MeshCsgFit {
+  node: SDFNodeUI;
+  surfaceRms: number;
+  surfaceMax: number;
+  relativeError: number;
+  acceptable: boolean;
+  contributors: Array<{ polarity: 'add' | 'subtract'; regionKeys: string[]; surfaceRms: number; surfaceMax: number }>;
 }
 
 export type MeshRegionSurfaceParameters =

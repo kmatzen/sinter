@@ -340,11 +340,11 @@ function FitPrimitive({ node }: { node: SDFNodeUI }) {
     }
   };
 
-  const apply = () => {
-    if (!fit?.node) return;
+  const apply = (replacement = fit?.node) => {
+    if (!replacement) return;
     // One history entry, so undoing the fit is one press and never leaves the
     // tree with the mesh gone and the primitive not yet in.
-    replaceNode(node.id, fit.node);
+    replaceNode(node.id, replacement);
   };
 
   const length = (value: number) => formatLength(value, {
@@ -382,6 +382,11 @@ function FitPrimitive({ node }: { node: SDFNodeUI }) {
             <div className="mt-0.5">Detected {fit.surfaceRegionCount} fit-eligible surface {fit.surfaceRegionCount === 1 ? 'region' : 'regions'}.</div>
             <div className="mt-0.5">Classified {fit.surfaceFits.length} analytic surface {fit.surfaceFits.length === 1 ? 'hypothesis' : 'hypotheses'}.</div>
             {fit.regionalPrimitives.length > 0 && <div className="mt-0.5">Verified {fit.regionalPrimitives.length} regional primitive {fit.regionalPrimitives.length === 1 ? 'candidate' : 'candidates'} against mesh occupancy.</div>}
+            {fit.csgFit?.acceptable && <>
+              <div className="mt-1" style={{ color: 'var(--text-secondary)' }}>Recovered CSG tree — worst {length(fit.csgFit.surfaceMax)}, rms {length(fit.csgFit.surfaceRms)} ({(fit.csgFit.relativeError * 100).toFixed(1)}%).</div>
+              <button onClick={() => apply(fit.csgFit!.node)} className="w-full h-7 tap-h rounded text-[11px] font-medium mt-2" style={{ background: 'var(--accent)', color: 'var(--bg-deep)' }}>Replace with recovered CSG</button>
+            </>}
+            {fit.csgFit && !fit.csgFit.acceptable && <div className="mt-1" role="note" style={{ color: 'var(--accent-amber, #d4a04a)' }}>Recovered CSG candidate rejected — worst {length(fit.csgFit.surfaceMax)} ({(fit.csgFit.relativeError * 100).toFixed(1)}%). Keeping the mesh.</div>}
             {fit.segmentationDiagnostics.map((diagnostic) => <div key={diagnostic} role="note" className="mt-0.5" style={{ color: 'var(--accent-amber, #d4a04a)' }}>{diagnostic}</div>)}
             {fit.acceptable ? (
               <>
@@ -390,7 +395,7 @@ function FitPrimitive({ node }: { node: SDFNodeUI }) {
                   original mesh.
                 </div>
                 <button
-                  onClick={apply}
+                  onClick={() => apply()}
                   className="w-full h-7 tap-h rounded text-[11px] font-medium mt-2"
                   style={{ background: 'var(--accent)', color: 'var(--bg-deep)' }}
                 >

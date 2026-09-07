@@ -11,7 +11,7 @@ import { evaluateCPUWithProgress } from './sdf/gridEval';
 import { fitPrimitive } from './sdf/fitPrimitive';
 import { segmentMeshSurfaces } from './sdf/meshSegmentation';
 import { fitSegmentedSurfaces } from './sdf/regionFit';
-import { recoverRegionalPrimitiveEvidence } from './sdf/csgRecovery';
+import { assembleRegionalCsgTree, recoverRegionalPrimitiveEvidence } from './sdf/csgRecovery';
 import { bakeMeshField } from './sdf/meshField';
 import { decodeMeshPositions, DEFAULT_MESH_RESOLUTION } from './sdf/convert';
 import type { MeshFitResult } from '../types/geometry';
@@ -158,6 +158,9 @@ function toUINode(node: SDFNode): SDFNodeUI {
       return { id: id(), kind: 'cylinder', label: 'Cylinder', params: { radius: node.radius, height: node.height }, children: [], enabled: true };
     case 'capsule':
       return { id: id(), kind: 'capsule', label: 'Capsule', params: { radius: node.radius, height: node.height }, children: [], enabled: true };
+    case 'union':
+    case 'subtract':
+      return { id: id(), kind: node.kind, label: node.kind === 'union' ? 'Union' : 'Subtract', params: { smooth: node.k }, children: [toUINode(node.a), toUINode(node.b)], enabled: true };
     case 'transform': {
       let out = toUINode(node.child);
       if (node.rx || node.ry || node.rz) {
@@ -205,7 +208,10 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
         const fit = fitPrimitive(field);
         const segmentation = segmentMeshSurfaces(positions);
         const surfaceFits = fitSegmentedSurfaces(positions, segmentation.regions).filter((candidate) => candidate !== null);
-        const regionalPrimitives = recoverRegionalPrimitiveEvidence(field, surfaceFits).map((candidate) => ({ ...candidate, node: toUINode(candidate.node) }));
+        const internalEvidence = recoverRegionalPrimitiveEvidence(field, surfaceFits);
+        const regionalPrimitives = internalEvidence.map((candidate) => ({ ...candidate, node: toUINode(candidate.node) }));
+        const assembled = fit ? assembleRegionalCsgTree(field, fit.node, internalEvidence) : null;
+        const csgFit = assembled ? { ...assembled, node: toUINode(assembled.node) } : null;
         const out: MeshFitResult | null = fit === null ? null : {
           kind: fit.kind,
           surfaceMax: fit.surfaceMax,
@@ -217,6 +223,7 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
           segmentationDiagnostics: segmentation.diagnostics,
           surfaceFits,
           regionalPrimitives,
+          csgFit,
         };
         self.postMessage({ type: 'fitResult', rid, fit: out });
         break;

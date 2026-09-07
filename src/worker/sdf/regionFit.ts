@@ -76,6 +76,19 @@ function orientedNormalScore(positions: Float32Array, region: MeshSurfaceRegion,
   return score;
 }
 
+function normalAgreement(positions: Float32Array, region: MeshSurfaceRegion, expectedAt: (point: Vec3) => Vec3): number {
+  const soup = regionTriangleSoup(positions, region);
+  let weighted = 0, total = 0;
+  for (let index = 0; index < soup.length; index += 9) {
+    const a: Vec3 = [soup[index], soup[index + 1], soup[index + 2]], b: Vec3 = [soup[index + 3], soup[index + 4], soup[index + 5]], c: Vec3 = [soup[index + 6], soup[index + 7], soup[index + 8]];
+    const raw = cross(sub(b, a), sub(c, a)), area2 = Math.hypot(...raw), actual = unit(raw);
+    const centroid: Vec3 = [(a[0] + b[0] + c[0]) / 3, (a[1] + b[1] + c[1]) / 3, (a[2] + b[2] + c[2]) / 3], expected = unit(expectedAt(centroid));
+    if (!actual || !expected) continue;
+    weighted += Math.abs(dot(actual, expected)) * area2; total += area2;
+  }
+  return total ? weighted / total : 0;
+}
+
 function planeCandidate(points: Vec3[], region: MeshSurfaceRegion, diagonal: number): Omit<RegionSurfaceFit, 'regionKey' | 'triangleIds' | 'bounds'> | null {
   const normal = unit(region.normal); if (!normal) return null;
   const distances = points.map((point) => Math.abs(dot(sub(point, region.centroid), normal)));
@@ -91,6 +104,9 @@ function sphereCandidate(positions: Float32Array, points: Vec3[], region: MeshSu
   const localCenter: Vec3 = [solution[0], solution[1], solution[2]], center = add(reference, localCenter), radius2 = solution[3] + dot(localCenter, localCenter);
   if (!(radius2 > 0)) return null;
   const radius = Math.sqrt(radius2), distances = points.map((point) => Math.abs(Math.hypot(...sub(point, center)) - radius));
+  // Point positions alone cannot distinguish a two-ring cylinder from the
+  // sphere through both rings. Facet normals provide the missing evidence.
+  if (normalAgreement(positions, region, (point) => sub(point, center)) < 0.98) return null;
   const outward = orientedNormalScore(positions, region, (point) => sub(point, center)) >= 0;
   return { parameters: { kind: 'sphere', center, radius, outward }, ...residual(distances, diagonal) };
 }
@@ -120,19 +136,33 @@ function cylinderCandidate(positions: Float32Array, points: Vec3[], region: Mesh
 }
 
 /** Fit the simplest sufficiently accurate analytic surface to one region. */
-export function fitRegionSurface(positions: Float32Array, region: MeshSurfaceRegion, maximumRelativeError = 0.01): RegionSurfaceFit | null {
-  if (!region.eligible) return null;
-  const points = pointsOf(positions, region); if (points.length < 3) return null;
+export function rankRegionSurfaceCandidates(positions: Float32Array, region: MeshSurfaceRegion): Array<Omit<RegionSurfaceFit, 'regionKey' | 'triangleIds' | 'bounds'>> {
+  if (!region.eligible) return [];
+  const points = pointsOf(positions, region); if (points.length < 3) return [];
   const diagonal = Math.hypot(region.bounds.max[0] - region.bounds.min[0], region.bounds.max[1] - region.bounds.min[1], region.bounds.max[2] - region.bounds.min[2]);
-  if (!(diagonal > 0)) return null;
+  if (!(diagonal > 0)) return [];
   const candidates = [planeCandidate(points, region, diagonal), cylinderCandidate(positions, points, region, diagonal), sphereCandidate(positions, points, region, diagonal)].filter((value): value is NonNullable<typeof value> => value !== null);
   candidates.sort((a, b) => a.surfaceRms - b.surfaceRms || ['plane','cylinder','sphere'].indexOf(a.parameters.kind) - ['plane','cylinder','sphere'].indexOf(b.parameters.kind));
-  const best = candidates[0];
+  return candidates;
+}
+
+/** Fit the simplest sufficiently accurate analytic surface to one region. */
+export function fitRegionSurface(positions: Float32Array, region: MeshSurfaceRegion, maximumRelativeError = 0.01): RegionSurfaceFit | null {
+  const candidates = rankRegionSurfaceCandidates(positions, region);
+  const diagonal = Math.hypot(region.bounds.max[0] - region.bounds.min[0], region.bounds.max[1] - region.bounds.min[1], region.bounds.max[2] - region.bounds.min[2]);
+  let best = candidates[0];
   if (!best || best.relativeError > maximumRelativeError) return null;
   // Do not force a label when two different analytic families explain the
   // samples equally well within numerical noise.
   const second = candidates[1];
-  if (second && second.parameters.kind !== best.parameters.kind && second.surfaceRms <= best.surfaceRms * 1.001 + diagonal * 1e-9) return null;
+  if (second && second.parameters.kind !== best.parameters.kind && second.surfaceRms <= best.surfaceRms * 1.001 + diagonal * 1e-9) {
+    // Two axial rings admit an interpolating sphere as well as a cylinder.
+    // When the normal-derived cylindrical hypothesis is equally accurate,
+    // prefer it; a genuine spherical patch with more than two latitudes does
+    // not produce an equal cylinder residual.
+    if (best.parameters.kind === 'sphere' && second.parameters.kind === 'cylinder') best = second;
+    else return null;
+  }
   return { regionKey: region.key, triangleIds: [...region.triangleIds], bounds: region.bounds, ...best };
 }
 
