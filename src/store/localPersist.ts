@@ -5,6 +5,8 @@ import { ensureConsent, hasConsent } from './consent';
 import { decodeProjectDocument, MAX_PROJECT_JSON_CHARS } from '../types/documentDecoder';
 import { useViewportStore } from './viewportStore';
 import { useProjectComponentStore } from './componentLibrary';
+import { useConfigurationStore } from './configurationStore';
+import { parametersForConfiguration } from '../types/configuration';
 
 const LEGACY_STORAGE_KEY = 'sinter_local_project';
 const CURRENT_KEY = 'current';
@@ -138,7 +140,12 @@ export async function saveToLocal(): Promise<boolean> {
     const granted = await ensureConsent('local');
     if (!granted) return false;
   }
-  const json = useModelerStore.getState().toJSON();
+  const document = JSON.parse(useModelerStore.getState().toJSON());
+  const configuration = useConfigurationStore.getState();
+  document.parameters = configuration.baseParameters.length ? configuration.baseParameters : document.parameters;
+  document.configurations = configuration.configurations;
+  document.activeConfigurationId = configuration.activeId;
+  const json = JSON.stringify(document, null, 2);
   useLocalBackupStore.setState({ status: 'saving', error: null });
   try {
     const savedAt = new Date().toISOString();
@@ -172,7 +179,10 @@ export async function loadFromLocal(): Promise<boolean> {
       }
     }
     if (!record) return false;
+    const decoded = decodeProjectDocument(JSON.parse(record.json));
     useModelerStore.getState().fromJSON(record.json);
+    useModelerStore.getState().resetDocument(decoded.tree, decoded.projectName, parametersForConfiguration(decoded.parameters, decoded.configurations.find((item) => item.id === decoded.activeConfigurationId)));
+    useConfigurationStore.getState().reset(decoded.configurations, decoded.activeConfigurationId, decoded.parameters);
     useLocalBackupStore.setState({
       status: 'saved',
       error: recovered ? 'Recovered the previous valid local backup.' : null,
@@ -184,7 +194,10 @@ export async function loadFromLocal(): Promise<boolean> {
     // still recover the session now and on a later attempt.
     const legacy = legacyRecord();
     if (legacy) {
+      const decoded = decodeProjectDocument(JSON.parse(legacy.json));
       useModelerStore.getState().fromJSON(legacy.json);
+      useModelerStore.getState().resetDocument(decoded.tree, decoded.projectName, parametersForConfiguration(decoded.parameters, decoded.configurations.find((item) => item.id === decoded.activeConfigurationId)));
+      useConfigurationStore.getState().reset(decoded.configurations, decoded.activeConfigurationId, decoded.parameters);
     }
     useLocalBackupStore.setState({ status: 'failed', error: failureMessage(error) });
     return legacy !== null;
@@ -229,7 +242,8 @@ export async function startLocalAutoSave(): Promise<void> {
     if (state.namedViews !== previous.namedViews || state.pinnedMeasurements !== previous.pinnedMeasurements) schedule();
   });
   const unsubComponents = useProjectComponentStore.subscribe(schedule);
-  unsubscribers = [unsubModeler, unsubViewport, unsubComponents];
+  const unsubConfigurations = useConfigurationStore.subscribe(schedule);
+  unsubscribers = [unsubModeler, unsubViewport, unsubComponents, unsubConfigurations];
 }
 
 export function stopLocalAutoSave() {

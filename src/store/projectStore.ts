@@ -14,6 +14,9 @@ import { useProjectComponentStore } from './componentLibrary';
 import type { ReusableComponent } from '../types/component';
 import type { PinnedMeasurement } from '../types/measurement';
 import { DEFAULT_UNIT_PREFERENCES, type UnitPreferences } from '../types/units';
+import { useConfigurationStore } from './configurationStore';
+import type { NamedConfiguration } from '../types/configuration';
+import { parametersForConfiguration } from '../types/configuration';
 
 const MAX_CHECKPOINTS = 10;
 export type LiveCheckpoint = ProjectCheckpoint & { tree: SDFNodeUI | null };
@@ -37,11 +40,13 @@ interface ProjectState {
   lastSavedParameters: NamedParameter[];
   lastSavedViews: NamedProjectView[];
   lastSavedMeasurements: PinnedMeasurement[];
+  lastSavedConfigurations: NamedConfiguration[];
+  lastSavedActiveConfigurationId: string | null;
 
   setProjectId: (id: string | null, provider?: ProviderName | null) => void;
   save: () => Promise<boolean>;
   loadProject: (provider: ProviderName, externalId: string, name: string) => Promise<void>;
-  loadLocalDocument: (name: string, tree: unknown, parameters?: NamedParameter[], views?: NamedProjectView[], measurements?: PinnedMeasurement[], units?: UnitPreferences, components?: ReusableComponent[]) => void;
+  loadLocalDocument: (name: string, tree: unknown, parameters?: NamedParameter[], views?: NamedProjectView[], measurements?: PinnedMeasurement[], units?: UnitPreferences, components?: ReusableComponent[], configurations?: NamedConfiguration[], activeConfigurationId?: string | null) => void;
   createProject: () => void;
   toggleShare: () => Promise<void>;
   clearSaveError: () => void;
@@ -62,8 +67,10 @@ function currentUnits(): UnitPreferences {
 function bodyHash(): string {
   const { tree, projectName, namedParameters } = useModelerStore.getState();
   const viewport = useViewportStore.getState();
+  const configuration = useConfigurationStore.getState();
   return JSON.stringify({ tree, projectName, namedParameters, views: viewport.namedViews,
-    measurements: viewport.pinnedMeasurements, units: currentUnits(), components: useProjectComponentStore.getState().components });
+    measurements: viewport.pinnedMeasurements, units: currentUnits(), components: useProjectComponentStore.getState().components,
+    configurations: configuration.configurations, activeConfigurationId: configuration.activeId });
 }
 
 function sameTree(a: SDFNodeUI | null, b: SDFNodeUI | null): boolean {
@@ -74,14 +81,15 @@ function appendCheckpoint(checkpoints: LiveCheckpoint[], checkpoint: LiveCheckpo
   return [...checkpoints, checkpoint].slice(-MAX_CHECKPOINTS);
 }
 
-function checkpoint(name: string, tree: SDFNodeUI | null, parameters: NamedParameter[], views: NamedProjectView[], measurements: PinnedMeasurement[]): LiveCheckpoint {
+function checkpoint(name: string, tree: SDFNodeUI | null, parameters: NamedParameter[], views: NamedProjectView[], measurements: PinnedMeasurement[], configurations = useConfigurationStore.getState().configurations, activeConfigurationId = useConfigurationStore.getState().activeId): LiveCheckpoint {
   return { id: crypto.randomUUID(), name, createdAt: new Date().toISOString(), tree, parameters, views, measurements,
-    units: currentUnits() };
+    units: currentUnits(), configurations, activeConfigurationId };
 }
 
-function projectBody(tree: SDFNodeUI | null, thumbnail: string | null, checkpoints: LiveCheckpoint[], parameters: NamedParameter[], views: NamedProjectView[], measurements: PinnedMeasurement[], units = currentUnits()): ProjectFileBody {
+function projectBody(tree: SDFNodeUI | null, thumbnail: string | null, checkpoints: LiveCheckpoint[], parameters: NamedParameter[], views: NamedProjectView[], measurements: PinnedMeasurement[], units = currentUnits(), configurations = useConfigurationStore.getState().configurations, activeConfigurationId = useConfigurationStore.getState().activeId): ProjectFileBody {
   return { version: 2, thumbnail, tree, checkpoints, parameters, views, measurements, units,
-    components: useProjectComponentStore.getState().components };
+    components: useProjectComponentStore.getState().components, configurations,
+    activeConfigurationId };
 }
 
 let nextGeneration = 1;
@@ -154,16 +162,18 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   lastSavedParameters: [],
   lastSavedViews: [],
   lastSavedMeasurements: [],
+  lastSavedConfigurations: [],
+  lastSavedActiveConfigurationId: null,
 
   setProjectId: (id, provider) => set({
     projectId: id, provider: provider ?? null, revision: '', generation: ++nextGeneration,
-    checkpoints: [], lastSavedTree: null, lastSavedThumbnail: null, lastSavedParameters: [], lastSavedViews: [], lastSavedMeasurements: [],
+    checkpoints: [], lastSavedTree: null, lastSavedThumbnail: null, lastSavedParameters: [], lastSavedViews: [], lastSavedMeasurements: [], lastSavedConfigurations: [], lastSavedActiveConfigurationId: null,
   }),
 
   clearSaveError: () => set({ saveError: null, saveConflict: false }),
 
   save: async () => {
-    const { saving, projectId, provider, remoteName, revision, generation, checkpoints, lastSavedTree, lastSavedParameters, lastSavedViews, lastSavedMeasurements } = get();
+    const { saving, projectId, provider, remoteName, revision, generation, checkpoints, lastSavedTree, lastSavedParameters, lastSavedViews, lastSavedMeasurements, lastSavedConfigurations, lastSavedActiveConfigurationId } = get();
     if (saving) return false;
 
     const hash = bodyHash();
@@ -173,17 +183,20 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     const identity = authIdentity();
     try {
       const { projectName, tree, namedParameters } = useModelerStore.getState();
+      const persistedParameters = useConfigurationStore.getState().baseParameters.length ? useConfigurationStore.getState().baseParameters : namedParameters;
       const views = useViewportStore.getState().namedViews;
       const measurements = useViewportStore.getState().pinnedMeasurements;
       const thumbnail = captureCanvasThumbnail();
       const savedAt = new Date().toISOString();
-      const definitionsChanged = JSON.stringify(lastSavedParameters) !== JSON.stringify(namedParameters);
+      const definitionsChanged = JSON.stringify(lastSavedParameters) !== JSON.stringify(persistedParameters);
       const viewsChanged = JSON.stringify(lastSavedViews) !== JSON.stringify(views);
       const measurementsChanged = JSON.stringify(lastSavedMeasurements) !== JSON.stringify(measurements);
-      const nextCheckpoints = projectId && (!sameTree(lastSavedTree, tree) || definitionsChanged || viewsChanged || measurementsChanged)
-        ? appendCheckpoint(checkpoints, checkpoint(`Autosave ${savedAt}`, lastSavedTree, lastSavedParameters, lastSavedViews, lastSavedMeasurements))
+      const currentConfiguration = useConfigurationStore.getState();
+      const configurationsChanged = JSON.stringify(lastSavedConfigurations) !== JSON.stringify(currentConfiguration.configurations) || lastSavedActiveConfigurationId !== currentConfiguration.activeId;
+      const nextCheckpoints = projectId && (!sameTree(lastSavedTree, tree) || definitionsChanged || viewsChanged || measurementsChanged || configurationsChanged)
+        ? appendCheckpoint(checkpoints, checkpoint(`Autosave ${savedAt}`, lastSavedTree, lastSavedParameters, lastSavedViews, lastSavedMeasurements, lastSavedConfigurations, lastSavedActiveConfigurationId))
         : checkpoints;
-      const body = projectBody(tree, thumbnail, nextCheckpoints, namedParameters, views, measurements);
+      const body = projectBody(tree, thumbnail, nextCheckpoints, persistedParameters, views, measurements);
 
       const activeProvider = provider ?? getCurrentProvider();
       if (!activeProvider) throw new Error('Sign in to save to cloud');
@@ -199,7 +212,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         // revision before attempting metadata so a failed rename can retry
         // against our own latest write instead of reporting a false conflict.
         if (get().generation !== generation || authIdentity() !== identity) return false;
-        set({ revision: savedRevision, checkpoints: nextCheckpoints, lastSavedTree: tree, lastSavedThumbnail: thumbnail, lastSavedParameters: namedParameters, lastSavedViews: views, lastSavedMeasurements: measurements });
+        set({ revision: savedRevision, checkpoints: nextCheckpoints, lastSavedTree: tree, lastSavedThumbnail: thumbnail, lastSavedParameters: persistedParameters, lastSavedViews: views, lastSavedMeasurements: measurements, lastSavedConfigurations: currentConfiguration.configurations, lastSavedActiveConfigurationId: currentConfiguration.activeId });
         if (projectName !== remoteName) {
           const renamed = await storage.rename(accessToken, externalId, projectName, savedRevision);
           savedRevision = renamed?.revision ?? savedRevision;
@@ -225,9 +238,11 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         checkpoints: nextCheckpoints,
         lastSavedTree: tree,
         lastSavedThumbnail: thumbnail,
-        lastSavedParameters: namedParameters,
+        lastSavedParameters: persistedParameters,
         lastSavedViews: views,
         lastSavedMeasurements: measurements,
+        lastSavedConfigurations: currentConfiguration.configurations,
+        lastSavedActiveConfigurationId: currentConfiguration.activeId,
         saveConflict: false,
       });
       if (wasNew) useChatStore.getState().bindConversation(cloudConversationKey(activeProvider, externalId));
@@ -296,7 +311,9 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
     if (get().generation !== generation || authIdentity() !== identity) return;
 
-    useModelerStore.getState().resetDocument(body.tree, name || 'Untitled', body.parameters);
+    const activeConfiguration = body.configurations.find((item) => item.id === body.activeConfigurationId);
+    useModelerStore.getState().resetDocument(body.tree, name || 'Untitled', parametersForConfiguration(body.parameters, activeConfiguration));
+    useConfigurationStore.getState().reset(body.configurations, body.activeConfigurationId, body.parameters);
     useProjectComponentStore.getState().replace(body.components);
     useViewportStore.getState().setNamedViews(body.views);
     useViewportStore.getState().setPinnedMeasurements(body.measurements);
@@ -317,6 +334,8 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       lastSavedParameters: body.parameters,
       lastSavedViews: body.views,
       lastSavedMeasurements: body.measurements,
+      lastSavedConfigurations: body.configurations,
+      lastSavedActiveConfigurationId: body.activeConfigurationId,
     });
     if (body.thumbnail) void putThumbnail(thumbnailKey(provider, externalId), body.thumbnail);
   },
@@ -324,6 +343,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   createProject: () => {
     const generation = ++nextGeneration;
     useModelerStore.getState().resetDocument(null, 'Untitled');
+    useConfigurationStore.getState().reset([], null, []);
     useProjectComponentStore.getState().replace([]);
     useViewportStore.getState().setNamedViews([]);
     useViewportStore.getState().setPinnedMeasurements([]);
@@ -347,13 +367,17 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       lastSavedParameters: [],
       lastSavedViews: [],
       lastSavedMeasurements: [],
+      lastSavedConfigurations: [],
+      lastSavedActiveConfigurationId: null,
     });
   },
 
-  loadLocalDocument: (name, tree, parameters = [], views = [], measurements = [], units = DEFAULT_UNIT_PREFERENCES, components = []) => {
+  loadLocalDocument: (name, tree, parameters = [], views = [], measurements = [], units = DEFAULT_UNIT_PREFERENCES, components = [], configurations = [], activeConfigurationId = null) => {
     const generation = ++nextGeneration;
     const modeler = useModelerStore.getState();
-    modeler.resetDocument(decodeTree(tree, { legacy: true, repairMissingIds: true }), name || 'Untitled', parameters);
+    const activeConfiguration = configurations.find((item) => item.id === activeConfigurationId);
+    modeler.resetDocument(decodeTree(tree, { legacy: true, repairMissingIds: true }), name || 'Untitled', parametersForConfiguration(parameters, activeConfiguration));
+    useConfigurationStore.getState().reset(configurations, activeConfigurationId, parameters);
     useProjectComponentStore.getState().replace(components);
     useViewportStore.getState().setNamedViews(views);
     useViewportStore.getState().setPinnedMeasurements(measurements);
@@ -377,12 +401,14 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       lastSavedParameters: [],
       lastSavedViews: [],
       lastSavedMeasurements: [],
+      lastSavedConfigurations: [],
+      lastSavedActiveConfigurationId: null,
     });
   },
 
   createCheckpoint: async (name) => {
     const cleanName = name.trim().slice(0, 256);
-    const { projectId, provider, revision, generation, saving, checkpoints, lastSavedTree, lastSavedParameters, lastSavedViews, lastSavedMeasurements } = get();
+    const { projectId, provider, revision, generation, saving, checkpoints, lastSavedTree, lastSavedParameters, lastSavedViews, lastSavedMeasurements, lastSavedConfigurations, lastSavedActiveConfigurationId } = get();
     if (!cleanName || !projectId || !provider || saving) return false;
     set({ saving: true, saveError: null, saveConflict: false });
     const identity = authIdentity();
@@ -390,19 +416,22 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       const { tree, namedParameters } = useModelerStore.getState();
       const views = useViewportStore.getState().namedViews;
       const measurements = useViewportStore.getState().pinnedMeasurements;
-      const definitionsChanged = JSON.stringify(lastSavedParameters) !== JSON.stringify(namedParameters);
+      const configuration = useConfigurationStore.getState();
+      const persistedParameters = configuration.baseParameters.length ? configuration.baseParameters : namedParameters;
+      const definitionsChanged = JSON.stringify(lastSavedParameters) !== JSON.stringify(persistedParameters);
       const viewsChanged = JSON.stringify(lastSavedViews) !== JSON.stringify(views);
       const measurementsChanged = JSON.stringify(lastSavedMeasurements) !== JSON.stringify(measurements);
-      const withPrevious = !sameTree(lastSavedTree, tree) || definitionsChanged || viewsChanged || measurementsChanged
-        ? appendCheckpoint(checkpoints, checkpoint('Before named version', lastSavedTree, lastSavedParameters, lastSavedViews, lastSavedMeasurements))
+      const configurationsChanged = JSON.stringify(lastSavedConfigurations) !== JSON.stringify(configuration.configurations) || lastSavedActiveConfigurationId !== configuration.activeId;
+      const withPrevious = !sameTree(lastSavedTree, tree) || definitionsChanged || viewsChanged || measurementsChanged || configurationsChanged
+        ? appendCheckpoint(checkpoints, checkpoint('Before named version', lastSavedTree, lastSavedParameters, lastSavedViews, lastSavedMeasurements, lastSavedConfigurations, lastSavedActiveConfigurationId))
         : checkpoints;
-      const nextCheckpoints = appendCheckpoint(withPrevious, checkpoint(cleanName, tree, namedParameters, views, measurements));
+      const nextCheckpoints = appendCheckpoint(withPrevious, checkpoint(cleanName, tree, persistedParameters, views, measurements));
       const thumbnail = captureCanvasThumbnail();
       const accessToken = await useAuthStore.getState().getAccessToken();
-      const result = await getStorageProvider(provider).update(accessToken, projectId, projectBody(tree, thumbnail, nextCheckpoints, namedParameters, views, measurements), revision);
+      const result = await getStorageProvider(provider).update(accessToken, projectId, projectBody(tree, thumbnail, nextCheckpoints, persistedParameters, views, measurements), revision);
       if (get().generation !== generation || authIdentity() !== identity) return false;
       set({
-        checkpoints: nextCheckpoints, lastSavedTree: tree, lastSavedThumbnail: thumbnail, lastSavedParameters: namedParameters, lastSavedViews: views, lastSavedMeasurements: measurements, revision: result?.revision ?? revision,
+        checkpoints: nextCheckpoints, lastSavedTree: tree, lastSavedThumbnail: thumbnail, lastSavedParameters: persistedParameters, lastSavedViews: views, lastSavedMeasurements: measurements, lastSavedConfigurations: configuration.configurations, lastSavedActiveConfigurationId: configuration.activeId, revision: result?.revision ?? revision,
         lastSavedHash: bodyHash(), saveError: null, saveConflict: false,
       });
       announceEdit(provider, projectId, result?.revision ?? revision);
@@ -428,7 +457,9 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       const modeler = useModelerStore.getState();
       const currentViews = useViewportStore.getState().namedViews;
       const currentMeasurements = useViewportStore.getState().pinnedMeasurements;
-      const recovery = checkpoint(`Before restoring ${target.name}`, modeler.tree, modeler.namedParameters, currentViews, currentMeasurements);
+      const currentConfiguration = useConfigurationStore.getState();
+      const recoveryParameters = currentConfiguration.baseParameters.length ? currentConfiguration.baseParameters : modeler.namedParameters;
+      const recovery = checkpoint(`Before restoring ${target.name}`, modeler.tree, recoveryParameters, currentViews, currentMeasurements);
       const nextCheckpoints = appendCheckpoint(checkpoints, recovery);
       const accessToken = await useAuthStore.getState().getAccessToken();
       const targetParameters = target.parameters ?? [];
@@ -437,15 +468,18 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       const targetViews = target.views ?? currentViews;
       const targetMeasurements = target.measurements ?? currentMeasurements;
       const targetUnits = target.units ?? currentUnits();
-      const result = await getStorageProvider(provider).update(accessToken, projectId, projectBody(target.tree, null, nextCheckpoints, targetParameters, targetViews, targetMeasurements, targetUnits), revision);
+      const targetConfigurations = target.configurations ?? currentConfiguration.configurations;
+      const targetActiveConfigurationId = target.configurations ? target.activeConfigurationId ?? null : currentConfiguration.activeId;
+      const result = await getStorageProvider(provider).update(accessToken, projectId, projectBody(target.tree, null, nextCheckpoints, targetParameters, targetViews, targetMeasurements, targetUnits, targetConfigurations, targetActiveConfigurationId), revision);
       if (get().generation !== generation || authIdentity() !== identity) return false;
-      modeler.resetDocument(target.tree, modeler.projectName, targetParameters);
+      modeler.resetDocument(target.tree, modeler.projectName, parametersForConfiguration(targetParameters, targetConfigurations.find((item) => item.id === targetActiveConfigurationId)));
+      useConfigurationStore.getState().reset(targetConfigurations, targetActiveConfigurationId, targetParameters);
       useViewportStore.getState().setNamedViews(targetViews);
       useViewportStore.getState().setPinnedMeasurements(targetMeasurements);
       useViewportStore.getState().setUnitPreferences(targetUnits);
       useViewportStore.getState().resetMeasurementSession();
       set({
-        checkpoints: nextCheckpoints, lastSavedTree: target.tree, lastSavedThumbnail: null, lastSavedParameters: targetParameters, lastSavedViews: targetViews, lastSavedMeasurements: targetMeasurements, revision: result?.revision ?? revision,
+        checkpoints: nextCheckpoints, lastSavedTree: target.tree, lastSavedThumbnail: null, lastSavedParameters: targetParameters, lastSavedViews: targetViews, lastSavedMeasurements: targetMeasurements, lastSavedConfigurations: targetConfigurations, lastSavedActiveConfigurationId: targetActiveConfigurationId, revision: result?.revision ?? revision,
         lastSavedHash: bodyHash(), saveError: null, saveConflict: false,
       });
       announceEdit(provider, projectId, result?.revision ?? revision);
@@ -462,14 +496,14 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   },
 
   deleteCheckpoint: async (id) => {
-    const { projectId, provider, revision, generation, saving, checkpoints, lastSavedTree, lastSavedThumbnail, lastSavedParameters, lastSavedViews, lastSavedMeasurements } = get();
+    const { projectId, provider, revision, generation, saving, checkpoints, lastSavedTree, lastSavedThumbnail, lastSavedParameters, lastSavedViews, lastSavedMeasurements, lastSavedConfigurations, lastSavedActiveConfigurationId } = get();
     if (!projectId || !provider || saving || !checkpoints.some((item) => item.id === id)) return false;
     set({ saving: true, saveError: null, saveConflict: false });
     const identity = authIdentity();
     try {
       const nextCheckpoints = checkpoints.filter((item) => item.id !== id);
       const accessToken = await useAuthStore.getState().getAccessToken();
-      const result = await getStorageProvider(provider).update(accessToken, projectId, projectBody(lastSavedTree, lastSavedThumbnail, nextCheckpoints, lastSavedParameters, lastSavedViews, lastSavedMeasurements), revision);
+      const result = await getStorageProvider(provider).update(accessToken, projectId, projectBody(lastSavedTree, lastSavedThumbnail, nextCheckpoints, lastSavedParameters, lastSavedViews, lastSavedMeasurements, currentUnits(), lastSavedConfigurations, lastSavedActiveConfigurationId), revision);
       if (get().generation !== generation || authIdentity() !== identity) return false;
       set({
         checkpoints: nextCheckpoints, revision: result?.revision ?? revision,

@@ -3,6 +3,7 @@ import type { NamedProjectView } from '../types/view';
 import type { PinnedMeasurement } from '../types/measurement';
 import type { UnitPreferences } from '../types/units';
 import type { ReusableComponent } from '../types/component';
+import type { NamedConfiguration } from '../types/configuration';
 
 // Shape of a project's content file (stored in Drive or as a Gist).
 // Project NAME and timestamps live in the provider's file metadata
@@ -19,6 +20,8 @@ export interface ProjectCheckpoint {
   measurements?: PinnedMeasurement[];
   /** Added after document v2 shipped; absence preserves current project units on restore. */
   units?: UnitPreferences;
+  configurations?: NamedConfiguration[];
+  activeConfigurationId?: string | null;
 }
 
 export interface ProjectFileBody {
@@ -32,6 +35,8 @@ export interface ProjectFileBody {
   units?: UnitPreferences;
   /** Components embedded in this project and synced by its storage provider. */
   components?: ReusableComponent[];
+  configurations?: NamedConfiguration[];
+  activeConfigurationId?: string | null;
 }
 
 export interface ProjectReadResult extends ProjectFileBody {

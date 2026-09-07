@@ -12,6 +12,9 @@ import type { ExportArtifact } from '../../types/geometry';
 const exportSTL = vi.fn();
 const export3MF = vi.fn();
 const cancelExport = vi.fn();
+const { triggerDownload } = vi.hoisted(() => ({ triggerDownload: vi.fn() }));
+
+vi.mock('../../utils/download', () => ({ triggerDownload }));
 
 vi.mock('../../engine/workerBridge', () => {
   class CancelledError extends Error {
@@ -35,6 +38,7 @@ import { Toolbar, affectedPreflightBounds } from './Toolbar';
 import { useModelerStore } from '../../store/modelerStore';
 import { useViewportStore } from '../../store/viewportStore';
 import { useProjectStore } from '../../store/projectStore';
+import { useConfigurationStore } from '../../store/configurationStore';
 
 function deferred<T>() {
   let resolve!: (v: T) => void;
@@ -271,6 +275,59 @@ describe('Toolbar project versions', () => {
     expect(screen.getByText('Before experiment')).toBeInTheDocument();
     expect(screen.getByText(/10 newest versions/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Restore' })).toBeInTheDocument();
+  });
+});
+
+describe('named configuration batch export', () => {
+  const driven = { ...BOX, expressions: { width: 'width' } };
+  const configurations = [
+    { id: 'small', name: 'Small size', overrides: { width: '20' } },
+    { id: 'large', name: 'Large size', overrides: { width: '30' } },
+  ];
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useModelerStore.getState().resetDocument(driven, 'Bracket', [{ name: 'width', expression: '10', unit: 'mm' }]);
+    useModelerStore.setState({ evaluatedTree: useModelerStore.getState().tree, sdfDisplay: DISPLAY as any, evaluating: false });
+    useConfigurationStore.getState().reset(configurations, null, [{ name: 'width', expression: '10', unit: 'mm' }]);
+  });
+  afterEach(cleanup);
+
+  it('resolves and downloads every variant sequentially with deterministic names', async () => {
+    exportSTL.mockResolvedValue(artifact(100, 4));
+    render(<Toolbar />);
+    fireEvent.click(screen.getByTitle('Configurations'));
+    fireEvent.click(screen.getByRole('button', { name: 'Export all STL' }));
+    await waitFor(() => expect(exportSTL).toHaveBeenCalledTimes(2));
+    expect(exportSTL.mock.calls[0][0].params.width).toBe(20);
+    expect(exportSTL.mock.calls[1][0].params.width).toBe(30);
+    expect(triggerDownload.mock.calls.map((call) => call[1])).toEqual(['Bracket-Small-size.stl', 'Bracket-Large-size.stl']);
+  });
+
+  it('continues after a per-configuration failure and reports which variant failed', async () => {
+    exportSTL.mockRejectedValueOnce(new Error('mesh invalid')).mockResolvedValueOnce(artifact(100, 4));
+    render(<Toolbar />);
+    fireEvent.click(screen.getByTitle('Configurations'));
+    fireEvent.click(screen.getByRole('button', { name: 'Export all STL' }));
+    await waitFor(() => expect(exportSTL).toHaveBeenCalledTimes(2));
+    expect(triggerDownload).toHaveBeenCalledTimes(1);
+    expect(useModelerStore.getState().error).toMatch(/Small size: mesh invalid/);
+  });
+
+  it('cancels the running variant and never starts the next one', async () => {
+    const job = deferred<ExportArtifact>();
+    exportSTL.mockReturnValue(job.promise);
+    render(<Toolbar />);
+    fireEvent.click(screen.getByTitle('Configurations'));
+    fireEvent.click(screen.getByRole('button', { name: 'Export all STL' }));
+    await waitFor(() => expect(screen.getByTitle('Cancel export')).toBeInTheDocument());
+    fireEvent.click(screen.getByTitle('Cancel export'));
+    const cancelled = new Error('Cancelled');
+    cancelled.name = 'CancelledError';
+    job.reject(cancelled);
+    await flush();
+    expect(exportSTL).toHaveBeenCalledTimes(1);
+    expect(triggerDownload).not.toHaveBeenCalled();
   });
 });
 
