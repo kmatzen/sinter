@@ -472,8 +472,12 @@ function emitNode(node: SDFNode, pVar: string, lines: string[]): string {
     }
     case 'extrude': {
       const fn = emitProfileDistanceHelper(node.profile);
-      lines.push(`float pe_${result} = ${fn}(${pVar}.xy);`);
-      lines.push(`float pz_${result} = abs(${pVar}.z) - ${up(node.depth / 2)};`);
+      const zMin = node.zMin ?? -node.depth / 2, zMax = node.zMax ?? node.depth / 2;
+      const slope = Math.tan((node.taper ?? 0) * Math.PI / 180);
+      lines.push(`float ez_${result} = clamp(${pVar}.z, ${up(zMin)}, ${up(zMax)});`);
+      lines.push(`float pe_${result} = (${fn}(${pVar}.xy) + (ez_${result} - ${up(zMin)}) * ${up(slope)}) / ${up(Math.hypot(1, slope))};`);
+      if ((node.wallThickness ?? 0) > 0) lines.push(`pe_${result} = abs(pe_${result}) - ${up(node.wallThickness! / 2)};`);
+      lines.push(`float pz_${result} = max(${up(zMin)} - ${pVar}.z, ${pVar}.z - ${up(zMax)});`);
       lines.push(`float ${result} = min(max(pe_${result}, pz_${result}), 0.0) + length(max(vec2(pe_${result}, pz_${result}), 0.0));`);
       return result;
     }

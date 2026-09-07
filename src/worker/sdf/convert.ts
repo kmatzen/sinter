@@ -63,7 +63,11 @@ export function toSDFNode(ui: SDFNodeUI): SDFNode | null {
     case 'cone': return { kind: 'cone', radius: p.radius, height: p.height };
     case 'capsule': return { kind: 'capsule', radius: p.radius, height: p.height };
     case 'ellipsoid': return { kind: 'ellipsoid', size: [p.width, p.height, p.depth] };
-    case 'extrude': return { kind: 'extrude', profile: parseProfile(ui.data?.profile), depth: p.depth };
+    case 'extrude': {
+      const zMin = p.extentMode === 1 ? 0 : p.extentMode === 2 ? -p.negativeDepth : -p.depth / 2;
+      const zMax = p.extentMode === 1 ? p.depth : p.extentMode === 2 ? p.depth : p.depth / 2;
+      return { kind: 'extrude', profile: parseProfile(ui.data?.profile), depth: zMax - zMin, zMin, zMax, taper: p.taper, wallThickness: p.wallThickness };
+    }
     case 'revolve': return { kind: 'revolve', profile: parseRevolveProfile(ui.data?.profile), axis: p.axis === 0 ? 'x' : p.axis === 2 ? 'z' : 'y', angle: p.angle };
 
     case 'mesh': {

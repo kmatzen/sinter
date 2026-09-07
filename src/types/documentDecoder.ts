@@ -30,6 +30,9 @@ const MAX_GENERIC_DATA_CHARS = 8 * 1024 * 1024;
 const MAX_NAMED_PARAMETERS = 100;
 const MAX_EXPRESSION_CHARS = 512;
 const KNOWN_KINDS = new Set([...Object.keys(NODE_DEFAULTS), '_empty']);
+const ADDITIVE_OPTIONAL_PARAMS: Record<string, Set<string>> = {
+  extrude: new Set(['extentMode', 'negativeDepth', 'taper', 'wallThickness']),
+};
 
 export class DocumentDecodeError extends Error {
   constructor(message: string) {
@@ -217,7 +220,7 @@ function decodeNode(input: unknown, path: number[], depth: number, context: Cont
   }
   if (!context.legacy) {
     for (const key of Object.keys(defaults)) {
-      if (!(key in params)) throw new DocumentDecodeError(`${labelPath}.params.${key} is required`);
+      if (!(key in params) && !ADDITIVE_OPTIONAL_PARAMS[kind]?.has(key)) throw new DocumentDecodeError(`${labelPath}.params.${key} is required`);
     }
   }
 
@@ -272,7 +275,7 @@ function decodeNode(input: unknown, path: number[], depth: number, context: Cont
   const normalizedParams = normalizeNodeParams(kind, params);
   if (!context.legacy && kind !== 'rotate') {
     for (const key of Object.keys(defaults)) {
-      if (!Object.is(normalizedParams[key], params[key])) {
+      if (key in params && !Object.is(normalizedParams[key], params[key])) {
         throw new DocumentDecodeError(
           `${labelPath}.params.${key} is outside the supported modeling domain; ` +
           `use a value that does not require clamping`,

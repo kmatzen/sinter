@@ -47,6 +47,16 @@ describe('document decoder', () => {
     expect(legacy.tree?.id).toBe('migrated-root');
   });
 
+  it('migrates pre-extent profile extrudes without changing their geometry', () => {
+    const profile = JSON.stringify({ outer: [[-5, -4], [5, -4], [5, 4], [-5, 4]], holes: [] });
+    const oldExtrude = { id: 'plate', kind: 'extrude', label: 'Plate', params: { depth: 6 }, data: { profile }, children: [], enabled: true };
+    const decoded = decodeProjectDocument({ version: 2, tree: oldExtrude }).tree!;
+    expect(decoded.params).toMatchObject({ depth: 6, extentMode: 0, taper: 0, wallThickness: 0 });
+    const runtime = toSDFNode(decoded)!;
+    expect(computeBounds(runtime)).toEqual({ min: [-5, -4, -3], max: [5, 4, 3] });
+    expect(evaluateSDF(runtime, [0, 0, 0])).toBeLessThan(0);
+  });
+
   it('rejects unknown future document versions deliberately', () => {
     expect(() => decodeProjectDocument({ version: 3, tree: box() })).toThrow(/version 3/);
   });

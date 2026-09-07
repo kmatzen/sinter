@@ -106,6 +106,22 @@ describe('property formulas', () => {
     expect(JSON.parse(useModelerStore.getState().tree?.data?.profile || '').outer[0]).toEqual([-10, -15]);
   });
 
+  it('exposes and commits all profile extrusion extent controls', () => {
+    const extrude = { id: 'plate', kind: 'extrude', label: 'Plate', params: { depth: 5 }, children: [], enabled: true };
+    useModelerStore.getState().resetDocument(extrude, 'Extrude modes', []);
+    useModelerStore.getState().selectNode('plate');
+    render(<PropertyContent />);
+    fireEvent.change(screen.getByLabelText('Extrude extent'), { target: { value: '2' } });
+    expect(screen.getByLabelText('Negative depth')).toBeInTheDocument();
+    const negative = screen.getByLabelText('Negative depth');
+    fireEvent.change(negative, { target: { value: '7' } }); fireEvent.blur(negative);
+    const taper = screen.getByLabelText('Taper');
+    fireEvent.change(taper, { target: { value: '-10' } }); fireEvent.blur(taper);
+    const wall = screen.getByLabelText('Wall');
+    fireEvent.change(wall, { target: { value: '1.5' } }); fireEvent.blur(wall);
+    expect(useModelerStore.getState().tree?.params).toMatchObject({ extentMode: 2, negativeDepth: 7, taper: -10, wallThickness: 1.5 });
+  });
+
   it('groups a dragged profile vertex into one undo step', () => {
     const extrude = { id: 'plate', kind: 'extrude', label: 'Plate', params: { depth: 5 }, children: [], enabled: true };
     useModelerStore.getState().resetDocument(extrude, 'Profile drag test', []);

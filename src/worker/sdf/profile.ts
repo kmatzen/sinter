@@ -146,8 +146,14 @@ function revolvedProfileDistance(profile: PolygonProfile, radius: number, axial:
   return distance;
 }
 
-export function extrudeDistance(profile: PolygonProfile, depth: number, p: Vec3): number {
-  const d2 = profileDistance(profile, p[0], p[1]), dz = Math.abs(p[2]) - depth / 2;
+export interface ExtrudeOptions { zMin?: number; zMax?: number; taper?: number; wallThickness?: number }
+export function extrudeDistance(profile: PolygonProfile, depth: number, p: Vec3, options: ExtrudeOptions = {}): number {
+  const zMin = options.zMin ?? -depth / 2, zMax = options.zMax ?? depth / 2;
+  const sampleZ = Math.max(zMin, Math.min(zMax, p[2]));
+  const slope = Math.tan((options.taper ?? 0) * Math.PI / 180);
+  let d2 = (profileDistance(profile, p[0], p[1]) + (sampleZ - zMin) * slope) / Math.hypot(1, slope);
+  if ((options.wallThickness ?? 0) > 0) d2 = Math.abs(d2) - options.wallThickness! / 2;
+  const dz = Math.max(zMin - p[2], p[2] - zMax);
   return Math.min(Math.max(d2, dz), 0) + Math.hypot(Math.max(d2, 0), Math.max(dz, 0));
 }
 

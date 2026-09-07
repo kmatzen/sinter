@@ -153,7 +153,7 @@ export function evalAt(node: SDFNode, px: number, py: number, pz: number): numbe
       return (k0 - 1.0) * Math.min(sx, sy, sz);
     }
     case 'extrude':
-      return extrudeDistance(node.profile, node.depth, [px, py, pz]);
+      return extrudeDistance(node.profile, node.depth, [px, py, pz], node);
     case 'revolve':
       return revolveDistance(node.profile, node.axis, node.angle, [px, py, pz]);
     case 'union': {

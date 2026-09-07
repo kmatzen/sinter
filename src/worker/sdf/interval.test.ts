@@ -54,6 +54,16 @@ const frac = fc.tuple(
 );
 
 describe('the interval enclosure contains the pointwise field', () => {
+  it('contains a tapered extrusion through nested circular bounds', () => {
+    const extrude: SDFNode = { kind: 'extrude', depth: 1, zMin: 0, zMax: 1, taper: 0.13635827358218355, wallThickness: 0,
+      profile: { outer: [[-2, -2], [2, -2], [2, 2], [-2, 2]], holes: [] } };
+    const inner: SDFNode = { kind: 'circularPattern', child: extrude, axis: [0, 0, 1], count: 2 };
+    const tree: SDFNode = { kind: 'circularPattern', child: inner, axis: [0, 0, 1], count: 2 };
+    const point = computeBounds(tree).min;
+    const interval = evaluateInterval(tree, { min: point, max: point });
+    expect(interval.lo).toBeLessThanOrEqual(evaluateSDF(tree, point));
+  });
+
   it('contains the gradient-dependent chamfer field', () => {
     const tree: SDFNode = { kind: 'chamfer', distance: 2, child: { kind: 'box', size: [10, 12, 14] } };
     const box: BBox = { min: [4.5, 4.5, -1], max: [7.5, 7.5, 1] };
