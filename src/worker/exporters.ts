@@ -1,10 +1,21 @@
-interface MeshData {
+export interface MeshData {
   positions: Float32Array;
   normals: Float32Array;
   indices: Uint32Array;
 }
 
-export function export3MF(mesh: MeshData): ArrayBuffer {
+export interface ThreeMFObject {
+  mesh: MeshData;
+  name?: string;
+}
+
+const xmlAttribute = (value: string): string => value
+  .replace(/&/g, '&amp;')
+  .replace(/"/g, '&quot;')
+  .replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;');
+
+function meshXml({ mesh, name }: ThreeMFObject, objectId: number): string {
   const { positions, indices } = mesh;
 
   const uniqueVertices: string[] = [];
@@ -21,11 +32,7 @@ export function export3MF(mesh: MeshData): ArrayBuffer {
     );
   }
 
-  const modelXml = `<?xml version="1.0" encoding="UTF-8"?>
-<model unit="millimeter" xml:lang="en-US"
-  xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">
-  <resources>
-    <object id="1" type="model">
+  return `    <object id="${objectId}" type="model"${name ? ` name="${xmlAttribute(name)}"` : ''}>
       <mesh>
         <vertices>
 ${uniqueVertices.join('\n')}
@@ -34,10 +41,21 @@ ${uniqueVertices.join('\n')}
 ${triangles.join('\n')}
         </triangles>
       </mesh>
-    </object>
+    </object>`;
+}
+
+export function export3MF(input: MeshData | ThreeMFObject[]): ArrayBuffer {
+  const objects: ThreeMFObject[] = Array.isArray(input) ? input : [{ mesh: input }];
+  if (objects.length === 0) throw new Error('3MF export needs at least one mesh object');
+
+  const modelXml = `<?xml version="1.0" encoding="UTF-8"?>
+<model unit="millimeter" xml:lang="en-US"
+  xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">
+  <resources>
+${objects.map((object, index) => meshXml(object, index + 1)).join('\n')}
   </resources>
   <build>
-    <item objectid="1" />
+${objects.map((_, index) => `    <item objectid="${index + 1}" />`).join('\n')}
   </build>
 </model>`;
 
