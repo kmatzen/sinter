@@ -172,4 +172,22 @@ describe('regional CSG evidence', () => {
       polarity: 'add', regionKeys: ['standoff-0', 'standoff-1', 'standoff-2'],
     })]);
   });
+
+  it.each([
+    ['circular', [[6,0], [0,6], [-6,0], [0,-6]]],
+    ['mirror', [[-5,0], [5,0]]],
+  ] as const)('validates a compressed %s pattern against the complete field', (pattern, centers) => {
+    const base: SDFNode = { kind: 'box', size: [20, 2, 20] };
+    const explicit = centers.map(([x, z], index): RegionalPrimitiveEvidence => ({
+      node: { kind: 'transform', child: { kind: 'cylinder', radius: 1.5, height: 4 }, tx: x, ty: 2.5, tz: z, rx: 0, ry: 0, rz: 0, sx: 1, sy: 1, sz: 1 },
+      polarity: 'add', regionKeys: [`${pattern}-${index}`], surfaceRms: 0.01, surfaceMax: 0.02, occupancyAgreement: 1,
+    }));
+    const target = explicit.reduce<SDFNode>((node, candidate) => ({ kind: 'union', a: node, b: candidate.node, k: 0 }), base);
+    const compressed = compressRegionalPatterns(explicit);
+    expect(compressed.patterns.map((candidate) => candidate.pattern)).toEqual([pattern]);
+    const result = assembleRegionalCsgTree(fieldFor(target), base, compressed.evidence)!;
+    expect(result.acceptable, JSON.stringify(result)).toBe(true);
+    expect(result.relativeError).toBeLessThan(0.01);
+    expect(result.contributors[0].regionKeys).toHaveLength(centers.length);
+  });
 });
