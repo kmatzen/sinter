@@ -293,6 +293,21 @@ describe('Toolbar save status', () => {
   });
 });
 
+describe('Toolbar keyboard navigation', () => {
+  afterEach(cleanup);
+
+  it('exposes navigation back home as a keyboard-operable button', () => {
+    const listener = vi.fn(); window.addEventListener('show-landing', listener);
+    useModelerStore.setState({ tree: BOX, evaluatedTree: BOX, sdfDisplay: DISPLAY as any, evaluating: false });
+    render(<Toolbar />);
+    const home = screen.getByRole('button', { name: 'Back to home' });
+    home.focus(); fireEvent.keyDown(home, { key: 'Enter' }); fireEvent.click(home);
+    expect(home).toHaveFocus();
+    expect(listener).toHaveBeenCalledTimes(1);
+    window.removeEventListener('show-landing', listener);
+  });
+});
+
 describe('named configuration batch export', () => {
   const driven = { ...BOX, expressions: { width: 'width' } };
   const configurations = [

@@ -258,10 +258,11 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
          }}>
       {/* Logo + name */}
       <div className="flex items-center gap-1.5 lg:gap-2 min-w-0">
-        <img src="/logo-64.png" alt="Sinter" className="w-5 h-5 rounded shrink-0"
-             style={{ cursor: 'pointer' }}
-             onClick={() => window.dispatchEvent(new Event('show-landing'))}
-             title="Back to home" />
+        <button type="button" aria-label="Back to home" title="Back to home"
+                className="w-7 h-7 tap rounded flex items-center justify-center shrink-0"
+                onClick={() => window.dispatchEvent(new Event('show-landing'))}>
+          <img src="/logo-64.png" alt="" aria-hidden="true" className="w-5 h-5 rounded" />
+        </button>
         <input
           value={projectName}
           onChange={(e) => setProjectName(e.target.value)}
