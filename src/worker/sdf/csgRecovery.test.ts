@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { MeshRegionSurfaceFit } from '../../types/geometry';
-import { assembleRegionalCsgTree, recoverPlanarBoxBase, recoverRegionalPrimitiveEvidence } from './csgRecovery';
+import { assembleBestRegionalCsgTree, assembleRegionalCsgTree, recoverPlanarBoxBase, recoverRegionalPrimitiveEvidence } from './csgRecovery';
 import type { RegionalPrimitiveEvidence } from './csgRecovery';
 import { evaluateSDF } from './evaluate';
 import { bakeMeshField } from './meshField';
@@ -119,11 +119,12 @@ describe('regional CSG evidence', () => {
     const evidence = compressRegionalPatterns(recoverRegionalPrimitiveEvidence(field, fits)).evidence;
     const planarBase = recoverPlanarBoxBase(fits)!;
     expect(planarBase.node).toMatchObject({ kind: 'box', size: [18, 4, 18] });
-    const result = [planarBase.node, whole.node].map((node) => assembleRegionalCsgTree(field, node, evidence)).filter((candidate) => candidate !== null).sort((a, b) => a.relativeError - b.relativeError)[0];
+    const result = assembleBestRegionalCsgTree(field, [{ node: planarBase.node, contributor: planarBase }, { node: whole.node }], evidence);
     expect(result, JSON.stringify({ whole, regions: segmentation.regions.map((region) => ({ triangles: region.triangleIds.length, normal: region.normal })), fits: fits.map((fit) => fit.parameters), evidence })).not.toBeNull();
     expect(result!.acceptable, JSON.stringify({ whole, evidence, result })).toBe(true);
     expect(result!.node.kind).toBe('union');
     expect(result!.contributors.some((candidate) => candidate.polarity === 'add')).toBe(true);
+    expect(result!.baseContributor).toEqual(expect.objectContaining({ regionKeys: expect.any(Array), surfaceMax: expect.any(Number), surfaceRms: expect.any(Number) }));
   });
 
   it('rejects redundant evidence that does not improve the base', () => {

@@ -385,6 +385,7 @@ function FitPrimitive({ node }: { node: SDFNodeUI }) {
             {fit.regionalPatterns.length > 0 && <div className="mt-0.5">Recovered {fit.regionalPatterns.length} editable {fit.regionalPatterns.length === 1 ? 'pattern' : 'patterns'} from repeated regions.</div>}
             {fit.csgFit?.acceptable && <>
               <div className="mt-1" style={{ color: 'var(--text-secondary)' }}>Recovered CSG tree — worst {length(fit.csgFit.surfaceMax)}, rms {length(fit.csgFit.surfaceRms)} ({(fit.csgFit.relativeError * 100).toFixed(1)}%).</div>
+              {fit.csgFit.baseContributor && <div className="mt-0.5">Base box is supported by {fit.csgFit.baseContributor.regionKeys.length} planar regions — worst {length(fit.csgFit.baseContributor.surfaceMax)}, rms {length(fit.csgFit.baseContributor.surfaceRms)}.</div>}
               <button onClick={() => apply(fit.csgFit!.node)} className="w-full h-7 tap-h rounded text-[11px] font-medium mt-2" style={{ background: 'var(--accent)', color: 'var(--bg-deep)' }}>Replace with recovered CSG</button>
             </>}
             {fit.csgFit && !fit.csgFit.acceptable && <div className="mt-1" role="note" style={{ color: 'var(--accent-amber, #d4a04a)' }}>Recovered CSG candidate rejected — worst {length(fit.csgFit.surfaceMax)} ({(fit.csgFit.relativeError * 100).toFixed(1)}%). Keeping the mesh.</div>}

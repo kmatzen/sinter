@@ -11,7 +11,7 @@ import { evaluateCPUWithProgress } from './sdf/gridEval';
 import { fitPrimitive } from './sdf/fitPrimitive';
 import { segmentMeshSurfaces } from './sdf/meshSegmentation';
 import { fitSegmentedSurfaces } from './sdf/regionFit';
-import { assembleRegionalCsgTree, recoverPlanarBoxBase, recoverRegionalPrimitiveEvidence } from './sdf/csgRecovery';
+import { assembleBestRegionalCsgTree, recoverPlanarBoxBase, recoverRegionalPrimitiveEvidence } from './sdf/csgRecovery';
 import { compressRegionalPatterns } from './sdf/patternRecovery';
 import { bakeMeshField } from './sdf/meshField';
 import { decodeMeshPositions, DEFAULT_MESH_RESOLUTION } from './sdf/convert';
@@ -220,11 +220,10 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
         const compressed = compressRegionalPatterns(internalEvidence);
         const regionalPatterns = compressed.patterns.map((candidate) => ({ ...candidate, node: toUINode(candidate.node) }));
         const planarBase = recoverPlanarBoxBase(surfaceFits);
-        const assembled = [planarBase?.node, fit?.node]
-          .filter((node): node is SDFNode => node !== undefined)
-          .map((node) => assembleRegionalCsgTree(field, node, compressed.evidence))
-          .filter((candidate) => candidate !== null)
-          .sort((a, b) => a.relativeError - b.relativeError || a.surfaceRms - b.surfaceRms)[0] ?? null;
+        const bases: Array<{ node: SDFNode; contributor?: NonNullable<typeof planarBase> }> = [];
+        if (planarBase) bases.push({ node: planarBase.node, contributor: planarBase });
+        if (fit) bases.push({ node: fit.node });
+        const assembled = assembleBestRegionalCsgTree(field, bases, compressed.evidence);
         const csgFit = assembled ? { ...assembled, node: toUINode(assembled.node) } : null;
         const out: MeshFitResult | null = fit === null ? null : {
           kind: fit.kind,

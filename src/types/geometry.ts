@@ -127,6 +127,7 @@ export interface MeshCsgFit {
   surfaceMax: number;
   relativeError: number;
   acceptable: boolean;
+  baseContributor?: { regionKeys: string[]; surfaceRms: number; surfaceMax: number };
   contributors: Array<{ polarity: 'add' | 'subtract'; regionKeys: string[]; surfaceRms: number; surfaceMax: number }>;
 }
 

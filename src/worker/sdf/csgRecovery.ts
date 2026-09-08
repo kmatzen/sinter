@@ -19,6 +19,7 @@ export interface RegionalCsgResult {
   surfaceMax: number;
   relativeError: number;
   acceptable: boolean;
+  baseContributor?: Pick<RegionalBoxBase, 'regionKeys' | 'surfaceRms' | 'surfaceMax'>;
   contributors: Array<Pick<RegionalPrimitiveEvidence, 'polarity' | 'regionKeys' | 'surfaceRms' | 'surfaceMax'>>;
 }
 
@@ -200,4 +201,18 @@ export function assembleRegionalCsgTree(field: MeshFieldData, base: SDFNode, evi
     node, ...residual, acceptable: residual.relativeError <= maximumRelativeError,
     contributors: accepted.map(({ polarity, regionKeys, surfaceRms, surfaceMax }) => ({ polarity, regionKeys, surfaceRms, surfaceMax })),
   };
+}
+
+/** Compare independently inferred bases by the complete reconstructed tree,
+ * preserving planar source evidence for the winning base. */
+export function assembleBestRegionalCsgTree(
+  field: MeshFieldData,
+  bases: Array<{ node: SDFNode; contributor?: RegionalBoxBase }>,
+  evidence: RegionalPrimitiveEvidence[],
+): RegionalCsgResult | null {
+  return bases.map(({ node, contributor }) => {
+    const result = assembleRegionalCsgTree(field, node, evidence);
+    return result && contributor ? { ...result, baseContributor: { regionKeys: contributor.regionKeys, surfaceRms: contributor.surfaceRms, surfaceMax: contributor.surfaceMax } } : result;
+  }).filter((candidate) => candidate !== null)
+    .sort((a, b) => a.relativeError - b.relativeError || a.surfaceRms - b.surfaceRms)[0] ?? null;
 }
