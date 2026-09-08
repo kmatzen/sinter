@@ -11,7 +11,7 @@ import { formatLength } from '../../types/units';
 import { ImportMesh } from '../projects/ImportMesh';
 import { ProfileImport } from '../projects/ProfileImport';
 import { ProfileEditor } from '../projects/ProfileEditor';
-import { parseProfile, parseRevolveProfile } from '../../worker/sdf/profile';
+import { parseProfile, parseRevolveProfile, revolveProfileAroundEdge } from '../../worker/sdf/profile';
 
 function findNode(tree: SDFNodeUI, id: string): SDFNodeUI | null {
   if (tree.id === id) return tree;
@@ -340,11 +340,11 @@ function FitPrimitive({ node }: { node: SDFNodeUI }) {
     }
   };
 
-  const apply = () => {
-    if (!fit?.node) return;
+  const apply = (replacement = fit?.node) => {
+    if (!replacement) return;
     // One history entry, so undoing the fit is one press and never leaves the
     // tree with the mesh gone and the primitive not yet in.
-    replaceNode(node.id, fit.node);
+    replaceNode(node.id, replacement);
   };
 
   const length = (value: number) => formatLength(value, {
@@ -379,6 +379,17 @@ function FitPrimitive({ node }: { node: SDFNodeUI }) {
             <div style={{ color: 'var(--text-secondary)' }}>
               {fit.kind} — worst {length(fit.surfaceMax)}, rms {length(fit.surfaceRms)}
             </div>
+            <div className="mt-0.5">Detected {fit.surfaceRegionCount} fit-eligible surface {fit.surfaceRegionCount === 1 ? 'region' : 'regions'}.</div>
+            <div className="mt-0.5">Classified {fit.surfaceFits.length} analytic surface {fit.surfaceFits.length === 1 ? 'hypothesis' : 'hypotheses'}.</div>
+            {fit.regionalPrimitives.length > 0 && <div className="mt-0.5">Verified {fit.regionalPrimitives.length} regional primitive {fit.regionalPrimitives.length === 1 ? 'candidate' : 'candidates'} against mesh occupancy.</div>}
+            {fit.regionalPatterns.length > 0 && <div className="mt-0.5">Recovered {fit.regionalPatterns.length} editable {fit.regionalPatterns.length === 1 ? 'pattern' : 'patterns'} from repeated regions.</div>}
+            {fit.csgFit?.acceptable && <>
+              <div className="mt-1" style={{ color: 'var(--text-secondary)' }}>Recovered CSG tree — worst {length(fit.csgFit.surfaceMax)}, rms {length(fit.csgFit.surfaceRms)} ({(fit.csgFit.relativeError * 100).toFixed(1)}%).</div>
+              {fit.csgFit.baseContributor && <div className="mt-0.5">Base box is supported by {fit.csgFit.baseContributor.regionKeys.length} planar regions — worst {length(fit.csgFit.baseContributor.surfaceMax)}, rms {length(fit.csgFit.baseContributor.surfaceRms)}.</div>}
+              <button onClick={() => apply(fit.csgFit!.node)} className="w-full h-7 tap-h rounded text-[11px] font-medium mt-2" style={{ background: 'var(--accent)', color: 'var(--bg-deep)' }}>Replace with recovered CSG</button>
+            </>}
+            {fit.csgFit && !fit.csgFit.acceptable && <div className="mt-1" role="note" style={{ color: 'var(--accent-amber, #d4a04a)' }}>Recovered CSG candidate rejected — worst {length(fit.csgFit.surfaceMax)} ({(fit.csgFit.relativeError * 100).toFixed(1)}%). Keeping the mesh.</div>}
+            {fit.segmentationDiagnostics.map((diagnostic) => <div key={diagnostic} role="note" className="mt-0.5" style={{ color: 'var(--accent-amber, #d4a04a)' }}>{diagnostic}</div>)}
             {fit.acceptable ? (
               <>
                 <div className="mt-0.5">
@@ -386,7 +397,7 @@ function FitPrimitive({ node }: { node: SDFNodeUI }) {
                   original mesh.
                 </div>
                 <button
-                  onClick={apply}
+                  onClick={() => apply()}
                   className="w-full h-7 tap-h rounded text-[11px] font-medium mt-2"
                   style={{ background: 'var(--accent)', color: 'var(--bg-deep)' }}
                 >
@@ -502,6 +513,12 @@ function NodeEditor({ node, onUpdate, onUpdateStr }: { node: SDFNodeUI; onUpdate
       return (
         <>
           <SectionLabel>Extrusion</SectionLabel>
+          <label className="mx-2 mb-1 flex items-center gap-2 text-[11px]" style={{ color: 'var(--text-muted)' }}>Sketch plane
+            <select aria-label="Extrude sketch plane" value={p.plane} onChange={(event) => onUpdate({ plane: Number(event.target.value) })}
+              className="min-w-0 flex-1 h-7 rounded px-1" style={{ background: 'var(--bg-surface)', color: 'var(--text-primary)' }}>
+              <option value={0}>XY</option><option value={1}>XZ</option><option value={2}>YZ</option>
+            </select>
+          </label>
           <label className="mx-2 mb-1 flex items-center gap-2 text-[11px]" style={{ color: 'var(--text-muted)' }}>Extent
             <select aria-label="Extrude extent" value={p.extentMode} onChange={(event) => onUpdate({ extentMode: Number(event.target.value) })}
               className="min-w-0 flex-1 h-7 rounded px-1" style={{ background: 'var(--bg-surface)', color: 'var(--text-primary)' }}>
@@ -521,20 +538,50 @@ function NodeEditor({ node, onUpdate, onUpdateStr }: { node: SDFNodeUI; onUpdate
           <ProfileImport revolve={false} onCommit={(profile) => onUpdateStr({ profile })} />
         </>
       );
-    case 'revolve':
+    case 'revolve': {
+      let revolveEdges: Array<{ index: number; a: [number, number]; b: [number, number] }> = [];
+      const revolvePlane = p.plane === 1 ? 'xz' : p.plane === 2 ? 'yz' : 'xy';
+      try {
+        const profile = parseProfile(node.data?.profile || DEFAULT_REVOLVE_PROFILE_TEXT);
+        revolveEdges = profile.outer.map((a, index) => ({ index, a, b: profile.outer[(index + 1) % profile.outer.length] }))
+          .filter(({ index }) => {
+            try { revolveProfileAroundEdge(profile, index, revolvePlane); return true; }
+            catch { return false; }
+          });
+      } catch { /* The profile editors display the actionable validation error. */ }
+      const validateRevolve = (source?: string) => {
+        const profile = parseRevolveProfile(source, p.axisEdge >= 0);
+        if (p.axisEdge >= 0) revolveProfileAroundEdge(profile, p.axisEdge, revolvePlane);
+        return profile;
+      };
       return (
         <>
           <SectionLabel>Revolution</SectionLabel>
-          <XYZPicker label="Revolve axis" value={p.axis === 0 ? 'x' : p.axis === 2 ? 'z' : 'y'} onChange={(axis) => onUpdate({ axis: axis === 'x' ? 0 : axis === 'z' ? 2 : 1 })} />
+          <label className="mx-2 mb-1 flex items-center gap-2 text-[11px]" style={{ color: 'var(--text-muted)' }}>Sketch plane
+            <select aria-label="Revolve sketch plane" value={p.plane} onChange={(event) => onUpdate({ plane: Number(event.target.value) })}
+              className="min-w-0 flex-1 h-7 rounded px-1" style={{ background: 'var(--bg-surface)', color: 'var(--text-primary)' }}>
+              <option value={0}>XY</option><option value={1}>XZ</option><option value={2}>YZ</option>
+            </select>
+          </label>
+          <label className="mx-2 mb-1 flex items-center gap-2 text-[11px]" style={{ color: 'var(--text-muted)' }}>Revolve axis
+            <select aria-label="Revolve axis" value={p.axisEdge >= 0 ? `edge-${p.axisEdge}` : `named-${p.axis}`} onChange={(event) => {
+              const edge = event.target.value.startsWith('edge-') ? Number(event.target.value.slice(5)) : -1;
+              onUpdate(edge >= 0 ? { axisEdge: edge } : { axisEdge: -1, axis: Number(event.target.value.slice(6)) });
+            }} className="min-w-0 flex-1 h-7 rounded px-1" style={{ background: 'var(--bg-surface)', color: 'var(--text-primary)' }}>
+              <option value="named-0">Named X axis</option><option value="named-1">Named Y axis</option><option value="named-2">Named Z axis</option>
+              {revolveEdges.map(({ index, a, b }) => <option key={index} value={`edge-${index}`}>Edge {index + 1}: ({a[0]}, {a[1]}) → ({b[0]}, {b[1]})</option>)}
+            </select>
+          </label>
           <NumberInput label="Angle" value={p.angle} min={1} max={360} step={5} unit="deg" onChange={(v) => onUpdate({ angle: v })} />
           <SectionLabel>Radius / axial profile</SectionLabel>
-          <ProfileEditor value={node.data?.profile} fallback={DEFAULT_REVOLVE_PROFILE_TEXT} revolve validate={parseRevolveProfile} onCommit={(profile) => onUpdateStr({ profile })} />
+          <ProfileEditor value={node.data?.profile} fallback={DEFAULT_REVOLVE_PROFILE_TEXT} revolve={p.axisEdge < 0} validate={validateRevolve} onCommit={(profile) => onUpdateStr({ profile })} />
           <details className="mx-2 mt-2"><summary className="text-[10px] cursor-pointer" style={{ color: 'var(--text-muted)' }}>Advanced profile JSON</summary>
-            <ProfileLoopEditor key={node.data?.profile || 'default-revolve'} value={node.data?.profile} fallback={DEFAULT_REVOLVE_PROFILE_TEXT} validate={parseRevolveProfile} commit={(profile) => onUpdateStr({ profile })} />
+            <ProfileLoopEditor key={node.data?.profile || 'default-revolve'} value={node.data?.profile} fallback={DEFAULT_REVOLVE_PROFILE_TEXT} validate={validateRevolve} commit={(profile) => onUpdateStr({ profile })} />
           </details>
-          <ProfileImport revolve onCommit={(profile) => onUpdateStr({ profile })} />
+          <ProfileImport revolve={p.axisEdge < 0} validate={validateRevolve} onCommit={(profile) => onUpdateStr({ profile })} />
         </>
       );
+    }
     case 'union': case 'subtract': case 'intersect':
       return (
         <>

@@ -1,4 +1,4 @@
-import { defineConfig } from '@playwright/test';
+import { defineConfig, devices } from '@playwright/test';
 
 const localChromium = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH
   ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH }
@@ -35,7 +35,7 @@ export default defineConfig({
     {
       name: 'chromium',
       use: { browserName: 'chromium', launchOptions: localChromium },
-      testIgnore: [/viewport-golden\.spec\.ts/, /mobile\.spec\.ts/, /cross-browser\.spec\.ts/],
+      testIgnore: [/viewport-golden\.spec\.ts/, /mobile\.spec\.ts/, /cross-browser\.spec\.ts/, /ios-webkit-smoke\.spec\.ts/],
     },
     {
       /*
@@ -58,6 +58,15 @@ export default defineConfig({
       name: 'webkit-smoke',
       testMatch: /cross-browser\.spec\.ts/,
       use: { browserName: 'webkit' },
+    },
+    {
+      // A desktop WebKit run cannot expose phone-only input and viewport
+      // regressions. This remains emulation—not a substitute for the physical
+      // Safari release record in docs/browser-support.md—but gives every PR a
+      // bounded check of Sinter's core iPhone interaction path.
+      name: 'ios-webkit-smoke',
+      testMatch: /ios-webkit-smoke\.spec\.ts/,
+      use: { ...devices['iPhone 13'], browserName: 'webkit' },
     },
     {
       // Golden images run against SwiftShader everywhere, not against whatever

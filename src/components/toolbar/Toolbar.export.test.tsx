@@ -39,6 +39,7 @@ import { useModelerStore } from '../../store/modelerStore';
 import { useViewportStore } from '../../store/viewportStore';
 import { useProjectStore } from '../../store/projectStore';
 import { useConfigurationStore } from '../../store/configurationStore';
+import { AppModals } from '../ui/AppModals';
 
 function deferred<T>() {
   let resolve!: (v: T) => void;
@@ -278,6 +279,35 @@ describe('Toolbar project versions', () => {
   });
 });
 
+describe('Toolbar save status', () => {
+  afterEach(cleanup);
+
+  it('announces a successful explicit cloud save', async () => {
+    const save = vi.fn().mockResolvedValue(true);
+    useModelerStore.setState({ tree: BOX, evaluatedTree: BOX, sdfDisplay: DISPLAY as any, evaluating: false });
+    useProjectStore.setState({ projectId: 'cloud-id', provider: 'google', saving: false, lastSavedHash: '', save });
+    render(<><Toolbar /><AppModals /></>);
+    fireEvent.click(screen.getByTitle('Save to cloud'));
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Saved to cloud'));
+    expect(save).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('Toolbar keyboard navigation', () => {
+  afterEach(cleanup);
+
+  it('exposes navigation back home as a keyboard-operable button', () => {
+    const listener = vi.fn(); window.addEventListener('show-landing', listener);
+    useModelerStore.setState({ tree: BOX, evaluatedTree: BOX, sdfDisplay: DISPLAY as any, evaluating: false });
+    render(<Toolbar />);
+    const home = screen.getByRole('button', { name: 'Back to home' });
+    home.focus(); fireEvent.keyDown(home, { key: 'Enter' }); fireEvent.click(home);
+    expect(home).toHaveFocus();
+    expect(listener).toHaveBeenCalledTimes(1);
+    window.removeEventListener('show-landing', listener);
+  });
+});
+
 describe('named configuration batch export', () => {
   const driven = { ...BOX, expressions: { width: 'width' } };
   const configurations = [
@@ -292,6 +322,26 @@ describe('named configuration batch export', () => {
     useConfigurationStore.getState().reset(configurations, null, [{ name: 'width', expression: '10', unit: 'mm' }]);
   });
   afterEach(cleanup);
+
+  it('traps focus in the dialog, closes on Escape, and restores its opener', async () => {
+    render(<Toolbar />);
+    const opener = screen.getByTitle('Configurations');
+    opener.focus();
+    fireEvent.click(opener);
+    const close = screen.getByRole('button', { name: 'Close configurations' });
+    await waitFor(() => expect(close).toHaveFocus());
+
+    const last = screen.getByRole('button', { name: 'Export all 3MF' });
+    last.focus();
+    fireEvent.keyDown(document, { key: 'Tab' });
+    expect(close).toHaveFocus();
+    fireEvent.keyDown(document, { key: 'Tab', shiftKey: true });
+    expect(last).toHaveFocus();
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Named configurations' })).not.toBeInTheDocument());
+    expect(opener).toHaveFocus();
+  });
 
   it('resolves and downloads every variant sequentially with deterministic names', async () => {
     exportSTL.mockResolvedValue(artifact(100, 4));

@@ -5,7 +5,8 @@ Sinter supports the current and previous major releases of Chrome, Edge, Firefox
 ## Automated release coverage
 
 - Chromium runs the complete editor, mobile-emulation, geometry-parity, and visual suites.
-- Firefox and WebKit each gate a bounded workflow covering editor boot, parameter editing, undo, browser-save interception, STL import, and STL export.
+- Firefox and desktop WebKit each gate a bounded workflow covering editor boot, parameter editing, undo, browser-save interception, STL import, and STL export.
+- An iPhone-sized WebKit job gates touch editing, iOS input sizing and metadata, and orientation overlay cleanup. It is browser emulation and does not replace the real-device cadence below.
 - Browser failures upload Playwright diagnostics from CI.
 
 ## Real-device cadence
@@ -20,3 +21,9 @@ Before a production release that changes touch, viewport, storage, workers, or d
 6. Open and close AI chat, help, Projects, and Settings.
 
 Record device, OS, Safari version, date, and findings here for each release. A real-device record is still required before issue #162 can close; WebKit automation is not evidence of iOS touch, virtual-keyboard, or Files integration.
+
+| Date | Device | OS | Safari | Result | Findings/issues | Tester |
+| --- | --- | --- | --- | --- | --- | --- |
+| Pending | iPhone or iPad | Current supported iOS/iPadOS | Current | Not run | Required before #162 closes | — |
+
+A pass requires all six checklist steps above. Use `Not run`, `Pass`, or `Fail` in Result; a failure must link the follow-up issue so the record remains auditable.

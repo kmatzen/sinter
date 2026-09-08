@@ -149,4 +149,31 @@ describe('property formulas', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('radius coordinates must be non-negative');
     expect(useModelerStore.getState().tree?.data?.profile).toBeUndefined();
   });
+
+  it('commits named sketch planes for extrude and revolve', () => {
+    const extrude = { id: 'plate', kind: 'extrude', label: 'Plate', params: { depth: 5 }, children: [], enabled: true };
+    useModelerStore.getState().resetDocument(extrude, 'Plane test', []);
+    useModelerStore.getState().selectNode('plate');
+    const { unmount } = render(<PropertyContent />);
+    fireEvent.change(screen.getByLabelText('Extrude sketch plane'), { target: { value: '1' } });
+    expect(useModelerStore.getState().tree?.params.plane).toBe(1);
+    unmount();
+
+    const revolve = { id: 'knob', kind: 'revolve', label: 'Knob', params: { axis: 1, angle: 360 }, children: [], enabled: true };
+    useModelerStore.getState().resetDocument(revolve, 'Plane test', []);
+    useModelerStore.getState().selectNode('knob');
+    render(<PropertyContent />);
+    fireEvent.change(screen.getByLabelText('Revolve sketch plane'), { target: { value: '2' } });
+    expect(useModelerStore.getState().tree?.params.plane).toBe(2);
+  });
+
+  it('selects a straight profile edge as the revolve axis', () => {
+    const profile = JSON.stringify({ outer: [[2, 1], [6, 1], [6, 4], [2, 4]], holes: [] });
+    const revolve = { id: 'knob', kind: 'revolve', label: 'Knob', params: { axis: 1, axisEdge: -1, angle: 360, plane: 0 }, data: { profile }, children: [], enabled: true };
+    useModelerStore.getState().resetDocument(revolve, 'Axis test', []);
+    useModelerStore.getState().selectNode('knob');
+    render(<PropertyContent />);
+    fireEvent.change(screen.getByLabelText('Revolve axis'), { target: { value: 'edge-0' } });
+    expect(useModelerStore.getState().tree?.params.axisEdge).toBe(0);
+  });
 });

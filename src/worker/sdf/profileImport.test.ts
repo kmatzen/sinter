@@ -19,6 +19,16 @@ describe('SVG profile import', () => {
     expect(parseSvgProfile(svg, 0.1).profile.outer.length).toBeGreaterThan(a.profile.outer.length);
   });
 
+  it('preserves circular SVG arcs and rejects unsupported elliptical arcs actionably', () => {
+    const result = parseSvgProfile(`<svg width="10mm"><path d="M0 0 A5 5 0 0 0 10 0 A5 5 0 0 0 0 0 Z"/></svg>`);
+    expect(result.profile.outer).toHaveLength(2);
+    expect(result.profile.bulges?.[0]).toBeCloseTo(1);
+    expect(result.profile.bulges?.[1]).toBeCloseTo(1);
+    expect(result.dimensions[0]).toBeCloseTo(10);
+    expect(result.dimensions[1]).toBeCloseTo(10);
+    expect(() => parseSvgProfile(`<svg><path d="M0 0 A8 5 0 0 0 10 0 L0 0 Z"/></svg>`)).toThrow(/Elliptical.*unsupported/);
+  });
+
   it('rejects open paths and transforms instead of silently changing geometry', () => {
     expect(() => parseSvgProfile(`<svg><path d="M0 0 L10 0 L10 10"/></svg>`)).toThrow(/open/);
     expect(() => parseSvgProfile(`<svg><rect transform="rotate(10)" width="10" height="10"/></svg>`)).toThrow(/transforms are not supported/);
@@ -42,18 +52,24 @@ describe('ASCII DXF profile import', () => {
     expect(result.unit).toBe('mm');
     expect(result.dimensions).toEqual([40, 20]);
     expect(result.profile.holes).toHaveLength(1);
+    expect(result.profile.holeBulges?.[0].every((bulge) => Math.abs(bulge) > 0)).toBe(true);
   });
 
   it('supports bulge arcs and rejects open polylines', () => {
     const closed = `0\nLWPOLYLINE\n70\n1\n10\n0\n20\n0\n42\n1\n10\n10\n20\n0\n10\n10\n20\n10\n0\nEOF`;
-    expect(parseDxfProfile(closed, 1).profile.outer.length).toBeGreaterThan(3);
+    const profile = parseDxfProfile(closed, 1).profile;
+    expect(profile.outer).toHaveLength(3);
+    expect(profile.bulges).toContain(1);
+    expect(rescaleProfileImport(parseDxfProfile(closed, 1), 25.4, 'in').profile.bulges).toEqual(profile.bulges);
     expect(() => parseDxfProfile(closed.replace('70\n1', '70\n0'), 1)).toThrow(/open/);
   });
 
   it('stitches line and arc entities into a closed loop', () => {
     const dxf = `0\nLINE\n10\n0\n20\n0\n11\n10\n21\n0\n0\nARC\n10\n5\n20\n0\n40\n5\n50\n0\n51\n180\n0\nEOF`;
     // The chord and semicircle form a closed D profile.
-    expect(parseDxfProfile(dxf, 1).profile.outer.length).toBeGreaterThan(4);
+    const profile = parseDxfProfile(dxf, 1).profile;
+    expect(profile.outer).toHaveLength(2);
+    expect(profile.bulges?.some(Boolean)).toBe(true);
   });
 
   it('imports closed legacy polylines and reports unsupported-only files', () => {

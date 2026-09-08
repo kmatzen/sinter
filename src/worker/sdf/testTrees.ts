@@ -19,17 +19,17 @@ const leaf: fc.Arbitrary<SDFNode> = fc.oneof(
   // height deliberately allowed below 2*radius — that is the degenerate case
   fc.record({ kind: fc.constant('capsule' as const), radius: num(1, 15), height: num(1, 40) }),
   fc.record({ kind: fc.constant('ellipsoid' as const), size: fc.tuple(num(2, 40), num(2, 40), num(2, 40)) }),
-  fc.tuple(num(2, 40), num(2, 40), num(1, 20)).map(([width, height, depth]) => ({
-    kind: 'extrude' as const, depth,
+  fc.tuple(num(2, 40), num(2, 40), num(1, 20), fc.constantFrom('xy' as const, 'xz' as const, 'yz' as const)).map(([width, height, depth, plane]) => ({
+    kind: 'extrude' as const, depth, plane,
     profile: { outer: [[-width / 2, -height / 2], [width / 2, -height / 2], [width / 2, height / 2], [-width / 2, height / 2]] as [number, number][], holes: [] },
   })),
-  fc.tuple(num(4, 40), num(4, 40), num(0, 10), num(1, 10), num(-30, 30), num(0, 0.2)).map(([width, height, negative, positive, taper, wallRatio]) => ({
-    kind: 'extrude' as const, depth: negative + positive, zMin: -negative, zMax: positive, taper,
+  fc.tuple(num(4, 40), num(4, 40), num(0, 10), num(1, 10), num(-30, 30), num(0, 0.2), fc.constantFrom('xy' as const, 'xz' as const, 'yz' as const)).map(([width, height, negative, positive, taper, wallRatio, plane]) => ({
+    kind: 'extrude' as const, depth: negative + positive, zMin: -negative, zMax: positive, taper, plane,
     wallThickness: Math.min(width, height) * wallRatio,
     profile: { outer: [[-width / 2, -height / 2], [width / 2, -height / 2], [width / 2, height / 2], [-width / 2, height / 2]] as [number, number][], holes: [] },
   })),
-  fc.tuple(num(2, 20), num(2, 30), num(5, 360), fc.constantFrom('x' as const, 'y' as const, 'z' as const)).map(([radius, height, angle, axis]) => ({
-    kind: 'revolve' as const, axis, angle,
+  fc.tuple(num(2, 20), num(2, 30), num(5, 360), fc.constantFrom('x' as const, 'y' as const, 'z' as const), fc.constantFrom('xy' as const, 'xz' as const, 'yz' as const)).map(([radius, height, angle, axis, plane]) => ({
+    kind: 'revolve' as const, axis, angle, plane,
     profile: { outer: [[0, -height / 2], [radius, -height / 2], [radius, height / 2], [0, height / 2]] as [number, number][], holes: [] },
   })),
 );

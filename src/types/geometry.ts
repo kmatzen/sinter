@@ -99,6 +99,57 @@ export interface MeshFitResult {
   acceptable: boolean;
   /** The tree to swap in, if the user accepts it. */
   node: SDFNodeUI;
+  /** Fit-eligible normal-continuous regions found before primitive recovery. */
+  surfaceRegionCount: number;
+  /** Actionable topology/quality findings from the segmentation pass. */
+  segmentationDiagnostics: string[];
+  /** Accepted analytic hypotheses for the segmented source surfaces. */
+  surfaceFits: MeshRegionSurfaceFit[];
+  /** Occupancy-verified regional primitives available to CSG assembly. */
+  regionalPrimitives: MeshRegionalPrimitive[];
+  /** Complete occupancy- and surface-validated regional tree, when recovered. */
+  csgFit: MeshCsgFit | null;
+  regionalPatterns: MeshRegionalPattern[];
+}
+
+export interface MeshRegionalPrimitive {
+  node: SDFNodeUI;
+  polarity: 'add' | 'subtract';
+  regionKeys: string[];
+  surfaceRms: number;
+  surfaceMax: number;
+  occupancyAgreement: number;
+}
+
+export interface MeshCsgFit {
+  node: SDFNodeUI;
+  surfaceRms: number;
+  surfaceMax: number;
+  relativeError: number;
+  acceptable: boolean;
+  baseContributor?: { regionKeys: string[]; surfaceRms: number; surfaceMax: number };
+  contributors: Array<{ polarity: 'add' | 'subtract'; regionKeys: string[]; surfaceRms: number; surfaceMax: number }>;
+}
+
+export interface MeshRegionalPattern extends MeshRegionalPrimitive {
+  pattern: 'linear' | 'circular' | 'mirror';
+  instanceResiduals: Array<{ regionKeys: string[]; surfaceRms: number; surfaceMax: number }>;
+}
+
+export type MeshRegionSurfaceParameters =
+  | { kind: 'plane'; origin: [number, number, number]; normal: [number, number, number] }
+  | { kind: 'cylinder'; origin: [number, number, number]; axis: [number, number, number]; radius: number; axialMin: number; axialMax: number; outward: boolean }
+  | { kind: 'capsule'; origin: [number, number, number]; axis: [number, number, number]; radius: number; axialMin: number; axialMax: number; outward: boolean }
+  | { kind: 'sphere'; center: [number, number, number]; radius: number; outward: boolean };
+
+export interface MeshRegionSurfaceFit {
+  regionKey: string;
+  triangleIds: number[];
+  bounds: { min: [number, number, number]; max: [number, number, number] };
+  parameters: MeshRegionSurfaceParameters;
+  surfaceRms: number;
+  surfaceMax: number;
+  relativeError: number;
 }
 
 export type WorkerResponse =

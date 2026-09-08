@@ -139,4 +139,30 @@ describe('fitPrimitive orientation', () => {
     const field = bakeMeshField(soupFor({ kind: 'cylinder', radius: 9, height: 30 }), 40);
     expect(fitPrimitive(field)!.kind).toMatch(/\(Y\)$/);
   });
+
+  it('recovers a non-cardinal rotated box deterministically', () => {
+    const source: SDFNode = {
+      kind: 'transform', child: { kind: 'box', size: [28, 17, 9] },
+      tx: 3, ty: -2, tz: 4, rx: 27, ry: -19, rz: 13, sx: 1, sy: 1, sz: 1,
+    };
+    const field = bakeMeshField(soupFor(source), 44);
+    const first = fitPrimitive(field)!;
+    const second = fitPrimitive(field)!;
+    expect(first.kind).toBe('Box (fitted orientation)');
+    expect(first.relativeError).toBeLessThan(0.01);
+    expect(first.node).toEqual(second.node);
+    expect(first.surfaceMax).toBe(second.surfaceMax);
+  });
+
+  it('keeps a symmetric rotated cube fit finite and deterministic', () => {
+    const source: SDFNode = {
+      kind: 'transform', child: { kind: 'box', size: [18, 18, 18] },
+      tx: 0, ty: 0, tz: 0, rx: 17, ry: 31, rz: -23, sx: 1, sy: 1, sz: 1,
+    };
+    const field = bakeMeshField(soupFor(source), 32);
+    const first = fitPrimitive(field)!;
+    const second = fitPrimitive(field)!;
+    expect(JSON.stringify(first.node)).toBe(JSON.stringify(second.node));
+    expect([first.surfaceMax, first.surfaceRms, first.relativeError].every(Number.isFinite)).toBe(true);
+  });
 });

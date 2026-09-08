@@ -2,6 +2,7 @@ import type { SDFNode, BBox, Vec3 } from './types';
 import { SDF_PARAM_EPSILON } from './types';
 import { hasGlyphOutlines } from './types';
 import { axisIndex, bendRate, bendScale, conservativeBendBounds } from './bend';
+import { profileLoopBoundsPoints } from './profile';
 
 export function computeBounds(node: SDFNode): BBox {
   switch (node.kind) {
@@ -176,18 +177,29 @@ export function computeBounds(node: SDFNode): BBox {
       return { min: [-hw, -hh, -hd], max: [hw, hh, hd] };
     }
     case 'extrude': {
-      const xs = node.profile.outer.map((p) => p[0]), ys = node.profile.outer.map((p) => p[1]);
+      const outline = profileLoopBoundsPoints(node.profile.outer, node.profile.bulges);
+      const xs = outline.map((p) => p[0]), ys = outline.map((p) => p[1]);
       const zMin = node.zMin ?? -node.depth / 2, zMax = node.zMax ?? node.depth / 2;
       const slope = Math.tan((node.taper ?? 0) * Math.PI / 180);
       const taperExpansion = Math.max(0, -(zMax - zMin) * slope);
       // Wall thickness is measured normal to the drafted side; project that
       // normal offset onto XY to keep the AABB conservative at non-zero taper.
       const expansion = taperExpansion + (node.wallThickness ?? 0) / 2 * Math.hypot(1, slope);
-      return { min: [Math.min(...xs) - expansion, Math.min(...ys) - expansion, zMin], max: [Math.max(...xs) + expansion, Math.max(...ys) + expansion, zMax] };
+      const profileMin: Vec3 = [Math.min(...xs) - expansion, Math.min(...ys) - expansion, zMin];
+      const profileMax: Vec3 = [Math.max(...xs) + expansion, Math.max(...ys) + expansion, zMax];
+      if (node.plane === 'xz') return { min: [profileMin[0], profileMin[2], profileMin[1]], max: [profileMax[0], profileMax[2], profileMax[1]] };
+      if (node.plane === 'yz') return { min: [profileMin[2], profileMin[0], profileMin[1]], max: [profileMax[2], profileMax[0], profileMax[1]] };
+      return { min: profileMin, max: profileMax };
     }
     case 'revolve': {
-      const radius = Math.max(...node.profile.outer.map((p) => p[0]));
-      const axial = node.profile.outer.map((p) => p[1]), lo = Math.min(...axial), hi = Math.max(...axial);
+      const outline = profileLoopBoundsPoints(node.profile.outer, node.profile.bulges);
+      const radius = Math.max(...outline.map((p) => p[0]));
+      const axial = outline.map((p) => p[1]), lo = Math.min(...axial), hi = Math.max(...axial);
+      if (node.frame) {
+        const min = [0, 1, 2].map((index) => node.frame!.origin[index] + Math.min(node.frame!.axial[index] * lo, node.frame!.axial[index] * hi) - radius * Math.sqrt(Math.max(0, 1 - node.frame!.axial[index] ** 2))) as Vec3;
+        const max = [0, 1, 2].map((index) => node.frame!.origin[index] + Math.max(node.frame!.axial[index] * lo, node.frame!.axial[index] * hi) + radius * Math.sqrt(Math.max(0, 1 - node.frame!.axial[index] ** 2))) as Vec3;
+        return { min, max };
+      }
       if (node.axis === 'x') return { min: [lo, -radius, -radius], max: [hi, radius, radius] };
       if (node.axis === 'z') return { min: [-radius, -radius, lo], max: [radius, radius, hi] };
       return { min: [-radius, lo, -radius], max: [radius, hi, radius] };

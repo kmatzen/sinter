@@ -49,6 +49,21 @@ describe('ProfileEditor', () => {
     expect(Math.max(...result.outer.map((p) => p[0]))).toBe(24);
   });
 
+  it('commits a selected edge as a native circular arc', () => {
+    const commit = vi.fn();
+    render(<ProfileEditor value={plate} fallback={plate} revolve={false} validate={parseProfile} onCommit={commit} />);
+    const bulge = screen.getByLabelText('Selected edge bulge');
+    fireEvent.change(bulge, { target: { value: '0.4142135624' } });
+    fireEvent.blur(bulge);
+    const result = parseProfile(commit.mock.calls[0][0]);
+    expect(result.bulges?.[0]).toBeCloseTo(Math.tan(Math.PI / 8));
+    fireEvent.click(screen.getByRole('button', { name: 'Add vertex after selected' }));
+    const split = parseProfile(commit.mock.calls[1][0]);
+    expect(split.outer).toHaveLength(5);
+    expect(split.bulges?.[0]).toBeCloseTo(Math.tan(Math.PI / 16));
+    expect(split.bulges?.[1]).toBeCloseTo(Math.tan(Math.PI / 16));
+  });
+
   it('scales the complete profile to an entered dimension', () => {
     const commit = vi.fn();
     render(<ProfileEditor value={plate} fallback={plate} revolve={false} validate={parseProfile} onCommit={commit} />);

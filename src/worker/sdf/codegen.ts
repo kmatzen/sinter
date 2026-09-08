@@ -2,6 +2,7 @@ import type { SDFNode } from './types';
 import { hasGlyphOutlines, SDF_PARAM_EPSILON } from './types';
 import { linearWindow, circularWindow } from './patternWindow';
 import { computeBounds, fieldScale, MODIFIER_DISTANCE_SAFETY } from './bounds';
+import { arcGeometry } from './profile';
 
 let varCounter = 0;
 let paramIndex = 0;
@@ -393,10 +394,35 @@ function emitProfileDistanceHelper(profile: Extract<SDFNode, { kind: 'extrude' }
   }
   const body: string[] = [];
   const loops = [profile.outer, ...profile.holes];
+  const loopBulges = [profile.bulges, ...(profile.holeBulges ?? [])];
   loops.forEach((loop, li) => {
     body.push(`float pd${li} = 1.0e30;`, `float pw${li} = 0.0;`);
     loop.forEach((a, i) => {
       const b = loop[(i + 1) % loop.length];
+      const bulge = loopBulges[li]?.[i] || 0;
+      if (bulge) {
+        const arc = arcGeometry(a, b, bulge), tag = `${li}_${i}`, positive = arc.sweep > 0;
+        body.push(`vec2 pac_${tag} = vec2(${g(arc.center[0])}, ${g(arc.center[1])});`);
+        body.push(`vec2 pav_${tag} = q - pac_${tag};`);
+        body.push(`float paa_${tag} = atan(pav_${tag}.y, pav_${tag}.x);`);
+        body.push(`float pad_${tag} = mod(${positive ? `paa_${tag} - ${g(arc.start)}` : `${g(arc.start)} - paa_${tag}`} + 6.28318530718, 6.28318530718);`);
+        body.push(`bool paon_${tag} = pad_${tag} <= ${g(Math.abs(arc.sweep))} + 1.0e-6;`);
+        body.push(`float pard_${tag} = abs(length(pav_${tag}) - ${g(arc.radius)});`);
+        body.push(`float paend_${tag} = min(length(q - vec2(${g(a[0])}, ${g(a[1])})), length(q - vec2(${g(b[0])}, ${g(b[1])})));`);
+        body.push(`pd${li} = min(pd${li}, paon_${tag} ? pard_${tag} : paend_${tag});`);
+        body.push(`float pay_${tag} = q.y - ${g(arc.center[1])};`);
+        body.push(`if (abs(pay_${tag}) < ${g(arc.radius)}) {`);
+        body.push(`  float pax_${tag} = sqrt(max(0.0, ${g(arc.radius * arc.radius)} - pay_${tag} * pay_${tag}));`);
+        for (const side of [-1, 1]) {
+          const suffix = side < 0 ? 'n' : 'p';
+          body.push(`  float pai_${tag}_${suffix} = ${g(arc.center[0])} ${side < 0 ? '-' : '+'} pax_${tag};`);
+          body.push(`  float pat_${tag}_${suffix} = atan(pay_${tag}, ${side < 0 ? '-' : ''}pax_${tag});`);
+          body.push(`  float pas_${tag}_${suffix} = mod(${positive ? `pat_${tag}_${suffix} - ${g(arc.start)}` : `${g(arc.start)} - pat_${tag}_${suffix}`} + 6.28318530718, 6.28318530718);`);
+          body.push(`  if (pai_${tag}_${suffix} > q.x && pas_${tag}_${suffix} <= ${g(Math.abs(arc.sweep))} + 1.0e-6) pw${li} += ${positive === (side > 0) ? '1.0' : '-1.0'};`);
+        }
+        body.push('}');
+        return;
+      }
       if (ignoreAxisEdges && a[0] === 0 && b[0] === 0) {
         body.push(`pw${li} += glyph_windLine(q, vec2(${g(a[0])}, ${g(a[1])}), vec2(${g(b[0])}, ${g(b[1])}));`);
         return;
@@ -474,18 +500,33 @@ function emitNode(node: SDFNode, pVar: string, lines: string[]): string {
       const fn = emitProfileDistanceHelper(node.profile);
       const zMin = node.zMin ?? -node.depth / 2, zMax = node.zMax ?? node.depth / 2;
       const slope = Math.tan((node.taper ?? 0) * Math.PI / 180);
-      lines.push(`float ez_${result} = clamp(${pVar}.z, ${up(zMin)}, ${up(zMax)});`);
-      lines.push(`float pe_${result} = (${fn}(${pVar}.xy) + (ez_${result} - ${up(zMin)}) * ${up(slope)}) / ${up(Math.hypot(1, slope))};`);
+      const uv = node.plane === 'xz' ? `${pVar}.xz` : node.plane === 'yz' ? `${pVar}.yz` : `${pVar}.xy`;
+      const normal = node.plane === 'xz' ? `${pVar}.y` : node.plane === 'yz' ? `${pVar}.x` : `${pVar}.z`;
+      lines.push(`float ez_${result} = clamp(${normal}, ${up(zMin)}, ${up(zMax)});`);
+      lines.push(`float pe_${result} = (${fn}(${uv}) + (ez_${result} - ${up(zMin)}) * ${up(slope)}) / ${up(Math.hypot(1, slope))};`);
       if ((node.wallThickness ?? 0) > 0) lines.push(`pe_${result} = abs(pe_${result}) - ${up(node.wallThickness! / 2)};`);
-      lines.push(`float pz_${result} = max(${up(zMin)} - ${pVar}.z, ${pVar}.z - ${up(zMax)});`);
+      lines.push(`float pz_${result} = max(${up(zMin)} - ${normal}, ${normal} - ${up(zMax)});`);
       lines.push(`float ${result} = min(max(pe_${result}, pz_${result}), 0.0) + length(max(vec2(pe_${result}, pz_${result}), 0.0));`);
       return result;
     }
     case 'revolve': {
       const fn = emitProfileDistanceHelper(node.profile, true);
-      const axial = node.axis === 'x' ? `${pVar}.x` : node.axis === 'z' ? `${pVar}.z` : `${pVar}.y`;
-      const u = node.axis === 'x' ? `${pVar}.y` : `${pVar}.x`;
-      const v = node.axis === 'z' ? `${pVar}.y` : `${pVar}.z`;
+      let axial: string, u: string, v: string;
+      if (node.frame) {
+        const vector = (value: [number, number, number]) => `vec3(${up(value[0])}, ${up(value[1])}, ${up(value[2])})`;
+        lines.push(`vec3 rq_${result} = ${pVar} - ${vector(node.frame.origin)};`);
+        axial = `dot(rq_${result}, ${vector(node.frame.axial)})`;
+        u = `dot(rq_${result}, ${vector(node.frame.radial)})`;
+        v = `dot(rq_${result}, ${vector(node.frame.normal)})`;
+      } else {
+        axial = node.axis === 'x' ? `${pVar}.x` : node.axis === 'z' ? `${pVar}.z` : `${pVar}.y`;
+      const planeAxes = node.plane === 'xz' ? ['x', 'z'] : node.plane === 'yz' ? ['y', 'z'] : ['x', 'y'];
+      const other = planeAxes.find((candidate) => candidate !== node.axis);
+      const normalAxis = ['x', 'y', 'z'].find((candidate) => !planeAxes.includes(candidate));
+      const uAxis = planeAxes.includes(node.axis) && other ? other : node.axis === 'x' ? 'y' : 'x';
+      const vAxis = planeAxes.includes(node.axis) && normalAxis ? normalAxis : node.axis === 'z' ? 'y' : 'z';
+        u = `${pVar}.${uAxis}`; v = `${pVar}.${vAxis}`;
+      }
       lines.push(`vec2 rv_${result} = vec2(${u}, ${v});`);
       lines.push(`float rl_${result} = length(rv_${result});`);
       lines.push(`float rp_${result} = ${fn}(vec2(rl_${result}, ${axial}));`);

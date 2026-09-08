@@ -9,6 +9,10 @@ import { computeBounds } from './sdf/bounds';
 import { verifiedBounds } from './sdf/interval';
 import { evaluateCPUWithProgress } from './sdf/gridEval';
 import { fitPrimitive } from './sdf/fitPrimitive';
+import { segmentMeshSurfaces } from './sdf/meshSegmentation';
+import { fitSegmentedSurfaces } from './sdf/regionFit';
+import { assembleBestRegionalCsgTree, recoverPlanarBoxBase, recoverRegionalPrimitiveEvidence } from './sdf/csgRecovery';
+import { compressRegionalPatterns } from './sdf/patternRecovery';
 import { bakeMeshField } from './sdf/meshField';
 import { decodeMeshPositions, DEFAULT_MESH_RESOLUTION } from './sdf/convert';
 import type { MeshFitResult } from '../types/geometry';
@@ -155,6 +159,15 @@ function toUINode(node: SDFNode): SDFNodeUI {
       return { id: id(), kind: 'cylinder', label: 'Cylinder', params: { radius: node.radius, height: node.height }, children: [], enabled: true };
     case 'capsule':
       return { id: id(), kind: 'capsule', label: 'Capsule', params: { radius: node.radius, height: node.height }, children: [], enabled: true };
+    case 'union':
+    case 'subtract':
+      return { id: id(), kind: node.kind, label: node.kind === 'union' ? 'Union' : 'Subtract', params: { smooth: node.k }, children: [toUINode(node.a), toUINode(node.b)], enabled: true };
+    case 'linearPattern':
+      return { id: id(), kind: 'linearPattern', label: 'Linear Pattern', params: { axisX: node.axis[0], axisY: node.axis[1], axisZ: node.axis[2], count: node.count, spacing: node.spacing }, children: [toUINode(node.child)], enabled: true };
+    case 'circularPattern':
+      return { id: id(), kind: 'circularPattern', label: 'Circular Pattern', params: { axisX: node.axis[0], axisY: node.axis[1], axisZ: node.axis[2], count: node.count }, children: [toUINode(node.child)], enabled: true };
+    case 'mirror':
+      return { id: id(), kind: 'mirror', label: 'Mirror', params: { mirrorX: node.axes[0], mirrorY: node.axes[1], mirrorZ: node.axes[2] }, children: [toUINode(node.child)], enabled: true };
     case 'transform': {
       let out = toUINode(node.child);
       if (node.rx || node.ry || node.rz) {
@@ -198,7 +211,20 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
       case 'fitMesh': {
         const positions = decodeMeshPositions(req.meshPositions);
         const res = Math.max(8, Math.min(96, Math.round(req.resolution || DEFAULT_MESH_RESOLUTION)));
-        const fit = fitPrimitive(bakeMeshField(positions, res));
+        const field = bakeMeshField(positions, res);
+        const fit = fitPrimitive(field);
+        const segmentation = segmentMeshSurfaces(positions);
+        const surfaceFits = fitSegmentedSurfaces(positions, segmentation.regions).filter((candidate) => candidate !== null);
+        const internalEvidence = recoverRegionalPrimitiveEvidence(field, surfaceFits);
+        const regionalPrimitives = internalEvidence.map((candidate) => ({ ...candidate, node: toUINode(candidate.node) }));
+        const compressed = compressRegionalPatterns(internalEvidence);
+        const regionalPatterns = compressed.patterns.map((candidate) => ({ ...candidate, node: toUINode(candidate.node) }));
+        const planarBase = recoverPlanarBoxBase(surfaceFits);
+        const bases: Array<{ node: SDFNode; contributor?: NonNullable<typeof planarBase> }> = [];
+        if (planarBase) bases.push({ node: planarBase.node, contributor: planarBase });
+        if (fit) bases.push({ node: fit.node });
+        const assembled = assembleBestRegionalCsgTree(field, bases, compressed.evidence);
+        const csgFit = assembled ? { ...assembled, node: toUINode(assembled.node) } : null;
         const out: MeshFitResult | null = fit === null ? null : {
           kind: fit.kind,
           surfaceMax: fit.surfaceMax,
@@ -206,6 +232,12 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
           relativeError: fit.relativeError,
           acceptable: fit.acceptable,
           node: toUINode(fit.node),
+          surfaceRegionCount: segmentation.regions.filter((region) => region.eligible).length,
+          segmentationDiagnostics: segmentation.diagnostics,
+          surfaceFits,
+          regionalPrimitives,
+          csgFit,
+          regionalPatterns,
         };
         self.postMessage({ type: 'fitResult', rid, fit: out });
         break;

@@ -1,4 +1,4 @@
-import { MAX_PROFILE_VERTICES, parseProfile, signedArea, type PolygonProfile, type Vec2 } from './profile';
+import { MAX_PROFILE_VERTICES, parseProfile, profileLoopBoundsPoints, profileLoopSignedArea, type PolygonProfile, type Vec2 } from './profile';
 
 export type ProfileUnit = 'mm' | 'cm' | 'in' | 'px' | 'unitless';
 export interface ProfileImportResult {
@@ -13,9 +13,13 @@ const UNIT_MM: Record<ProfileUnit, number> = { mm: 1, cm: 10, in: 25.4, px: 25.4
 export const profileUnitScaleToMm = (unit: ProfileUnit): number => UNIT_MM[unit];
 const pointEqual = (a: Vec2, b: Vec2) => Math.abs(a[0] - b[0]) < 1e-9 && Math.abs(a[1] - b[1]) < 1e-9;
 
-function normalizeLoop(loop: Vec2[], ccw: boolean): Vec2[] {
+function normalizeLoop(loop: Vec2[], ccw: boolean, bulges: number[] = []): { loop: Vec2[]; bulges: number[] } {
   const out = pointEqual(loop[0], loop[loop.length - 1]) ? loop.slice(0, -1) : loop.slice();
-  return (signedArea(out) > 0) === ccw ? out : out.reverse();
+  const edgeBulges = bulges.slice(0, out.length);
+  while (edgeBulges.length < out.length) edgeBulges.push(0);
+  if ((profileLoopSignedArea(out, edgeBulges) > 0) === ccw) return { loop: out, bulges: edgeBulges };
+  const reversed = out.slice().reverse();
+  return { loop: reversed, bulges: reversed.map((_, i) => -edgeBulges[(out.length - 2 - i + out.length) % out.length]) };
 }
 
 function contains(point: Vec2, loop: Vec2[]): boolean {
@@ -27,26 +31,30 @@ function contains(point: Vec2, loop: Vec2[]): boolean {
   return inside;
 }
 
-function assembleProfile(loops: Vec2[][]): PolygonProfile {
+function assembleProfile(loops: Vec2[][], bulges: number[][] = []): PolygonProfile {
   if (!loops.length) throw new Error('No supported closed paths were found');
-  const ranked = loops.map((loop) => normalizeLoop(loop, true)).sort((a, b) => Math.abs(signedArea(b)) - Math.abs(signedArea(a)));
-  const outer = ranked[0];
-  const holes: Vec2[][] = [];
-  for (const loop of ranked.slice(1)) {
-    if (!contains(loop[0], outer)) throw new Error('Multiple disjoint outer paths are ambiguous; import one profile at a time');
-    if (holes.some((hole) => contains(loop[0], hole))) throw new Error('Nested profile islands are not supported');
-    holes.push(normalizeLoop(loop, false));
+  const ranked = loops.map((loop, i) => normalizeLoop(loop, true, bulges[i])).sort((a, b) => Math.abs(profileLoopSignedArea(b.loop, b.bulges)) - Math.abs(profileLoopSignedArea(a.loop, a.bulges)));
+  const outer = ranked[0], holes: Vec2[][] = [], holeBulges: number[][] = [];
+  for (const candidate of ranked.slice(1)) {
+    if (!contains(candidate.loop[0], outer.loop)) throw new Error('Multiple disjoint outer paths are ambiguous; import one profile at a time');
+    if (holes.some((hole) => contains(candidate.loop[0], hole))) throw new Error('Nested profile islands are not supported');
+    const normalized = normalizeLoop(candidate.loop, false, candidate.bulges);
+    holes.push(normalized.loop); holeBulges.push(normalized.bulges);
   }
-  return parseProfile(JSON.stringify({ outer, holes }));
+  const hasArcs = outer.bulges.some(Boolean) || holeBulges.some((values) => values.some(Boolean));
+  return parseProfile(JSON.stringify({ outer: outer.loop, holes, ...(hasArcs ? { bulges: outer.bulges, holeBulges } : {}) }));
 }
 
 function finish(profile: PolygonProfile, unit: ProfileUnit, scaleToMm: number, warnings: string[]): ProfileImportResult {
   const scaled: PolygonProfile = {
     outer: profile.outer.map(([x, y]) => [x * scaleToMm, y * scaleToMm]),
     holes: profile.holes.map((loop) => loop.map(([x, y]) => [x * scaleToMm, y * scaleToMm])),
+    ...(profile.bulges ? { bulges: [...profile.bulges] } : {}),
+    ...(profile.holeBulges ? { holeBulges: profile.holeBulges.map((values) => [...values]) } : {}),
   };
   const checked = parseProfile(JSON.stringify(scaled));
-  const xs = checked.outer.map((p) => p[0]), ys = checked.outer.map((p) => p[1]);
+  const outline = profileLoopBoundsPoints(checked.outer, checked.bulges);
+  const xs = outline.map((p) => p[0]), ys = outline.map((p) => p[1]);
   return { profile: checked, unit, scaleToMm, dimensions: [Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)], warnings };
 }
 
@@ -68,24 +76,37 @@ function flattenCubic(a: Vec2, b: Vec2, c: Vec2, d: Vec2, tolerance: number): Ve
   });
 }
 
-function parsePath(data: string, tolerance: number): Vec2[] {
+function parsePath(data: string, tolerance: number): { loop: Vec2[]; bulges: number[] } {
   const tokens = data.match(/[a-zA-Z]|[-+]?(?:\d*\.\d+|\d+\.?)(?:[eE][-+]?\d+)?/g) || [];
   let i = 0, command = '', current: Vec2 = [0, 0], start: Vec2 = [0, 0];
-  const loop: Vec2[] = [];
+  const loop: Vec2[] = [], bulges: number[] = [];
   const number = () => { const value = Number(tokens[i++]); if (!Number.isFinite(value)) throw new Error('Malformed SVG path coordinates'); return value; };
   const point = (relative: boolean): Vec2 => { const p: Vec2 = [number(), number()]; return relative ? [current[0] + p[0], current[1] + p[1]] : p; };
   while (i < tokens.length) {
     if (/^[a-zA-Z]$/.test(tokens[i])) command = tokens[i++];
     if (!command) throw new Error('SVG path must begin with M');
     const relative = command === command.toLowerCase(), op = command.toUpperCase();
+    const appendLines = (next: Vec2[]) => { for (const target of next) { bulges.push(0); loop.push(target); current = target; } };
     if (op === 'M') { if (loop.length) throw new Error('Multiple SVG subpaths must be split into separate path elements'); current = point(relative); start = current; loop.push(current); command = relative ? 'l' : 'L'; }
-    else if (op === 'L') { current = point(relative); loop.push(current); }
-    else if (op === 'H') { const x = number(); current = [relative ? current[0] + x : x, current[1]]; loop.push(current); }
-    else if (op === 'V') { const y = number(); current = [current[0], relative ? current[1] + y : y]; loop.push(current); }
-    else if (op === 'Q') { const control = point(relative), end = point(relative); loop.push(...flattenQuadratic(current, control, end, tolerance)); current = end; }
-    else if (op === 'C') { const b = point(relative), c = point(relative), end = point(relative); loop.push(...flattenCubic(current, b, c, end, tolerance)); current = end; }
+    else if (op === 'L') appendLines([point(relative)]);
+    else if (op === 'H') { const x = number(); appendLines([[relative ? current[0] + x : x, current[1]]]); }
+    else if (op === 'V') { const y = number(); appendLines([[current[0], relative ? current[1] + y : y]]); }
+    else if (op === 'Q') { const control = point(relative), end = point(relative); appendLines(flattenQuadratic(current, control, end, tolerance)); }
+    else if (op === 'C') { const b = point(relative), c = point(relative), end = point(relative); appendLines(flattenCubic(current, b, c, end, tolerance)); }
+    else if (op === 'A') {
+      const rx = Math.abs(number()), ry = Math.abs(number()), rotation = number(), large = number(), sweep = number(), end = point(relative);
+      if (rx <= 0 || ry <= 0) appendLines([end]);
+      else {
+        if (Math.abs(rx - ry) > 1e-9 * Math.max(rx, ry) || Math.abs(rotation % 180) > 1e-9) throw new Error('Elliptical or rotated SVG A arcs are unsupported; convert them to circular arcs or curves before import');
+        if (![0, 1].includes(large) || ![0, 1].includes(sweep)) throw new Error('SVG arc flags must be 0 or 1');
+        const chord = Math.hypot(end[0] - current[0], end[1] - current[1]);
+        let angle = 2 * Math.asin(Math.min(1, chord / (2 * rx)));
+        if (large) angle = 2 * Math.PI - angle;
+        bulges.push(Math.tan((sweep ? -angle : angle) / 4)); loop.push(end); current = end;
+      }
+    }
     else if (op === 'Z') {
-      if (!pointEqual(current, start)) loop.push(start);
+      if (!pointEqual(current, start)) appendLines([start]);
       if (i < tokens.length) throw new Error('Multiple SVG subpaths must be split into separate path elements');
       command = '';
       break;
@@ -94,7 +115,7 @@ function parsePath(data: string, tolerance: number): Vec2[] {
     if (loop.length > MAX_PROFILE_VERTICES + 1) throw new Error(`Flattened path exceeds ${MAX_PROFILE_VERTICES} vertices`);
   }
   if (!pointEqual(loop[0], loop[loop.length - 1])) throw new Error('SVG path is open; close it with Z');
-  return loop;
+  return { loop, bulges };
 }
 
 function attribute(tag: string, name: string): string | undefined {
@@ -123,20 +144,23 @@ export function parseSvgProfile(svg: string, tolerance = 0.25): ProfileImportRes
   const unsupported = [...svg.matchAll(/<([a-z][\w:-]*)\b/gi)].map((m) => m[1].toLowerCase()).filter((name) => !['svg', 'g', 'path', 'polygon', 'polyline', 'rect', 'circle', 'ellipse', 'title', 'desc'].includes(name));
   if (unsupported.length) warnings.push(`Unsupported SVG entities ignored: ${[...new Set(unsupported)].join(', ')}`);
   if (/\btransform\s*=/i.test(svg)) throw new Error('SVG transforms are not supported; flatten transforms before import');
-  const loops: Vec2[][] = [];
+  const loops: Vec2[][] = [], loopBulges: number[][] = [];
   for (const match of svg.matchAll(/<(path|polygon|polyline|rect|circle|ellipse)\b[^>]*>/gi)) {
     const kind = match[1].toLowerCase(), tag = match[0];
-    if (kind === 'path') loops.push(parsePath(attribute(tag, 'd') || '', tolerance));
-    else if (kind === 'polygon') loops.push(points(attribute(tag, 'points') || ''));
-    else if (kind === 'polyline') { const loop = points(attribute(tag, 'points') || ''); if (!pointEqual(loop[0], loop[loop.length - 1])) throw new Error('SVG polyline is open'); loops.push(loop); }
+    if (kind === 'path') { const parsed = parsePath(attribute(tag, 'd') || '', tolerance); loops.push(parsed.loop); loopBulges.push(parsed.bulges); }
+    else if (kind === 'polygon') { const loop = points(attribute(tag, 'points') || ''); loops.push(loop); loopBulges.push(Array(loop.length).fill(0)); }
+    else if (kind === 'polyline') { const loop = points(attribute(tag, 'points') || ''); if (!pointEqual(loop[0], loop[loop.length - 1])) throw new Error('SVG polyline is open'); loops.push(loop); loopBulges.push(Array(loop.length - 1).fill(0)); }
     else if (kind === 'rect') {
       if (attribute(tag, 'rx') || attribute(tag, 'ry')) warnings.push('Rounded SVG rectangle corners are imported square');
       const x = Number(attribute(tag, 'x') || 0), y = Number(attribute(tag, 'y') || 0), w = Number(attribute(tag, 'width')), h = Number(attribute(tag, 'height'));
-      loops.push([[x, y], [x + w, y], [x + w, y + h], [x, y + h]]);
+      loops.push([[x, y], [x + w, y], [x + w, y + h], [x, y + h]]); loopBulges.push([0, 0, 0, 0]);
     } else {
       const cx = Number(attribute(tag, 'cx') || 0), cy = Number(attribute(tag, 'cy') || 0);
       const rx = Number(attribute(tag, kind === 'circle' ? 'r' : 'rx')), ry = Number(attribute(tag, kind === 'circle' ? 'r' : 'ry'));
-      loops.push(ellipse(cx, cy, rx, ry, tolerance));
+      if (Math.abs(rx - ry) < 1e-9 * Math.max(rx, ry)) {
+        const quarter = Math.tan(Math.PI / 8);
+        loops.push([[cx + rx, cy], [cx, cy + ry], [cx - rx, cy], [cx, cy - ry]]); loopBulges.push([quarter, quarter, quarter, quarter]);
+      } else { const loop = ellipse(cx, cy, rx, ry, tolerance); loops.push(loop); loopBulges.push(Array(loop.length).fill(0)); }
     }
   }
   const root = svg.match(/<svg\b[^>]*>/i)?.[0] || '';
@@ -145,46 +169,35 @@ export function parseSvgProfile(svg: string, tolerance = 0.25): ProfileImportRes
   let scale = UNIT_MM[width.unit];
   if (width.value && viewBox?.length === 4 && viewBox.every(Number.isFinite) && viewBox[2] > 0) scale = width.value * UNIT_MM[width.unit] / viewBox[2];
   if (!loops.length) throw new Error(warnings.length ? warnings.join('; ') : 'No supported closed paths were found');
-  return finish(assembleProfile(loops), width.unit, scale, warnings);
+  return finish(assembleProfile(loops, loopBulges), width.unit, scale, warnings);
 }
 
 const DXF_UNITS: Record<number, { unit: ProfileUnit; scale: number }> = { 0: { unit: 'unitless', scale: 1 }, 1: { unit: 'in', scale: 25.4 }, 4: { unit: 'mm', scale: 1 }, 5: { unit: 'cm', scale: 10 } };
-function arcPoints(cx: number, cy: number, radius: number, start: number, sweep: number, tolerance: number): Vec2[] {
-  const steps = Math.max(2, Math.min(128, Math.ceil(Math.abs(sweep) * radius / Math.max(tolerance, 0.01))));
-  return Array.from({ length: steps + 1 }, (_, i) => [cx + radius * Math.cos(start + sweep * i / steps), cy + radius * Math.sin(start + sweep * i / steps)] as Vec2);
-}
-function bulgeSegment(a: Vec2, b: Vec2, bulge: number, tolerance: number): Vec2[] {
-  if (Math.abs(bulge) < 1e-12) return [a, b];
-  const chord = Math.hypot(b[0] - a[0], b[1] - a[1]), sweep = 4 * Math.atan(bulge);
-  const mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2;
-  const offset = chord / (2 * Math.tan(sweep / 2)), nx = -(b[1] - a[1]) / chord, ny = (b[0] - a[0]) / chord;
-  const cx = mx + nx * offset, cy = my + ny * offset, radius = Math.hypot(a[0] - cx, a[1] - cy);
-  return arcPoints(cx, cy, radius, Math.atan2(a[1] - cy, a[0] - cx), sweep, tolerance);
-}
-function stitchSegments(segments: Vec2[][]): Vec2[][] {
-  const pending = segments.map((segment) => segment.slice());
-  const loops: Vec2[][] = [];
+function stitchSegments(segments: Array<{ points: [Vec2, Vec2]; bulge: number }>): Array<{ loop: Vec2[]; bulges: number[] }> {
+  const pending = segments.map((segment) => ({ points: [...segment.points] as [Vec2, Vec2], bulge: segment.bulge }));
+  const loops: Array<{ loop: Vec2[]; bulges: number[] }> = [];
   while (pending.length) {
-    const chain = pending.shift()!;
+    const first = pending.shift()!, chain = [...first.points], bulges = [first.bulge];
     while (!pointEqual(chain[0], chain[chain.length - 1])) {
-      const index = pending.findIndex((segment) => pointEqual(segment[0], chain[chain.length - 1]) || pointEqual(segment[segment.length - 1], chain[chain.length - 1]));
+      const index = pending.findIndex((segment) => pointEqual(segment.points[0], chain[chain.length - 1]) || pointEqual(segment.points[1], chain[chain.length - 1]));
       if (index < 0) throw new Error('DXF line/arc chain is open');
       let next = pending.splice(index, 1)[0];
-      if (!pointEqual(next[0], chain[chain.length - 1])) next = next.reverse();
-      chain.push(...next.slice(1));
+      if (!pointEqual(next.points[0], chain[chain.length - 1])) next = { points: [next.points[1], next.points[0]], bulge: -next.bulge };
+      chain.push(next.points[1]); bulges.push(next.bulge);
       if (chain.length > MAX_PROFILE_VERTICES + 1) throw new Error(`Flattened DXF path exceeds ${MAX_PROFILE_VERTICES} vertices`);
     }
-    loops.push(chain);
+    chain.pop();
+    loops.push({ loop: chain, bulges });
   }
   return loops;
 }
-export function parseDxfProfile(dxf: string, tolerance = 0.25): ProfileImportResult {
+export function parseDxfProfile(dxf: string, _tolerance = 0.25): ProfileImportResult {
   if (dxf.length > 2_000_000) throw new Error('DXF exceeds the 2 MB profile import limit');
   const rows = dxf.replace(/\r/g, '').split('\n');
   if (rows.length < 4) throw new Error('File is not an ASCII DXF document');
   const pairs: Array<[number, string]> = [];
   for (let i = 0; i + 1 < rows.length; i += 2) pairs.push([Number(rows[i].trim()), rows[i + 1].trim()]);
-  const warnings: string[] = [], loops: Vec2[][] = [], segments: Vec2[][] = [];
+  const warnings: string[] = [], loops: Vec2[][] = [], loopBulges: number[][] = [], segments: Array<{ points: [Vec2, Vec2]; bulge: number }> = [];
   let insUnits = 0;
   for (let i = 0; i < pairs.length; i++) if (pairs[i][1] === '$INSUNITS' && pairs[i + 1]?.[0] === 70) insUnits = Number(pairs[i + 1][1]);
   for (let i = 0; i < pairs.length;) {
@@ -202,9 +215,8 @@ export function parseDxfProfile(dxf: string, tolerance = 0.25): ProfileImportRes
       }
       if (!(flags & 1)) throw new Error('DXF LWPOLYLINE is open');
       if (vertices.length < 3) throw new Error('Malformed DXF LWPOLYLINE');
-      const loop: Vec2[] = [];
-      vertices.forEach((vertex, k) => { const part = bulgeSegment(vertex.p, vertices[(k + 1) % vertices.length].p, vertex.bulge, tolerance); loop.push(...part.slice(k ? 1 : 0)); });
-      loops.push(loop);
+      loops.push(vertices.map((vertex) => vertex.p));
+      loopBulges.push(vertices.map((vertex) => vertex.bulge));
     } else if (type === 'POLYLINE') {
       const flags = values(70)[0] || 0, vertices: Vec2[] = []; let end = j;
       while (end < pairs.length && !(pairs[end][0] === 0 && pairs[end][1].toUpperCase() === 'SEQEND')) {
@@ -217,29 +229,32 @@ export function parseDxfProfile(dxf: string, tolerance = 0.25): ProfileImportRes
       }
       if (!(flags & 1)) throw new Error('DXF POLYLINE is open');
       if (vertices.length < 3) throw new Error('Malformed DXF POLYLINE');
-      loops.push(vertices); i = end + 1; continue;
+      loops.push(vertices); loopBulges.push(Array(vertices.length).fill(0)); i = end + 1; continue;
     } else if (type === 'CIRCLE') {
-      loops.push(ellipse(values(10)[0], values(20)[0], values(40)[0], values(40)[0], tolerance));
+      const cx = values(10)[0], cy = values(20)[0], radius = values(40)[0], quarter = Math.tan(Math.PI / 8);
+      loops.push([[cx + radius, cy], [cx, cy + radius], [cx - radius, cy], [cx, cy - radius]]);
+      loopBulges.push([quarter, quarter, quarter, quarter]);
     } else if (type === 'LINE') {
-      segments.push([[values(10)[0], values(20)[0]], [values(11)[0], values(21)[0]]]);
+      segments.push({ points: [[values(10)[0], values(20)[0]], [values(11)[0], values(21)[0]]], bulge: 0 });
     } else if (type === 'ARC') {
       let start = values(50)[0] * Math.PI / 180, end = values(51)[0] * Math.PI / 180;
       while (end <= start) end += 2 * Math.PI;
-      segments.push(arcPoints(values(10)[0], values(20)[0], values(40)[0], start, end - start, tolerance));
+      const cx = values(10)[0], cy = values(20)[0], radius = values(40)[0];
+      segments.push({ points: [[cx + radius * Math.cos(start), cy + radius * Math.sin(start)], [cx + radius * Math.cos(end), cy + radius * Math.sin(end)]], bulge: Math.tan((end - start) / 4) });
     } else if (!['SECTION', 'ENDSEC', 'EOF', 'HEADER', 'TABLES', 'TABLE', 'ENDTAB', 'BLOCKS', 'BLOCK', 'ENDBLK', 'ENTITIES', 'OBJECTS'].includes(type)) {
       warnings.push(`Unsupported DXF entity ignored: ${type}`);
     }
     i = j;
   }
-  loops.push(...stitchSegments(segments));
+  for (const stitched of stitchSegments(segments)) { loops.push(stitched.loop); loopBulges.push(stitched.bulges); }
   const units = DXF_UNITS[insUnits] || { unit: 'unitless' as const, scale: 1 };
   if (!DXF_UNITS[insUnits]) warnings.push(`Unknown DXF INSUNITS ${insUnits}; treating coordinates as millimetres`);
   const uniqueWarnings = [...new Set(warnings)];
   if (!loops.length) throw new Error(uniqueWarnings.length ? uniqueWarnings.join('; ') : 'No supported closed paths were found');
-  return finish(assembleProfile(loops), units.unit, units.scale, uniqueWarnings);
+  return finish(assembleProfile(loops, loopBulges), units.unit, units.scale, uniqueWarnings);
 }
 
 export function rescaleProfileImport(result: ProfileImportResult, scaleToMm: number, unit = result.unit): ProfileImportResult {
   if (!Number.isFinite(scaleToMm) || scaleToMm <= 0) throw new Error('Scale must be a positive finite number');
-  return finish({ outer: result.profile.outer.map(([x, y]) => [x / result.scaleToMm, y / result.scaleToMm]), holes: result.profile.holes.map((loop) => loop.map(([x, y]) => [x / result.scaleToMm, y / result.scaleToMm])) }, unit, scaleToMm, result.warnings);
+  return finish({ outer: result.profile.outer.map(([x, y]) => [x / result.scaleToMm, y / result.scaleToMm]), holes: result.profile.holes.map((loop) => loop.map(([x, y]) => [x / result.scaleToMm, y / result.scaleToMm])), bulges: result.profile.bulges, holeBulges: result.profile.holeBulges }, unit, scaleToMm, result.warnings);
 }
