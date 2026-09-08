@@ -224,8 +224,8 @@ describe('Toolbar export cancellation', () => {
     expect(exportSTL).toHaveBeenCalledWith(BOX, expect.any(Function), 128, { overhangAngle: 45, buildDirection: 'z', minimumWallThickness: 1.2 });
 
     job.resolve(artifact(1024, 12));
-    await flush();
-    useViewportStore.getState().setResolution(256);
+    await waitFor(() => expect(screen.getByText('Download')).toBeInTheDocument());
+    act(() => useViewportStore.getState().setResolution(256));
   });
 
   it('exports 3MF at the resolution the user picked', async () => {
@@ -240,7 +240,7 @@ describe('Toolbar export cancellation', () => {
 
     job.resolve(artifact(2048, 7));
     await waitFor(() => expect(screen.getByText('7')).toBeInTheDocument());
-    useViewportStore.getState().setResolution(256);
+    act(() => useViewportStore.getState().setResolution(256));
   });
 
   it('suppresses the 3MF preview when cancelled after the worker replied', async () => {

@@ -62,8 +62,9 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('AiSettings', () => {
-  it('lists every registered provider', () => {
+  it('lists every registered provider', async () => {
     render(<AiSettings />);
+    await screen.findByRole('combobox', { name: /model/i });
     const providerSelect = screen.getByLabelText(/provider/i) as HTMLSelectElement;
     const labels = Array.from(providerSelect.options).map((o) => o.textContent);
     expect(labels).toEqual(expect.arrayContaining(['Anthropic', 'OpenAI', 'OpenRouter']));
@@ -72,13 +73,15 @@ describe('AiSettings', () => {
   it('shows a Connect button instead of a key field for OpenRouter', async () => {
     resetStore({ provider: 'openrouter' });
     render(<AiSettings />);
+    await screen.findByRole('combobox', { name: /model/i });
 
     expect(screen.getByRole('button', { name: /connect openrouter/i })).toBeInTheDocument();
     expect(screen.queryByPlaceholderText(/enter api key/i)).not.toBeInTheDocument();
   });
 
-  it('shows a key field for key-based providers', () => {
+  it('shows a key field for key-based providers', async () => {
     render(<AiSettings />);
+    await screen.findByRole('combobox', { name: /model/i });
     expect(screen.getByPlaceholderText(/enter api key/i)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /connect/i })).not.toBeInTheDocument();
   });
@@ -90,12 +93,14 @@ describe('AiSettings', () => {
     await waitFor(() => expect(startOpenRouterSignIn).toHaveBeenCalled());
   });
 
-  it('offers a disconnect once connected', () => {
+  it('offers a disconnect once connected', async () => {
     resetStore({ provider: 'openrouter', apiKey: 'sk-or-user' });
     render(<AiSettings />);
+    await screen.findByRole('combobox', { name: /model/i });
     expect(screen.getByText(/connected to openrouter/i)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: /disconnect/i }));
+    await waitFor(() => expect(screen.getByRole('button', { name: /connect openrouter/i })).toBeInTheDocument());
     expect(useChatStore.getState().apiKey).toBe('');
   });
 
