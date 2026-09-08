@@ -85,6 +85,18 @@ describe('regional CSG evidence', () => {
     expect(recoverRegionalPrimitiveEvidence(field, [{ ...fit, parameters: { ...fit.parameters, outward: false } } as MeshRegionSurfaceFit])).toEqual([]);
   });
 
+  it('converts a fitted capsule into occupancy-verified regional evidence', () => {
+    const fit: MeshRegionSurfaceFit = {
+      regionKey: 'capsule-surface', triangleIds: [0], bounds: { min: [-3,-8,-3], max: [3,8,3] },
+      parameters: { kind: 'capsule', origin: [0,0,0], axis: [0,1,0], radius: 3, axialMin: -8, axialMax: 8, outward: true },
+      surfaceRms: 0.01, surfaceMax: 0.02, relativeError: 0.001,
+    };
+    const field = fieldFor({ kind: 'capsule', radius: 3, height: 16 });
+    const evidence = recoverRegionalPrimitiveEvidence(field, [fit]);
+    expect(evidence).toHaveLength(1);
+    expect(evidence[0]).toMatchObject({ polarity: 'add', occupancyAgreement: 1, node: { kind: 'transform', child: { kind: 'capsule', radius: 3, height: 16 } } });
+  });
+
   it('assembles and validates a plate with a subtractive through-hole', () => {
     const base: SDFNode = { kind: 'box', size: [18, 10, 18] };
     const cutter: SDFNode = { kind: 'cylinder', radius: 3, height: 14 };

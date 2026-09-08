@@ -44,6 +44,42 @@ function reversedTriangles(source: Float32Array): Float32Array {
   return output;
 }
 
+function capsule(radius = 3, segmentHalf = 5, segments = 32, hemisphereSteps = 8): Float32Array {
+  const rings: number[][][] = [];
+  for (let step = 0; step <= hemisphereSteps; step++) {
+    const angle = -Math.PI / 2 + step * Math.PI / (2 * hemisphereSteps);
+    rings.push([...Array(segments)].map((_, index) => [radius * Math.cos(angle) * Math.cos(index * 2 * Math.PI / segments), -segmentHalf + radius * Math.sin(angle), radius * Math.cos(angle) * Math.sin(index * 2 * Math.PI / segments)]));
+  }
+  rings.push([...Array(segments)].map((_, index) => [radius * Math.cos(index * 2 * Math.PI / segments), segmentHalf, radius * Math.sin(index * 2 * Math.PI / segments)]));
+  for (let step = 1; step <= hemisphereSteps; step++) {
+    const angle = step * Math.PI / (2 * hemisphereSteps);
+    rings.push([...Array(segments)].map((_, index) => [radius * Math.cos(angle) * Math.cos(index * 2 * Math.PI / segments), segmentHalf + radius * Math.sin(angle), radius * Math.cos(angle) * Math.sin(index * 2 * Math.PI / segments)]));
+  }
+  const values: number[] = [];
+  for (let ring = 0; ring < rings.length - 1; ring++) for (let index = 0; index < segments; index++) {
+    const next = (index + 1) % segments, lower = rings[ring], upper = rings[ring + 1];
+    if (ring === 0) values.push(...tri(lower[0], upper[index], upper[next]));
+    else if (ring === rings.length - 2) values.push(...tri(lower[index], upper[0], lower[next]));
+    else values.push(...tri(lower[index], upper[index], upper[next]), ...tri(lower[index], upper[next], lower[next]));
+  }
+  return new Float32Array(values);
+}
+
+function transformSoup(source: Float32Array, degrees: [number, number, number], translation: [number, number, number]): Float32Array {
+  const output = new Float32Array(source);
+  for (let index = 0; index < output.length; index += 3) {
+    let x = output[index], y = output[index + 1], z = output[index + 2];
+    for (const [axis, value] of degrees.map((angle, axis) => [axis, angle * Math.PI / 180] as const)) {
+      const c = Math.cos(value), s = Math.sin(value);
+      if (axis === 0) [y, z] = [y * c - z * s, y * s + z * c];
+      else if (axis === 1) [x, z] = [x * c + z * s, -x * s + z * c];
+      else [x, y] = [x * c - y * s, x * s + y * c];
+    }
+    output[index] = x + translation[0]; output[index + 1] = y + translation[1]; output[index + 2] = z + translation[2];
+  }
+  return output;
+}
+
 describe('regional analytic surface fitting', () => {
   it('classifies a planar face with exact source mapping', () => {
     const positions = new Float32Array([...tri([0,0,2],[4,0,2],[4,3,2]), ...tri([0,0,2],[4,3,2],[0,3,2])]);
@@ -110,5 +146,38 @@ describe('regional analytic surface fitting', () => {
     expect(regions).toHaveLength(1);
     expect(regions[0].eligible).toBe(true);
     expect(fitRegionSurface(positions, regions[0])).toBeNull();
+  });
+
+  it('fits a complete smooth capsule as one deterministic region', () => {
+    const positions = capsule(), regions = segmentMeshSurfaces(positions).regions;
+    expect(regions).toHaveLength(1);
+    const fit = fitRegionSurface(positions, regions[0])!;
+    expect(fit.parameters.kind).toBe('capsule');
+    if (fit.parameters.kind === 'capsule') {
+      expect(fit.parameters.radius).toBeCloseTo(3, 4);
+      expect(fit.parameters.axialMax - fit.parameters.axialMin).toBeCloseTo(16, 4);
+      expect(Math.abs(fit.parameters.axis[1])).toBeCloseTo(1, 4);
+      expect(fit.parameters.outward).toBe(true);
+    }
+    expect(fit.relativeError).toBeLessThan(1e-4);
+    expect(fitRegionSurface(positions, regions[0])).toEqual(fit);
+  });
+
+  it('fits the same capsule after rotation, translation, and triangle reordering', () => {
+    const positions = transformSoup(capsule(), [27, -19, 13], [4, -3, 2]);
+    const reordered = reversedTriangles(positions);
+    const first = fitRegionSurface(positions, segmentMeshSurfaces(positions).regions[0])!;
+    const second = fitRegionSurface(reordered, segmentMeshSurfaces(reordered).regions[0])!;
+    expect(first.parameters.kind).toBe('capsule');
+    expect(second.parameters.kind).toBe('capsule');
+    if (first.parameters.kind === 'capsule' && second.parameters.kind === 'capsule') {
+      expect(first.parameters.radius).toBeCloseTo(3, 4);
+      expect(first.parameters.axialMax - first.parameters.axialMin).toBeCloseTo(16, 4);
+      expect(second.parameters.radius).toBeCloseTo(first.parameters.radius, 8);
+      expect(second.parameters.axis).toEqual(first.parameters.axis.map((value) => expect.closeTo(value, 8)));
+      expect(second.parameters.origin).toEqual(first.parameters.origin.map((value) => expect.closeTo(value, 8)));
+    }
+    expect(first.relativeError).toBeLessThan(1e-4);
+    expect(second.surfaceMax).toBeCloseTo(first.surfaceMax, 8);
   });
 });

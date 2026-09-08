@@ -50,6 +50,22 @@ function smallestEigenvector(matrix: number[][]): Vec3 | null {
   return result[pivot] < 0 ? scale(result, -1) : result;
 }
 
+function largestPrincipalAxis(points: Vec3[], center: Vec3): Vec3 | null {
+  const covariance = [[0,0,0],[0,0,0],[0,0,0]];
+  for (const point of points) {
+    const delta = sub(point, center);
+    for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) covariance[i][j] += delta[i] * delta[j];
+  }
+  let vector: Vec3 = [1, Math.SQRT2, Math.sqrt(3)];
+  for (let iteration = 0; iteration < 32; iteration++) {
+    const next: Vec3 = covariance.map((row) => dot(row as Vec3, vector)) as Vec3;
+    const normalized = unit(next); if (!normalized) return null;
+    vector = normalized;
+  }
+  let pivot = 0; for (let i = 1; i < 3; i++) if (Math.abs(vector[i]) > Math.abs(vector[pivot])) pivot = i;
+  return vector[pivot] < 0 ? scale(vector, -1) : vector;
+}
+
 function pointsOf(positions: Float32Array, region: MeshSurfaceRegion): Vec3[] {
   const soup = regionTriangleSoup(positions, region), seen = new Map<string, Vec3>();
   for (let index = 0; index < soup.length; index += 3) {
@@ -135,14 +151,39 @@ function cylinderCandidate(positions: Float32Array, points: Vec3[], region: Mesh
   return { parameters: { kind: 'cylinder', origin, axis, radius, axialMin: Math.min(...axial), axialMax: Math.max(...axial), outward }, ...residual(distances, diagonal) };
 }
 
+function capsuleCandidate(positions: Float32Array, points: Vec3[], region: MeshSurfaceRegion, diagonal: number): Omit<RegionSurfaceFit, 'regionKey' | 'triangleIds' | 'bounds'> | null {
+  if (points.length < 8) return null;
+  const center = points.reduce((sum, point) => add(sum, scale(point, 1 / points.length)), [0,0,0] as Vec3);
+  const axis = largestPrincipalAxis(points, center); if (!axis) return null;
+  const axial = points.map((point) => dot(sub(point, center), axis));
+  const axialMin = Math.min(...axial), axialMax = Math.max(...axial), axialCenter = (axialMin + axialMax) / 2;
+  const radial = points.map((point, index) => Math.hypot(...sub(sub(point, center), scale(axis, axial[index]))));
+  const radius = Math.max(...radial), segmentHalf = (axialMax - axialMin) / 2 - radius;
+  if (!(radius > 1e-9) || segmentHalf <= radius * 0.05) return null;
+  const origin = add(center, scale(axis, axialCenter));
+  const distances = points.map((point) => {
+    const delta = sub(point, origin), t = dot(delta, axis), clamped = Math.max(-segmentHalf, Math.min(segmentHalf, t));
+    return Math.abs(Math.hypot(...sub(delta, scale(axis, clamped))) - radius);
+  });
+  if (normalAgreement(positions, region, (point) => {
+    const delta = sub(point, origin), t = Math.max(-segmentHalf, Math.min(segmentHalf, dot(delta, axis)));
+    return sub(delta, scale(axis, t));
+  }) < 0.98) return null;
+  const outward = orientedNormalScore(positions, region, (point) => {
+    const delta = sub(point, origin), t = Math.max(-segmentHalf, Math.min(segmentHalf, dot(delta, axis)));
+    return sub(delta, scale(axis, t));
+  }) >= 0;
+  return { parameters: { kind: 'capsule', origin, axis, radius, axialMin: -segmentHalf - radius, axialMax: segmentHalf + radius, outward }, ...residual(distances, diagonal) };
+}
+
 /** Fit the simplest sufficiently accurate analytic surface to one region. */
 export function rankRegionSurfaceCandidates(positions: Float32Array, region: MeshSurfaceRegion): Array<Omit<RegionSurfaceFit, 'regionKey' | 'triangleIds' | 'bounds'>> {
   if (!region.eligible) return [];
   const points = pointsOf(positions, region); if (points.length < 3) return [];
   const diagonal = Math.hypot(region.bounds.max[0] - region.bounds.min[0], region.bounds.max[1] - region.bounds.min[1], region.bounds.max[2] - region.bounds.min[2]);
   if (!(diagonal > 0)) return [];
-  const candidates = [planeCandidate(points, region, diagonal), cylinderCandidate(positions, points, region, diagonal), sphereCandidate(positions, points, region, diagonal)].filter((value): value is NonNullable<typeof value> => value !== null);
-  candidates.sort((a, b) => a.surfaceRms - b.surfaceRms || ['plane','cylinder','sphere'].indexOf(a.parameters.kind) - ['plane','cylinder','sphere'].indexOf(b.parameters.kind));
+  const candidates = [planeCandidate(points, region, diagonal), cylinderCandidate(positions, points, region, diagonal), sphereCandidate(positions, points, region, diagonal), capsuleCandidate(positions, points, region, diagonal)].filter((value): value is NonNullable<typeof value> => value !== null);
+  candidates.sort((a, b) => a.surfaceRms - b.surfaceRms || ['plane','cylinder','sphere','capsule'].indexOf(a.parameters.kind) - ['plane','cylinder','sphere','capsule'].indexOf(b.parameters.kind));
   return candidates;
 }
 

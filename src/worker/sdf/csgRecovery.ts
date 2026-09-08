@@ -54,6 +54,15 @@ function placedSphere(parameters: Extract<MeshRegionSurfaceFit['parameters'], { 
   return { kind: 'transform', child: { kind: 'sphere', radius: parameters.radius }, tx: parameters.center[0], ty: parameters.center[1], tz: parameters.center[2], rx: 0, ry: 0, rz: 0, sx: 1, sy: 1, sz: 1 };
 }
 
+function placedCapsule(parameters: Extract<MeshRegionSurfaceFit['parameters'], { kind: 'capsule' }>): SDFNode {
+  const midpoint = (parameters.axialMin + parameters.axialMax) / 2;
+  const center = add(parameters.origin, scale(parameters.axis, midpoint)), rotation = eulerForAxis(parameters.axis);
+  return {
+    kind: 'transform', child: { kind: 'capsule', radius: parameters.radius, height: parameters.axialMax - parameters.axialMin },
+    tx: center[0], ty: center[1], tz: center[2], rx: rotation[0], ry: rotation[1], rz: rotation[2], sx: 1, sy: 1, sz: 1,
+  };
+}
+
 function probeAgreement(field: MeshFieldData, pairs: Array<[Vec3, Vec3]>, polarity: 'add' | 'subtract'): number {
   let agreements = 0;
   for (const [towardPrimitive, awayFromPrimitive] of pairs) {
@@ -81,7 +90,7 @@ export function recoverRegionalPrimitiveEvidence(field: MeshFieldData, fits: Mes
       const directions: Vec3[] = [[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]];
       pairs = directions.map((direction) => [add(parameters.center, scale(direction, parameters.radius - epsilon)), add(parameters.center, scale(direction, parameters.radius + epsilon))]);
     } else {
-      node = placedCylinder(parameters);
+      node = parameters.kind === 'capsule' ? placedCapsule(parameters) : placedCylinder(parameters);
       const seed: Vec3 = Math.abs(parameters.axis[0]) < 0.8 ? [1,0,0] : [0,1,0];
       const u = unit(cross(parameters.axis, seed)), v = cross(parameters.axis, u);
       const axial = (parameters.axialMin + parameters.axialMax) / 2, center = add(parameters.origin, scale(parameters.axis, axial));
