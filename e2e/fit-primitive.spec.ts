@@ -129,6 +129,22 @@ function boxCapsuleBossSTL(half = 9, baseBottom = -2, baseTop = 2, radius = 3, s
   return buffer;
 }
 
+function repeatedStandoffsSTL(): Buffer {
+  const triangles: number[][][] = [];
+  const vertices = [[-10,-1,-10],[10,-1,-10],[10,1,-10],[-10,1,-10],[-10,-1,10],[10,-1,10],[10,1,10],[-10,1,10]];
+  const faces = [[0,2,1],[0,3,2],[4,5,6],[4,6,7],[0,1,5],[0,5,4],[3,7,6],[3,6,2],[0,4,7],[0,7,3],[1,2,6],[1,6,5]];
+  faces.forEach((face) => triangles.push(face.map((index) => vertices[index])));
+  for (const centerX of [-6,0,6]) for (let index = 0; index < 32; index++) {
+    const point = (step: number, y: number) => [centerX + 1.5 * Math.cos(step * Math.PI / 16), y, 1.5 * Math.sin(step * Math.PI / 16)];
+    const next = (index + 1) % 32, bottom = point(index,3), nextBottom = point(next,3), top = point(index,7), nextTop = point(next,7);
+    triangles.push([top,nextBottom,bottom],[top,nextTop,nextBottom], [[centerX,7,0],nextTop,top], [[centerX,3,0],bottom,nextBottom]);
+  }
+  const buffer = Buffer.alloc(84 + triangles.length * 50); buffer.writeUInt32LE(triangles.length, 80);
+  let offset = 84;
+  for (const triangle of triangles) { offset += 12; for (const vertex of triangle) { for (let axis = 0; axis < 3; axis++) buffer.writeFloatLE(vertex[axis], offset + axis * 4); offset += 12; } offset += 2; }
+  return buffer;
+}
+
 async function enterModeler(page: Page) {
   await page.goto('/', { waitUntil: 'domcontentloaded' });
   const accept = page.locator('button:has-text("Accept")');
@@ -246,6 +262,22 @@ test.describe('Fit a primitive to an imported mesh', () => {
       const kinds: string[] = [], walk = (node: any) => { if (!node) return; kinds.push(node.kind); (node.children ?? []).forEach(walk); };
       walk((window as any).__MODELER_STORE__.tree); return kinds;
     }), { timeout: 20_000 }).toEqual(expect.arrayContaining(['union', 'capsule']));
+    await page.waitForFunction(() => !(window as any).__MODELER_STORE__?.evaluating, null, { timeout: PRECONDITION_TIMEOUT });
+    expect(await page.evaluate(() => (window as any).__MODELER_STORE__.error)).toBeFalsy();
+  });
+
+  test('replaces imported repeated standoffs with an editable linear pattern', async ({ page }) => {
+    await enterModeler(page);
+    await importAndSelect(page, repeatedStandoffsSTL());
+    await page.getByRole('button', { name: 'Find best primitive' }).click();
+    await expect(page.getByText('Recovered 1 editable pattern from repeated regions.')).toBeVisible({ timeout: PRECONDITION_TIMEOUT });
+    const replace = page.getByRole('button', { name: 'Replace with recovered CSG' });
+    await expect(replace).toBeVisible({ timeout: PRECONDITION_TIMEOUT });
+    await replace.click();
+    await expect.poll(() => page.evaluate(() => {
+      const kinds: string[] = [], walk = (node: any) => { if (!node) return; kinds.push(node.kind); (node.children ?? []).forEach(walk); };
+      walk((window as any).__MODELER_STORE__.tree); return kinds;
+    }), { timeout: 20_000 }).toContain('linearPattern');
     await page.waitForFunction(() => !(window as any).__MODELER_STORE__?.evaluating, null, { timeout: PRECONDITION_TIMEOUT });
     expect(await page.evaluate(() => (window as any).__MODELER_STORE__.error)).toBeFalsy();
   });
