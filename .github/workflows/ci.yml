@@ -83,12 +83,13 @@ jobs:
     name: E2E Tests
     runs-on: ubuntu-latest
     if: always()
-    needs: e2e-tests
+    needs: [e2e-tests, cross-engine-smoke]
     steps:
-      - name: Require every E2E shard
+      - name: Require every E2E shard and browser engine
         env:
           SHARD_RESULT: ${{ needs.e2e-tests.result }}
-        run: test "$SHARD_RESULT" = success
+          CROSS_ENGINE_RESULT: ${{ needs.cross-engine-smoke.result }}
+        run: test "$SHARD_RESULT" = success && test "$CROSS_ENGINE_RESULT" = success
 
   cross-engine-smoke:
     name: ${{ matrix.engine }} Smoke
