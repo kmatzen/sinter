@@ -82,6 +82,25 @@ function tubeSTL(outer: number, inner: number, height: number, segments = 32): B
   return buffer;
 }
 
+function boxBossSTL(half = 9, baseBottom = -2, baseTop = 2, bossRadius = 3, bossTop = 6, segments = 32): Buffer {
+  const triangles: number[][][] = [], center = (y: number) => [0, y, 0];
+  const inner = (index: number, y: number) => [bossRadius * Math.cos(index * 2 * Math.PI / segments), y, bossRadius * Math.sin(index * 2 * Math.PI / segments)];
+  const outer = (index: number, y: number) => {
+    const angle = index * 2 * Math.PI / segments, x = Math.cos(angle), z = Math.sin(angle), factor = half / Math.max(Math.abs(x), Math.abs(z));
+    return [x * factor, y, z * factor];
+  };
+  for (let index = 0; index < segments; index++) {
+    const next = (index + 1) % segments;
+    const ob = outer(index, baseBottom), onb = outer(next, baseBottom), ot = outer(index, baseTop), ont = outer(next, baseTop);
+    const it = inner(index, baseTop), int = inner(next, baseTop), ib = inner(index, bossTop), inb = inner(next, bossTop);
+    triangles.push([center(baseBottom), ob, onb], [ob, ot, ont], [ob, ont, onb], [ot, int, ont], [ot, it, int], [it, ib, inb], [it, inb, int], [center(bossTop), inb, ib]);
+  }
+  const buffer = Buffer.alloc(84 + triangles.length * 50); buffer.writeUInt32LE(triangles.length, 80);
+  let offset = 84;
+  for (const triangle of triangles) { offset += 12; for (const vertex of triangle) { for (let axis = 0; axis < 3; axis++) buffer.writeFloatLE(vertex[axis], offset + axis * 4); offset += 12; } offset += 2; }
+  return buffer;
+}
+
 async function enterModeler(page: Page) {
   await page.goto('/', { waitUntil: 'domcontentloaded' });
   const accept = page.locator('button:has-text("Accept")');
@@ -170,6 +189,19 @@ test.describe('Fit a primitive to an imported mesh', () => {
     await expect(replace).toBeVisible({ timeout: PRECONDITION_TIMEOUT });
     await replace.click();
     await expect.poll(() => page.evaluate(() => (window as any).__MODELER_STORE__.tree?.kind), { timeout: 20_000 }).toBe('subtract');
+    await page.waitForFunction(() => !(window as any).__MODELER_STORE__?.evaluating, null, { timeout: PRECONDITION_TIMEOUT });
+    expect(await page.evaluate(() => (window as any).__MODELER_STORE__.error)).toBeFalsy();
+  });
+
+  test('recovers a box with a cylindrical boss from planar base evidence', async ({ page }) => {
+    await enterModeler(page);
+    await importAndSelect(page, boxBossSTL());
+    await page.getByRole('button', { name: 'Find best primitive' }).click();
+    await expect(page.getByText(/Base box is supported by 6 planar regions/)).toBeVisible({ timeout: PRECONDITION_TIMEOUT });
+    const replace = page.getByRole('button', { name: 'Replace with recovered CSG' });
+    await expect(replace).toBeVisible({ timeout: PRECONDITION_TIMEOUT });
+    await replace.click();
+    await expect.poll(() => page.evaluate(() => (window as any).__MODELER_STORE__.tree?.kind), { timeout: 20_000 }).toBe('union');
     await page.waitForFunction(() => !(window as any).__MODELER_STORE__?.evaluating, null, { timeout: PRECONDITION_TIMEOUT });
     expect(await page.evaluate(() => (window as any).__MODELER_STORE__.error)).toBeFalsy();
   });
