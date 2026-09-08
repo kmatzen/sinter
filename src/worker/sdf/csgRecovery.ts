@@ -22,6 +22,13 @@ export interface RegionalCsgResult {
   contributors: Array<Pick<RegionalPrimitiveEvidence, 'polarity' | 'regionKeys' | 'surfaceRms' | 'surfaceMax'>>;
 }
 
+export interface RegionalBoxBase {
+  node: SDFNode;
+  regionKeys: string[];
+  surfaceRms: number;
+  surfaceMax: number;
+}
+
 const add = (a: Vec3, b: Vec3): Vec3 => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
 const scale = (a: Vec3, value: number): Vec3 => [a[0] * value, a[1] * value, a[2] * value];
 const cross = (a: Vec3, b: Vec3): Vec3 => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
@@ -121,6 +128,46 @@ function treeSurfaceResidual(node: SDFNode, points: Vec3[], diagonal: number) {
 // Kept local to avoid importing the higher-level public evaluator and creating
 // an otherwise unnecessary tuple allocation at every surface sample.
 const evaluateNode = (node: SDFNode, point: Vec3) => evaluateNodeAt(node, point[0], point[1], point[2]);
+
+/** Recover an axis-aligned closed box from the largest opposing planar faces.
+ * Smaller coplanar faces (for example a boss cap) cannot displace a base face;
+ * the complete-tree residual remains the final acceptance authority. */
+export function recoverPlanarBoxBase(fits: MeshRegionSurfaceFit[]): RegionalBoxBase | null {
+  type Face = { fit: MeshRegionSurfaceFit; axis: number; sign: -1 | 1; area: number; coordinate: number };
+  const faces: Face[] = [];
+  for (const fit of fits) {
+    if (fit.parameters.kind !== 'plane') continue;
+    const normal = fit.parameters.normal, axis = normal.map(Math.abs).indexOf(Math.max(...normal.map(Math.abs)));
+    if (Math.abs(normal[axis]) < 0.999) continue;
+    const extents = fit.bounds.max.map((value, index) => value - fit.bounds.min[index]);
+    const tangent = extents.filter((_, index) => index !== axis);
+    faces.push({ fit, axis, sign: normal[axis] < 0 ? -1 : 1, area: tangent[0] * tangent[1], coordinate: fit.parameters.origin[axis] });
+  }
+  const selected: Face[] = [];
+  for (let axis = 0; axis < 3; axis++) for (const sign of [-1, 1] as const) {
+    const candidates = faces.filter((face) => face.axis === axis && face.sign === sign)
+      .sort((a, b) => b.area - a.area || a.fit.regionKey.localeCompare(b.fit.regionKey));
+    if (!candidates.length) return null;
+    selected.push(candidates[0]);
+  }
+  const lo: Vec3 = [0,0,0], hi: Vec3 = [0,0,0];
+  for (let axis = 0; axis < 3; axis++) {
+    lo[axis] = selected.find((face) => face.axis === axis && face.sign < 0)!.coordinate;
+    hi[axis] = selected.find((face) => face.axis === axis && face.sign > 0)!.coordinate;
+    if (!(hi[axis] > lo[axis])) return null;
+  }
+  const center: Vec3 = lo.map((value, axis) => (value + hi[axis]) / 2) as Vec3;
+  const child: SDFNode = { kind: 'box', size: lo.map((value, axis) => hi[axis] - value) as Vec3 };
+  const node: SDFNode = center.some((value) => Math.abs(value) > 1e-9)
+    ? { kind: 'transform', child, tx: center[0], ty: center[1], tz: center[2], rx: 0, ry: 0, rz: 0, sx: 1, sy: 1, sz: 1 }
+    : child;
+  return {
+    node,
+    regionKeys: selected.map((face) => face.fit.regionKey).sort(),
+    surfaceRms: Math.sqrt(selected.reduce((sum, face) => sum + face.fit.surfaceRms ** 2, 0) / selected.length),
+    surfaceMax: Math.max(...selected.map((face) => face.fit.surfaceMax)),
+  };
+}
 
 /** Assemble occupancy-verified regional primitives around a supplied base and
  * accept the tree only when the complete imported surface corroborates it. */

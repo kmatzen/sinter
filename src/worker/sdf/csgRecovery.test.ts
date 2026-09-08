@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { MeshRegionSurfaceFit } from '../../types/geometry';
-import { assembleRegionalCsgTree, recoverRegionalPrimitiveEvidence } from './csgRecovery';
+import { assembleRegionalCsgTree, recoverPlanarBoxBase, recoverRegionalPrimitiveEvidence } from './csgRecovery';
 import type { RegionalPrimitiveEvidence } from './csgRecovery';
 import { evaluateSDF } from './evaluate';
 import { bakeMeshField } from './meshField';
@@ -18,6 +18,28 @@ function fieldFor(node: SDFNode, res = 41): MeshFieldData {
     data[z * res * res + y * res + x] = evaluateSDF(node, point);
   }
   return { bbox, res, data };
+}
+
+function boxBossSoup(half = 9, baseBottom = -2, baseTop = 2, bossRadius = 3, bossTop = 6, segments = 32): Float32Array {
+  const triangles: number[][][] = [], center = (y: number) => [0, y, 0];
+  const inner = (index: number, y: number) => [bossRadius * Math.cos(index * 2 * Math.PI / segments), y, bossRadius * Math.sin(index * 2 * Math.PI / segments)];
+  const outer = (index: number, y: number) => {
+    const angle = index * 2 * Math.PI / segments, x = Math.cos(angle), z = Math.sin(angle), factor = half / Math.max(Math.abs(x), Math.abs(z));
+    return [x * factor, y, z * factor];
+  };
+  for (let index = 0; index < segments; index++) {
+    const next = (index + 1) % segments;
+    const ob = outer(index, baseBottom), onb = outer(next, baseBottom), ot = outer(index, baseTop), ont = outer(next, baseTop);
+    const it = inner(index, baseTop), int = inner(next, baseTop), ib = inner(index, bossTop), inb = inner(next, bossTop);
+    triangles.push(
+      [center(baseBottom), ob, onb],
+      [ob, ot, ont], [ob, ont, onb],
+      [ot, int, ont], [ot, it, int],
+      [it, ib, inb], [it, inb, int],
+      [center(bossTop), inb, ib],
+    );
+  }
+  return new Float32Array(triangles.flat(2));
 }
 
 const cylinderFit = (outward: boolean): MeshRegionSurfaceFit => ({
@@ -89,6 +111,19 @@ describe('regional CSG evidence', () => {
     expect(result.node).toMatchObject({ kind: 'union' });
     expect(result.acceptable).toBe(true);
     expect(result.relativeError).toBeLessThan(0.01);
+  });
+
+  it('recovers a box-with-boss tree through the imported-mesh pipeline', () => {
+    const positions = boxBossSoup(), field = bakeMeshField(positions, 40), whole = fitPrimitive(field)!;
+    const segmentation = segmentMeshSurfaces(positions), fits = fitSegmentedSurfaces(positions, segmentation.regions).filter((fit) => fit !== null);
+    const evidence = compressRegionalPatterns(recoverRegionalPrimitiveEvidence(field, fits)).evidence;
+    const planarBase = recoverPlanarBoxBase(fits)!;
+    expect(planarBase.node).toMatchObject({ kind: 'box', size: [18, 4, 18] });
+    const result = [planarBase.node, whole.node].map((node) => assembleRegionalCsgTree(field, node, evidence)).filter((candidate) => candidate !== null).sort((a, b) => a.relativeError - b.relativeError)[0];
+    expect(result, JSON.stringify({ whole, regions: segmentation.regions.map((region) => ({ triangles: region.triangleIds.length, normal: region.normal })), fits: fits.map((fit) => fit.parameters), evidence })).not.toBeNull();
+    expect(result!.acceptable, JSON.stringify({ whole, evidence, result })).toBe(true);
+    expect(result!.node.kind).toBe('union');
+    expect(result!.contributors.some((candidate) => candidate.polarity === 'add')).toBe(true);
   });
 
   it('rejects redundant evidence that does not improve the base', () => {
