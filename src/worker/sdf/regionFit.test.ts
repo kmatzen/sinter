@@ -80,6 +80,15 @@ function transformSoup(source: Float32Array, degrees: [number, number, number], 
   return output;
 }
 
+function trianglesWhere(source: Float32Array, predicate: (triangle: Float32Array) => boolean): Float32Array {
+  const kept: number[] = [];
+  for (let index = 0; index < source.length; index += 9) {
+    const triangle = source.slice(index, index + 9);
+    if (predicate(triangle)) kept.push(...triangle);
+  }
+  return new Float32Array(kept);
+}
+
 describe('regional analytic surface fitting', () => {
   it('classifies a planar face with exact source mapping', () => {
     const positions = new Float32Array([...tri([0,0,2],[4,0,2],[4,3,2]), ...tri([0,0,2],[4,3,2],[0,3,2])]);
@@ -191,5 +200,25 @@ describe('regional analytic surface fitting', () => {
       expect(fit.parameters.origin).toEqual([expect.closeTo(0, 4), expect.closeTo(0, 4), expect.closeTo(0, 4)]);
     }
     expect(fit.relativeError).toBeLessThan(1e-4);
+  });
+
+  it('does not label cylinders, near-spheres, or longitudinally open patches as capsules', () => {
+    const cylinderPositions = cylinderSide(), cylinderFit = fitRegionSurface(cylinderPositions, segmentMeshSurfaces(cylinderPositions).regions[0]);
+    expect(cylinderFit?.parameters.kind).toBe('cylinder');
+
+    const nearSphere = capsule(3, 0.1), nearSphereFit = fitRegionSurface(nearSphere, segmentMeshSurfaces(nearSphere).regions[0]);
+    expect(nearSphereFit?.parameters.kind).not.toBe('capsule');
+
+    const partial = trianglesWhere(capsule(), (triangle) => [0,3,6].every((offset) => triangle[offset] >= -1e-7));
+    const partialRegions = segmentMeshSurfaces(partial).regions;
+    expect(partialRegions.length).toBeGreaterThan(0);
+    expect(partialRegions.map((region) => fitRegionSurface(partial, region)?.parameters.kind)).not.toContain('capsule');
+  });
+
+  it('rejects a smoothly distorted capsule cap instead of hiding its error', () => {
+    const distorted = capsule();
+    for (let index = 0; index < distorted.length; index += 3) if (distorted[index + 1] > 5) distorted[index] *= 1.3;
+    const regions = segmentMeshSurfaces(distorted, { smoothAngleDegrees: 80 }).regions;
+    expect(regions.map((region) => fitRegionSurface(distorted, region)?.parameters.kind)).not.toContain('capsule');
   });
 });

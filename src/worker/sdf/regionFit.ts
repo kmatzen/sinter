@@ -161,6 +161,14 @@ function capsuleCandidate(positions: Float32Array, points: Vec3[], region: MeshS
   const bandAxial = axial.filter((_, index) => radial[index] >= radius * 0.995);
   const curvedCount = radial.filter((value) => value < radius * 0.98).length;
   if (bandAxial.length < 4 || curvedCount < 3) return null;
+  const angularSeed: Vec3 = Math.abs(axis[0]) < 0.8 ? [1,0,0] : [0,1,0];
+  const angularU = unit(cross(axis, angularSeed))!, angularV = cross(axis, angularU);
+  const angles = points.filter((_, index) => radial[index] > radius * 0.5).map((point) => {
+    const delta = sub(point, center);
+    return (Math.atan2(dot(delta, angularV), dot(delta, angularU)) + 2 * Math.PI) % (2 * Math.PI);
+  }).sort((a, b) => a - b);
+  const largestGap = Math.max(...angles.map((angle, index) => ((angles[(index + 1) % angles.length] - angle + 2 * Math.PI) % (2 * Math.PI))));
+  if (!angles.length || largestGap > Math.PI / 2) return null;
   const bandMin = Math.min(...bandAxial), bandMax = Math.max(...bandAxial), axialCenter = (bandMin + bandMax) / 2;
   const segmentHalf = (bandMax - bandMin) / 2;
   if (!(radius > 1e-9) || segmentHalf <= radius * 0.05) return null;
