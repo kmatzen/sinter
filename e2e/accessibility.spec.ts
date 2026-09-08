@@ -37,6 +37,27 @@ test('representative keyboard modeling workflow is accessible', async ({ page })
   await expect(box).toHaveAttribute('aria-selected', 'true');
   await page.getByRole('textbox', { name: 'Width' }).fill('42');
   await page.keyboard.press('Enter');
+
+  // Save errors and export lifecycle are essential screen-reader feedback,
+  // not just toolbar behavior. Exercise them from the keyboard in the same
+  // representative workflow that axe audits.
+  await page.getByRole('textbox', { name: 'Project name' }).focus();
+  await page.keyboard.press('Control+s');
+  await expect(page.getByRole('alert')).toContainText('Sign in to save to cloud');
+  await page.getByRole('button', { name: 'Dismiss save error' }).press('Enter');
+
+  await page.getByRole('combobox', { name: 'Export resolution' }).selectOption('128');
+  const exportButton = page.getByRole('button', { name: 'Export STL' });
+  await expect(exportButton).toBeEnabled({ timeout: 30_000 });
+  await exportButton.press('Enter');
+  await expect(page.getByRole('progressbar', { name: 'Export progress' })).toBeVisible();
+  const exportDialog = page.getByRole('dialog', { name: 'Export Ready' });
+  await expect(exportDialog).toBeVisible({ timeout: 60_000 });
+  await expect(exportDialog.getByRole('button', { name: 'Cancel' })).toBeFocused();
+  await expectNoSeriousViolations(page);
+  await page.keyboard.press('Escape');
+  await expect(exportDialog).toBeHidden();
+
   await page.getByRole('button', { name: /keyboard shortcuts and accessibility help/i }).click();
   await expect(page.getByRole('dialog', { name: 'Keyboard Shortcuts' })).toBeVisible();
   await page.keyboard.press('Escape');
