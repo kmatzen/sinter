@@ -10,7 +10,7 @@ const instance = (x: number, key: string, radius = 2, polarity: 'add' | 'subtrac
 
 describe('regional pattern recovery', () => {
   it('recovers a deterministic equal-spaced linear pattern', () => {
-    const input = [instance(10, 'c'), instance(0, 'a'), instance(5, 'b')];
+    const input = [instance(10, 'c'), instance(0, 'a'), instance(5, 'b', 2 + 4e-8)];
     const pattern = recoverLinearPatterns(input)[0];
     expect(pattern.node).toMatchObject({ kind: 'linearPattern', axis: [1, 0, 0], count: 3, spacing: 5 });
     expect(pattern.regionKeys).toEqual(['a', 'b', 'c']);

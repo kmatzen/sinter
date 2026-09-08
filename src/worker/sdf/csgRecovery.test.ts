@@ -84,6 +84,22 @@ function tubeSoup(outer = 8, inner = 3, height = 10, segments = 32): Float32Arra
   return new Float32Array(triangles.flat(2));
 }
 
+function boxSoup(size: [number,number,number], center: [number,number,number] = [0,0,0]): Float32Array {
+  const vertices = [[-1,-1,-1],[1,-1,-1],[1,1,-1],[-1,1,-1],[-1,-1,1],[1,-1,1],[1,1,1],[-1,1,1]]
+    .map((point) => point.map((value, axis) => center[axis] + value * size[axis] / 2));
+  const faces = [[0,2,1],[0,3,2],[4,5,6],[4,6,7],[0,1,5],[0,5,4],[3,7,6],[3,6,2],[0,4,7],[0,7,3],[1,2,6],[1,6,5]];
+  return new Float32Array(faces.flatMap((face) => face.flatMap((index) => vertices[index])));
+}
+
+function cylinderSoup(radius: number, height: number, center: [number,number,number], segments = 32): Float32Array {
+  const triangles: number[][][] = [], point = (index: number, y: number) => [center[0] + radius * Math.cos(index * 2 * Math.PI / segments), center[1] + y, center[2] + radius * Math.sin(index * 2 * Math.PI / segments)];
+  for (let index = 0; index < segments; index++) {
+    const next = (index + 1) % segments, bottom = point(index,-height/2), nextBottom = point(next,-height/2), top = point(index,height/2), nextTop = point(next,height/2);
+    triangles.push([top,nextBottom,bottom],[top,nextTop,nextBottom], [[center[0],center[1]+height/2,center[2]],nextTop,top], [[center[0],center[1]-height/2,center[2]],bottom,nextBottom]);
+  }
+  return new Float32Array(triangles.flat(2));
+}
+
 describe('regional CSG evidence', () => {
   it('accepts an additive cylinder only when field occupancy corroborates it', () => {
     const field = fieldFor({ kind: 'cylinder', radius: 3, height: 10 });
@@ -181,6 +197,22 @@ describe('regional CSG evidence', () => {
     expect(result.acceptable, JSON.stringify(result)).toBe(true);
     expect(result.node.kind).toBe('union');
     expect(result.baseContributor?.regionKeys).toHaveLength(6);
+  });
+
+  it('recovers imported repeated standoffs as one editable linear pattern', () => {
+    const positions = new Float32Array([...boxSoup([20,2,20]), ...[-6,0,6].flatMap((x) => [...cylinderSoup(1.5,4,[x,5,0])])]);
+    const field = bakeMeshField(positions, 40), whole = fitPrimitive(field)!;
+    const segmentation = segmentMeshSurfaces(positions), fits = fitSegmentedSurfaces(positions, segmentation.regions).filter((fit) => fit !== null);
+    expect(segmentation.diagnostics).toEqual([]);
+    const primitives = recoverRegionalPrimitiveEvidence(field, fits), compressed = compressRegionalPatterns(primitives);
+    expect(primitives).toHaveLength(3);
+    expect(compressed.patterns).toEqual([expect.objectContaining({ pattern: 'linear', regionKeys: expect.any(Array), instanceResiduals: expect.any(Array) })]);
+    expect(compressed.patterns[0].regionKeys).toHaveLength(3);
+    expect(compressed.patterns[0].instanceResiduals).toHaveLength(3);
+    const planarBase = recoverPlanarBoxBase(fits)!;
+    const result = assembleBestRegionalCsgTree(field, [{ node: planarBase.node, contributor: planarBase }, { node: whole.node }], compressed.evidence)!;
+    expect(result.acceptable, JSON.stringify(result)).toBe(true);
+    expect(result.contributors).toEqual([expect.objectContaining({ polarity: 'add', regionKeys: expect.any(Array) })]);
   });
 
   it('rejects redundant evidence that does not improve the base', () => {

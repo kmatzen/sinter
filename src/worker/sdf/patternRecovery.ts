@@ -8,15 +8,19 @@ export interface RegionalPatternEvidence extends RegionalPrimitiveEvidence {
 
 interface PlacedPrimitive { evidence: RegionalPrimitiveEvidence; center: Vec3; shape: string }
 
+function canonicalShape(value: unknown): string {
+  return JSON.stringify(value, (_key, item) => typeof item === 'number' && Number.isFinite(item) ? Number(item.toPrecision(7)) : item);
+}
+
 function placedPrimitive(evidence: RegionalPrimitiveEvidence): PlacedPrimitive | null {
   const node = evidence.node;
   if (node.kind === 'transform') {
     const { tx, ty, tz, rx, ry, rz, sx, sy, sz, child } = node;
     if (!['box', 'sphere', 'cylinder', 'capsule'].includes(child.kind)) return null;
-    return { evidence, center: [tx, ty, tz], shape: JSON.stringify({ child, rx, ry, rz, sx, sy, sz }) };
+    return { evidence, center: [tx, ty, tz], shape: canonicalShape({ child, rx, ry, rz, sx, sy, sz }) };
   }
   if (!['box', 'sphere', 'cylinder', 'capsule'].includes(node.kind)) return null;
-  return { evidence, center: [0, 0, 0], shape: JSON.stringify(node) };
+  return { evidence, center: [0, 0, 0], shape: canonicalShape(node) };
 }
 
 const distance = (a: Vec3, b: Vec3) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
@@ -46,9 +50,8 @@ function patternResult(pattern: RegionalPatternEvidence['pattern'], node: SDFNod
   };
 }
 
-/** Detect exact-shape, equal-spacing sequences. Approximate primitive grouping
- * belongs upstream in regional fitting; pattern recovery must not hide
- * dimension drift by silently averaging unlike features. */
+/** Detect congruent, equal-spacing sequences. Shape keys discard only fitted
+ * floating-point noise; material dimension drift remains a distinct group. */
 export function recoverLinearPatterns(evidence: RegionalPrimitiveEvidence[], relativeTolerance = 1e-4): RegionalPatternEvidence[] {
   const patterns: RegionalPatternEvidence[] = [];
   for (const group of groupedPlaced(evidence)) {
