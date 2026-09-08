@@ -65,6 +65,15 @@ describe('regional pattern recovery', () => {
     expect(recoverMirrorPatterns(diagonal)).toEqual([]);
   });
 
+  it('recovers a mirror pair around an offset coordinate plane', () => {
+    const pattern = recoverMirrorPatterns([instance(2, 'left'), instance(8, 'right')])[0];
+    expect(pattern.node).toMatchObject({
+      kind: 'transform', tx: 5, ty: 0, tz: 0,
+      child: { kind: 'mirror', axes: [1,0,0], child: { kind: 'transform', tx: 3 } },
+    });
+    expect(pattern.regionKeys).toEqual(['left', 'right']);
+  });
+
   it('substitutes a maximal non-overlapping pattern set', () => {
     const line = [instance(0,'a'), instance(4,'b'), instance(8,'c')], unrelated = instance(30, 'solo', 3);
     const compressed = compressRegionalPatterns([...line, unrelated]);

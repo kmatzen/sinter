@@ -117,13 +117,19 @@ export function recoverMirrorPatterns(evidence: RegionalPrimitiveEvidence[], rel
     if (group.length !== 2) continue;
     const ordered = [...group].sort((a, b) => compareVec(a.center, b.center));
     const scaleValue = Math.max(1, ...ordered.flatMap((item) => item.center.map(Math.abs))), tolerance = scaleValue * relativeTolerance;
-    const mirrored = [0, 1, 2].filter((axis) => Math.abs(ordered[0].center[axis] + ordered[1].center[axis]) <= tolerance && Math.abs(ordered[0].center[axis]) > tolerance);
-    if (mirrored.length !== 1 || [0, 1, 2].some((axis) => axis !== mirrored[0] && Math.abs(ordered[0].center[axis] - ordered[1].center[axis]) > tolerance)) continue;
-    const source = ordered.find((item) => item.center[mirrored[0]] > 0)!;
+    const mirrored = [0, 1, 2].filter((axis) => Math.abs(ordered[0].center[axis] - ordered[1].center[axis]) > tolerance);
+    if (mirrored.length !== 1) continue;
+    const mirrorAxis = mirrored[0], plane = (ordered[0].center[mirrorAxis] + ordered[1].center[mirrorAxis]) / 2;
+    const source = ordered.find((item) => item.center[mirrorAxis] > plane)!;
     if (source.evidence.node.kind !== 'transform' || source.evidence.node.rx || source.evidence.node.ry || source.evidence.node.rz) continue;
-    const child = { ...source.evidence.node, tx: mirrored[0] === 0 ? Math.abs(source.evidence.node.tx) : source.evidence.node.tx, ty: mirrored[0] === 1 ? Math.abs(source.evidence.node.ty) : source.evidence.node.ty, tz: mirrored[0] === 2 ? Math.abs(source.evidence.node.tz) : source.evidence.node.tz };
-    const axes: Vec3 = [mirrored[0] === 0 ? 1 : 0, mirrored[0] === 1 ? 1 : 0, mirrored[0] === 2 ? 1 : 0];
-    patterns.push(patternResult('mirror', { kind: 'mirror', child, axes }, ordered));
+    const child = { ...source.evidence.node, tx: mirrorAxis === 0 ? source.evidence.node.tx - plane : source.evidence.node.tx, ty: mirrorAxis === 1 ? source.evidence.node.ty - plane : source.evidence.node.ty, tz: mirrorAxis === 2 ? source.evidence.node.tz - plane : source.evidence.node.tz };
+    const axes: Vec3 = [mirrorAxis === 0 ? 1 : 0, mirrorAxis === 1 ? 1 : 0, mirrorAxis === 2 ? 1 : 0];
+    const mirror: SDFNode = { kind: 'mirror', child, axes };
+    const translation: Vec3 = [mirrorAxis === 0 ? plane : 0, mirrorAxis === 1 ? plane : 0, mirrorAxis === 2 ? plane : 0];
+    const node: SDFNode = Math.abs(plane) > tolerance
+      ? { kind: 'transform', child: mirror, tx: translation[0], ty: translation[1], tz: translation[2], rx: 0, ry: 0, rz: 0, sx: 1, sy: 1, sz: 1 }
+      : mirror;
+    patterns.push(patternResult('mirror', node, ordered));
   }
   return patterns.sort((a, b) => a.regionKeys.join('/').localeCompare(b.regionKeys.join('/')));
 }
