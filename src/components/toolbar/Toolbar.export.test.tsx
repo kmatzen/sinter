@@ -39,6 +39,7 @@ import { useModelerStore } from '../../store/modelerStore';
 import { useViewportStore } from '../../store/viewportStore';
 import { useProjectStore } from '../../store/projectStore';
 import { useConfigurationStore } from '../../store/configurationStore';
+import { AppModals } from '../ui/AppModals';
 
 function deferred<T>() {
   let resolve!: (v: T) => void;
@@ -275,6 +276,20 @@ describe('Toolbar project versions', () => {
     expect(screen.getByText('Before experiment')).toBeInTheDocument();
     expect(screen.getByText(/10 newest versions/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Restore' })).toBeInTheDocument();
+  });
+});
+
+describe('Toolbar save status', () => {
+  afterEach(cleanup);
+
+  it('announces a successful explicit cloud save', async () => {
+    const save = vi.fn().mockResolvedValue(true);
+    useModelerStore.setState({ tree: BOX, evaluatedTree: BOX, sdfDisplay: DISPLAY as any, evaluating: false });
+    useProjectStore.setState({ projectId: 'cloud-id', provider: 'google', saving: false, lastSavedHash: '', save });
+    render(<><Toolbar /><AppModals /></>);
+    fireEvent.click(screen.getByTitle('Save to cloud'));
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Saved to cloud'));
+    expect(save).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -219,7 +219,9 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
     }
   };
 
-  const handleSaveCloud = async () => { await save(); };
+  const handleSaveCloud = async () => {
+    if (await save()) useModalStore.getState().showToast('Saved to cloud');
+  };
   const openConfigurations = () => { useConfigurationStore.getState().refreshBase(); setShowConfigurations(true); };
 
   useEffect(() => {
