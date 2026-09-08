@@ -26,6 +26,7 @@ Run the keyboard-only path above without using a pointer. For each combination, 
 
 | Date | OS | Browser | Screen reader | Version | Result | Findings/issues | Tester |
 | --- | --- | --- | --- | --- | --- | --- | --- |
+| 2026-09-07 | macOS 26.3 (25D125) | Safari 26.3 | VoiceOver | Built in | Partial | Named controls, node selection announcements, a 50→42 width edit, the signed-out save alert, Help focus entry/trapping/restoration, and Escape dismissal behaved correctly. Safari required Option+Tab because its system “Press Tab to highlight each item” preference was disabled. Export announcements and validation errors were not exercised before the session ended, so this is not a release-checklist pass. | kmatzen / Codex |
 | Pending | macOS | Safari | VoiceOver | — | Not run | Required before #146 closes | — |
 | Pending | Windows | Firefox | NVDA | — | Not run | Required before #146 closes | — |
 

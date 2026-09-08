@@ -880,7 +880,7 @@ function ExportPreview({ triangles, size, name, diagnostics, conformance, approx
           </div>
         </div>
         <div className="flex gap-2">
-          <button onClick={onCancel} className="flex-1 px-3 py-1.5 rounded text-[12px] font-medium tap-h"
+          <button autoFocus onClick={onCancel} className="flex-1 px-3 py-1.5 rounded text-[12px] font-medium tap-h"
                   style={{ background: 'var(--bg-elevated)', color: 'var(--text-secondary)', border: '1px solid var(--border-default)' }}>
             Cancel
           </button>
