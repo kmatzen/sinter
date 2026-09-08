@@ -35,7 +35,7 @@ export default defineConfig({
     {
       name: 'chromium',
       use: { browserName: 'chromium', launchOptions: localChromium },
-      testIgnore: [/viewport-golden\.spec\.ts/, /mobile\.spec\.ts/, /cross-browser\.spec\.ts/],
+      testIgnore: [/viewport-golden\.spec\.ts/, /mobile\.spec\.ts/, /cross-browser\.spec\.ts/, /ios-webkit-smoke\.spec\.ts/],
     },
     {
       /*

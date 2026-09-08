@@ -80,6 +80,13 @@ function transformSoup(source: Float32Array, degrees: [number, number, number], 
   return output;
 }
 
+function box(size: [number, number, number]): Float32Array {
+  const vertices = [[-1,-1,-1],[1,-1,-1],[1,1,-1],[-1,1,-1],[-1,-1,1],[1,-1,1],[1,1,1],[-1,1,1]]
+    .map((point) => point.map((value, axis) => value * size[axis] / 2));
+  const faces = [[0,2,1],[0,3,2],[4,5,6],[4,6,7],[0,1,5],[0,5,4],[3,7,6],[3,6,2],[0,4,7],[0,7,3],[1,2,6],[1,6,5]];
+  return new Float32Array(faces.flatMap((face) => face.flatMap((index) => vertices[index])));
+}
+
 function trianglesWhere(source: Float32Array, predicate: (triangle: Float32Array) => boolean): Float32Array {
   const kept: number[] = [];
   for (let index = 0; index < source.length; index += 9) {
@@ -95,8 +102,16 @@ describe('regional analytic surface fitting', () => {
     const region = segmentMeshSurfaces(positions).regions[0], fit = fitRegionSurface(positions, region)!;
     expect(fit.parameters.kind).toBe('plane');
     expect(fit.surfaceMax).toBeLessThan(1e-10);
+    expect(rankRegionSurfaceCandidates(positions, region).map((candidate) => candidate.parameters.kind)).toEqual(['plane']);
     expect(fit.triangleIds).toEqual(region.triangleIds);
     expect(fit.bounds).toEqual(region.bounds);
+  });
+
+  it('classifies every face of a non-cardinal rotated box as a plane', () => {
+    const positions = transformSoup(box([28, 17, 9]), [27, -19, 13], [3, -2, 4]);
+    const regions = segmentMeshSurfaces(positions).regions;
+    expect(regions).toHaveLength(6);
+    expect(regions.map((region) => fitRegionSurface(positions, region)?.parameters.kind)).toEqual(Array(6).fill('plane'));
   });
 
   it('fits a cylindrical wall independently of its open end boundaries', () => {

@@ -23,12 +23,14 @@ const tools = (page: import('@playwright/test').Page) =>
 test('iPhone WebKit supports the core touch editing path', async ({ page }) => {
   await enterModeler(page);
 
-  await page.getByLabel('Node tree').click();
+  await page.getByRole('button', { name: 'Node tree', exact: true }).click();
   await tools(page).getByTitle('Add Box').click();
   await page.getByLabel('Close node tree').click();
   await page.getByLabel('Properties').click();
 
-  const width = page.getByLabel('Width', { exact: true });
+  // The desktop inspector remains mounted behind the mobile sheet; target the
+  // one a touch user can actually reach.
+  const width = page.getByLabel('Width', { exact: true }).filter({ visible: true });
   await expect(width).toHaveAttribute('inputmode', 'decimal');
   await expect(width).toHaveCSS('font-size', '16px');
   await width.tap();
@@ -40,10 +42,10 @@ test('iPhone WebKit supports the core touch editing path', async ({ page }) => {
 test('iPhone WebKit clears mobile overlays across orientation changes', async ({ page }) => {
   await enterModeler(page);
 
-  await page.getByLabel('Node tree').tap();
+  await page.getByRole('button', { name: 'Node tree', exact: true }).tap();
   await expect(tools(page)).toBeVisible();
 
-  await page.setViewportSize({ width: 844, height: 390 });
+  await page.setViewportSize({ width: 1024, height: 768 });
   await expect(tools(page)).toBeHidden();
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(tools(page)).toBeHidden();

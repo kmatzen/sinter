@@ -147,6 +147,11 @@ function cylinderCandidate(positions: Float32Array, points: Vec3[], region: Mesh
   const origin = add(region.centroid, add(add(scale(basisU, circle[0]), scale(basisV, circle[1])), scale(axis, meanAxial)));
   const axial = points.map((point) => dot(sub(point, origin), axis));
   const distances = points.map((point) => { const delta = sub(point, origin), t = dot(delta, axis); return Math.abs(Math.hypot(...sub(delta, scale(axis, t))) - radius); });
+  // Four coplanar rectangle corners also admit an exact circle. Positions
+  // alone therefore make a planar quad look like an equally good cylindrical
+  // patch. Its facet normals do not point radially, so reject that accidental
+  // interpolation before ambiguity handling discards the valid plane fit.
+  if (normalAgreement(positions, region, (point) => { const delta = sub(point, origin); return sub(delta, scale(axis, dot(delta, axis))); }) < 0.98) return null;
   const outward = orientedNormalScore(positions, region, (point) => { const delta = sub(point, origin); return sub(delta, scale(axis, dot(delta, axis))); }) >= 0;
   return { parameters: { kind: 'cylinder', origin, axis, radius, axialMin: Math.min(...axial), axialMax: Math.max(...axial), outward }, ...residual(distances, diagonal) };
 }
@@ -194,7 +199,12 @@ export function rankRegionSurfaceCandidates(positions: Float32Array, region: Mes
   const points = pointsOf(positions, region); if (points.length < 3) return [];
   const diagonal = Math.hypot(region.bounds.max[0] - region.bounds.min[0], region.bounds.max[1] - region.bounds.min[1], region.bounds.max[2] - region.bounds.min[2]);
   if (!(diagonal > 0)) return [];
-  const candidates = [planeCandidate(points, region, diagonal), cylinderCandidate(positions, points, region, diagonal), sphereCandidate(positions, points, region, diagonal), capsuleCandidate(positions, points, region, diagonal)].filter((value): value is NonNullable<typeof value> => value !== null);
+  const plane = planeCandidate(points, region, diagonal);
+  // Prefer exact coplanarity supported by a constant normal field. Four
+  // rectangle corners can interpolate a circle exactly, but that algebraic
+  // coincidence is weaker evidence than every source facet sharing one normal.
+  if (plane && plane.relativeError <= 1e-6 && normalAgreement(positions, region, () => region.normal) >= 1 - 1e-8) return [plane];
+  const candidates = [plane, cylinderCandidate(positions, points, region, diagonal), sphereCandidate(positions, points, region, diagonal), capsuleCandidate(positions, points, region, diagonal)].filter((value): value is NonNullable<typeof value> => value !== null);
   candidates.sort((a, b) => a.surfaceRms - b.surfaceRms || ['plane','cylinder','sphere','capsule'].indexOf(a.parameters.kind) - ['plane','cylinder','sphere','capsule'].indexOf(b.parameters.kind));
   return candidates;
 }
