@@ -156,9 +156,13 @@ function capsuleCandidate(positions: Float32Array, points: Vec3[], region: MeshS
   const center = points.reduce((sum, point) => add(sum, scale(point, 1 / points.length)), [0,0,0] as Vec3);
   const axis = largestPrincipalAxis(points, center); if (!axis) return null;
   const axial = points.map((point) => dot(sub(point, center), axis));
-  const axialMin = Math.min(...axial), axialMax = Math.max(...axial), axialCenter = (axialMin + axialMax) / 2;
   const radial = points.map((point, index) => Math.hypot(...sub(sub(point, center), scale(axis, axial[index]))));
-  const radius = Math.max(...radial), segmentHalf = (axialMax - axialMin) / 2 - radius;
+  const radius = Math.max(...radial);
+  const bandAxial = axial.filter((_, index) => radial[index] >= radius * 0.995);
+  const curvedCount = radial.filter((value) => value < radius * 0.98).length;
+  if (bandAxial.length < 4 || curvedCount < 3) return null;
+  const bandMin = Math.min(...bandAxial), bandMax = Math.max(...bandAxial), axialCenter = (bandMin + bandMax) / 2;
+  const segmentHalf = (bandMax - bandMin) / 2;
   if (!(radius > 1e-9) || segmentHalf <= radius * 0.05) return null;
   const origin = add(center, scale(axis, axialCenter));
   const distances = points.map((point) => {

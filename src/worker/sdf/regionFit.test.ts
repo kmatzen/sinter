@@ -44,9 +44,9 @@ function reversedTriangles(source: Float32Array): Float32Array {
   return output;
 }
 
-function capsule(radius = 3, segmentHalf = 5, segments = 32, hemisphereSteps = 8): Float32Array {
+function capsule(radius = 3, segmentHalf = 5, segments = 32, hemisphereSteps = 8, includeBottom = true): Float32Array {
   const rings: number[][][] = [];
-  for (let step = 0; step <= hemisphereSteps; step++) {
+  for (let step = includeBottom ? 0 : hemisphereSteps; step <= hemisphereSteps; step++) {
     const angle = -Math.PI / 2 + step * Math.PI / (2 * hemisphereSteps);
     rings.push([...Array(segments)].map((_, index) => [radius * Math.cos(angle) * Math.cos(index * 2 * Math.PI / segments), -segmentHalf + radius * Math.sin(angle), radius * Math.cos(angle) * Math.sin(index * 2 * Math.PI / segments)]));
   }
@@ -58,7 +58,7 @@ function capsule(radius = 3, segmentHalf = 5, segments = 32, hemisphereSteps = 8
   const values: number[] = [];
   for (let ring = 0; ring < rings.length - 1; ring++) for (let index = 0; index < segments; index++) {
     const next = (index + 1) % segments, lower = rings[ring], upper = rings[ring + 1];
-    if (ring === 0) values.push(...tri(lower[0], upper[index], upper[next]));
+    if (ring === 0 && includeBottom) values.push(...tri(lower[0], upper[index], upper[next]));
     else if (ring === rings.length - 2) values.push(...tri(lower[index], upper[0], lower[next]));
     else values.push(...tri(lower[index], upper[index], upper[next]), ...tri(lower[index], upper[next], lower[next]));
   }
@@ -179,5 +179,17 @@ describe('regional analytic surface fitting', () => {
     }
     expect(first.relativeError).toBeLessThan(1e-4);
     expect(second.surfaceMax).toBeCloseTo(first.surfaceMax, 8);
+  });
+
+  it('infers the hidden cap of a capsule boss from its band and exposed cap', () => {
+    const positions = capsule(3, 5, 32, 8, false), region = segmentMeshSurfaces(positions).regions[0];
+    const fit = fitRegionSurface(positions, region)!;
+    expect(fit.parameters.kind).toBe('capsule');
+    if (fit.parameters.kind === 'capsule') {
+      expect(fit.parameters.radius).toBeCloseTo(3, 4);
+      expect(fit.parameters.axialMax - fit.parameters.axialMin).toBeCloseTo(16, 4);
+      expect(fit.parameters.origin).toEqual([expect.closeTo(0, 4), expect.closeTo(0, 4), expect.closeTo(0, 4)]);
+    }
+    expect(fit.relativeError).toBeLessThan(1e-4);
   });
 });

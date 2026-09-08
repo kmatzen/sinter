@@ -42,6 +42,31 @@ function boxBossSoup(half = 9, baseBottom = -2, baseTop = 2, bossRadius = 3, bos
   return new Float32Array(triangles.flat(2));
 }
 
+function boxCapsuleBossSoup(half = 9, baseBottom = -2, baseTop = 2, radius = 3, segmentTop = 8, segments = 32, capSteps = 8): Float32Array {
+  const triangles: number[][][] = [], center = (y: number) => [0, y, 0];
+  const ring = (radial: number, y: number) => [...Array(segments)].map((_, index) => [radial * Math.cos(index * 2 * Math.PI / segments), y, radial * Math.sin(index * 2 * Math.PI / segments)]);
+  const inner = ring(radius, baseTop);
+  const outer = [...Array(segments)].map((_, index) => {
+    const angle = index * 2 * Math.PI / segments, x = Math.cos(angle), z = Math.sin(angle), factor = half / Math.max(Math.abs(x), Math.abs(z));
+    return [x * factor, baseTop, z * factor];
+  });
+  for (let index = 0; index < segments; index++) {
+    const next = (index + 1) % segments, ob = [...outer[index]]; ob[1] = baseBottom; const onb = [...outer[next]]; onb[1] = baseBottom;
+    triangles.push([center(baseBottom), ob, onb], [ob, outer[index], outer[next]], [ob, outer[next], onb], [outer[index], inner[next], outer[next]], [outer[index], inner[index], inner[next]]);
+  }
+  const capsuleRings = [inner, ring(radius, segmentTop)];
+  for (let step = 1; step <= capSteps; step++) {
+    const angle = step * Math.PI / (2 * capSteps);
+    capsuleRings.push(ring(radius * Math.cos(angle), segmentTop + radius * Math.sin(angle)));
+  }
+  for (let level = 0; level < capsuleRings.length - 1; level++) for (let index = 0; index < segments; index++) {
+    const next = (index + 1) % segments, lower = capsuleRings[level], upper = capsuleRings[level + 1];
+    if (level === capsuleRings.length - 2) triangles.push([lower[index], upper[0], lower[next]]);
+    else triangles.push([lower[index], upper[index], upper[next]], [lower[index], upper[next], lower[next]]);
+  }
+  return new Float32Array(triangles.flat(2));
+}
+
 const cylinderFit = (outward: boolean): MeshRegionSurfaceFit => ({
   regionKey: 'cylinder-wall', triangleIds: [0, 1], bounds: { min: [-3,-5,-3], max: [3,5,3] },
   parameters: { kind: 'cylinder', origin: [0,0,0], axis: [0,1,0], radius: 3, axialMin: -5, axialMax: 5, outward },
@@ -141,6 +166,21 @@ describe('regional CSG evidence', () => {
     expect(result!.node.kind).toBe('union');
     expect(result!.contributors.some((candidate) => candidate.polarity === 'add')).toBe(true);
     expect(result!.baseContributor).toEqual(expect.objectContaining({ regionKeys: expect.any(Array), surfaceMax: expect.any(Number), surfaceRms: expect.any(Number) }));
+  });
+
+  it('recovers a capsule boss with its hidden cap through the imported-mesh pipeline', () => {
+    const positions = boxCapsuleBossSoup(), field = bakeMeshField(positions, 40), whole = fitPrimitive(field)!;
+    const segmentation = segmentMeshSurfaces(positions), fits = fitSegmentedSurfaces(positions, segmentation.regions).filter((fit) => fit !== null);
+    expect(segmentation.diagnostics).toEqual([]);
+    expect(segmentation.regions).toHaveLength(7);
+    expect(fits.map((fit) => fit.parameters.kind).sort()).toEqual(['capsule', ...Array(6).fill('plane')]);
+    const evidence = recoverRegionalPrimitiveEvidence(field, fits);
+    expect(evidence).toEqual([expect.objectContaining({ polarity: 'add', node: expect.objectContaining({ kind: 'transform', child: expect.objectContaining({ kind: 'capsule' }) }) })]);
+    const planarBase = recoverPlanarBoxBase(fits)!;
+    const result = assembleBestRegionalCsgTree(field, [{ node: planarBase.node, contributor: planarBase }, { node: whole.node }], evidence)!;
+    expect(result.acceptable, JSON.stringify(result)).toBe(true);
+    expect(result.node.kind).toBe('union');
+    expect(result.baseContributor?.regionKeys).toHaveLength(6);
   });
 
   it('rejects redundant evidence that does not improve the base', () => {
