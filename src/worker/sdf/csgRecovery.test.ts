@@ -116,6 +116,10 @@ describe('regional CSG evidence', () => {
   it('recovers a box-with-boss tree through the imported-mesh pipeline', () => {
     const positions = boxBossSoup(), field = bakeMeshField(positions, 40), whole = fitPrimitive(field)!;
     const segmentation = segmentMeshSurfaces(positions), fits = fitSegmentedSurfaces(positions, segmentation.regions).filter((fit) => fit !== null);
+    expect(segmentation.diagnostics).toEqual([]);
+    expect(segmentation.regions).toHaveLength(8);
+    expect(segmentation.regions.flatMap((region) => region.triangleIds).sort((a, b) => a - b)).toEqual([...Array(positions.length / 9).keys()]);
+    expect(fits.map((fit) => fit.parameters.kind).sort()).toEqual(['cylinder', ...Array(7).fill('plane')]);
     const evidence = compressRegionalPatterns(recoverRegionalPrimitiveEvidence(field, fits)).evidence;
     const planarBase = recoverPlanarBoxBase(fits)!;
     expect(planarBase.node).toMatchObject({ kind: 'box', size: [18, 4, 18] });

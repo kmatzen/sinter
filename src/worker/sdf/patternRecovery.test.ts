@@ -73,4 +73,18 @@ describe('regional pattern recovery', () => {
     expect(compressed.evidence).toHaveLength(2);
     expect(compressed.evidence.flatMap((candidate) => candidate.regionKeys).sort()).toEqual(['a','b','c','solo']);
   });
+
+  it('keeps circular and mirror recovery invariant under candidate ordering', () => {
+    const circular = [...Array(4)].map((_, index) => {
+      const angle = index * Math.PI / 2, source = instance(0, `c${index}`);
+      return { ...source, node: { ...source.node, tx: 2 + 5 * Math.cos(angle), ty: 3, tz: -4 + 5 * Math.sin(angle) } } as RegionalPrimitiveEvidence;
+    });
+    const mirror = [instance(-7, 'left'), instance(7, 'right')];
+    const expectedCircular = JSON.stringify(recoverCircularPatterns(circular));
+    const expectedMirror = JSON.stringify(recoverMirrorPatterns(mirror));
+    fc.assert(fc.property(fc.shuffledSubarray([0,1,2,3], { minLength: 4, maxLength: 4 }), (order) =>
+      JSON.stringify(recoverCircularPatterns(order.map((index) => circular[index]))) === expectedCircular
+    ), { numRuns: 100 });
+    expect(JSON.stringify(recoverMirrorPatterns([...mirror].reverse()))).toBe(expectedMirror);
+  });
 });
