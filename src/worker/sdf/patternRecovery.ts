@@ -114,15 +114,32 @@ export function recoverCircularPatterns(evidence: RegionalPrimitiveEvidence[], r
 export function recoverMirrorPatterns(evidence: RegionalPrimitiveEvidence[], relativeTolerance = 1e-4): RegionalPatternEvidence[] {
   const patterns: RegionalPatternEvidence[] = [];
   for (const group of groupedPlaced(evidence)) {
-    if (group.length !== 2) continue;
+    if (group.length < 2 || group.length % 2 !== 0) continue;
     const ordered = [...group].sort((a, b) => compareVec(a.center, b.center));
     const scaleValue = Math.max(1, ...ordered.flatMap((item) => item.center.map(Math.abs))), tolerance = scaleValue * relativeTolerance;
-    const mirrored = [0, 1, 2].filter((axis) => Math.abs(ordered[0].center[axis] - ordered[1].center[axis]) > tolerance);
-    if (mirrored.length !== 1) continue;
-    const mirrorAxis = mirrored[0], plane = (ordered[0].center[mirrorAxis] + ordered[1].center[mirrorAxis]) / 2;
-    const source = ordered.find((item) => item.center[mirrorAxis] > plane)!;
-    if (source.evidence.node.kind !== 'transform' || source.evidence.node.rx || source.evidence.node.ry || source.evidence.node.rz) continue;
-    const child = { ...source.evidence.node, tx: mirrorAxis === 0 ? source.evidence.node.tx - plane : source.evidence.node.tx, ty: mirrorAxis === 1 ? source.evidence.node.ty - plane : source.evidence.node.ty, tz: mirrorAxis === 2 ? source.evidence.node.tz - plane : source.evidence.node.tz };
+    const symmetries = [0,1,2].map((axis) => {
+      const coordinates = ordered.map((item) => item.center[axis]), plane = (Math.min(...coordinates) + Math.max(...coordinates)) / 2;
+      if (ordered.some((item) => Math.abs(item.center[axis] - plane) <= tolerance)) return null;
+      const unused = new Set(ordered), pairs: Array<[PlacedPrimitive, PlacedPrimitive]> = [];
+      for (const item of ordered) {
+        if (!unused.has(item)) continue;
+        const counterpart = [...unused].find((candidate) => candidate !== item && [0,1,2].every((coordinate) => coordinate === axis
+          ? Math.abs(item.center[coordinate] + candidate.center[coordinate] - 2 * plane) <= tolerance
+          : Math.abs(item.center[coordinate] - candidate.center[coordinate]) <= tolerance));
+        if (!counterpart) return null;
+        unused.delete(item); unused.delete(counterpart); pairs.push([item, counterpart]);
+      }
+      return { axis, plane, pairs };
+    }).filter((value): value is NonNullable<typeof value> => value !== null);
+    if (symmetries.length !== 1) continue;
+    const { axis: mirrorAxis, plane, pairs } = symmetries[0];
+    const sources = pairs.map((pair) => pair.find((item) => item.center[mirrorAxis] > plane)!).sort((a, b) => compareVec(a.center, b.center));
+    if (sources.some((source) => source.evidence.node.kind !== 'transform' || source.evidence.node.rx || source.evidence.node.ry || source.evidence.node.rz)) continue;
+    const shifted = sources.map((source) => {
+      const node = source.evidence.node as Extract<SDFNode, { kind: 'transform' }>;
+      return { ...node, tx: mirrorAxis === 0 ? node.tx - plane : node.tx, ty: mirrorAxis === 1 ? node.ty - plane : node.ty, tz: mirrorAxis === 2 ? node.tz - plane : node.tz } as SDFNode;
+    });
+    const child = shifted.slice(1).reduce<SDFNode>((node, next) => ({ kind: 'union', a: node, b: next, k: 0 }), shifted[0]);
     const axes: Vec3 = [mirrorAxis === 0 ? 1 : 0, mirrorAxis === 1 ? 1 : 0, mirrorAxis === 2 ? 1 : 0];
     const mirror: SDFNode = { kind: 'mirror', child, axes };
     const translation: Vec3 = [mirrorAxis === 0 ? plane : 0, mirrorAxis === 1 ? plane : 0, mirrorAxis === 2 ? plane : 0];

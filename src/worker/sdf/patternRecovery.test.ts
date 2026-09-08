@@ -74,6 +74,22 @@ describe('regional pattern recovery', () => {
     expect(pattern.regionKeys).toEqual(['left', 'right']);
   });
 
+  it('recovers an unambiguous reflected group and rejects multi-axis symmetry', () => {
+    const reflected = [0,4,9].flatMap((z, index) => [-3,7].map((x, side) => {
+      const source = instance(x, `${index}-${side}`);
+      return { ...source, node: { ...source.node, tz: z } } as RegionalPrimitiveEvidence;
+    }));
+    const pattern = recoverMirrorPatterns(reflected)[0];
+    expect(pattern.regionKeys).toHaveLength(6);
+    expect(pattern.node).toMatchObject({ kind: 'transform', tx: 2, child: { kind: 'mirror', axes: [1,0,0], child: { kind: 'union' } } });
+
+    const rectangle = [[-3,-4],[-3,4],[3,-4],[3,4]].map(([x,z], index) => {
+      const source = instance(x, `rectangle-${index}`);
+      return { ...source, node: { ...source.node, tz: z } } as RegionalPrimitiveEvidence;
+    });
+    expect(recoverMirrorPatterns(rectangle)).toEqual([]);
+  });
+
   it('substitutes a maximal non-overlapping pattern set', () => {
     const line = [instance(0,'a'), instance(4,'b'), instance(8,'c')], unrelated = instance(30, 'solo', 3);
     const compressed = compressRegionalPatterns([...line, unrelated]);

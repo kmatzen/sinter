@@ -232,6 +232,7 @@ describe('regional CSG evidence', () => {
   it.each([
     ['circular', [[6,0], [0,6], [-6,0], [0,-6]]],
     ['mirror', [[2,0], [8,0]]],
+    ['mirror', [[-3,0], [7,0], [-3,4], [7,4], [-3,9], [7,9]]],
   ] as const)('validates a compressed %s pattern against the complete field', (pattern, centers) => {
     const base: SDFNode = { kind: 'box', size: [20, 2, 20] };
     const explicit = centers.map(([x, z], index): RegionalPrimitiveEvidence => ({
