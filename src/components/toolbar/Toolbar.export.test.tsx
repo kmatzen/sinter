@@ -293,6 +293,26 @@ describe('named configuration batch export', () => {
   });
   afterEach(cleanup);
 
+  it('traps focus in the dialog, closes on Escape, and restores its opener', async () => {
+    render(<Toolbar />);
+    const opener = screen.getByTitle('Configurations');
+    opener.focus();
+    fireEvent.click(opener);
+    const close = screen.getByRole('button', { name: 'Close configurations' });
+    await waitFor(() => expect(close).toHaveFocus());
+
+    const last = screen.getByRole('button', { name: 'Export all 3MF' });
+    last.focus();
+    fireEvent.keyDown(document, { key: 'Tab' });
+    expect(close).toHaveFocus();
+    fireEvent.keyDown(document, { key: 'Tab', shiftKey: true });
+    expect(last).toHaveFocus();
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Named configurations' })).not.toBeInTheDocument());
+    expect(opener).toHaveFocus();
+  });
+
   it('resolves and downloads every variant sequentially with deterministic names', async () => {
     exportSTL.mockResolvedValue(artifact(100, 4));
     render(<Toolbar />);

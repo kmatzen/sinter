@@ -634,14 +634,14 @@ function ConfigurationsDialog({ exporting, onBatchExport, onClose }: { exporting
   const activeId = useConfigurationStore((state) => state.activeId);
   const baseParameters = useConfigurationStore((state) => state.baseParameters);
   const { add, duplicate, remove, rename, move, setOverride, activate } = useConfigurationStore.getState();
-  const closeRef = useRef<HTMLButtonElement>(null);
-  useDialogFocus(closeRef, onClose);
+  const surface = useRef<HTMLDivElement>(null);
+  useDialogFocus(surface, onClose);
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3" style={{ background: 'rgba(0,0,0,.55)' }} role="dialog" aria-modal="true" aria-labelledby="configurations-title">
+    <div ref={surface} className="fixed inset-0 z-50 flex items-center justify-center p-3" style={{ background: 'rgba(0,0,0,.55)' }} role="dialog" aria-modal="true" aria-labelledby="configurations-title">
       <div className="rounded-lg w-full max-w-3xl max-h-[90vh] overflow-y-auto p-4" style={{ background: 'var(--bg-panel)', border: '1px solid var(--border-default)' }}>
         <div className="flex items-center justify-between gap-3 mb-3">
           <div><h2 id="configurations-title" className="text-sm font-semibold">Named configurations</h2><p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>Variants override parameters without duplicating the model tree.</p></div>
-          <button ref={closeRef} onClick={onClose} className="rounded px-2 py-1 text-sm" aria-label="Close configurations">Close</button>
+          <button onClick={onClose} className="rounded px-2 py-1 text-sm" aria-label="Close configurations">Close</button>
         </div>
         {!baseParameters.length && <p className="text-sm rounded p-3" style={{ background: 'var(--bg-elevated)', color: 'var(--text-muted)' }}>Promote model dimensions to named parameters before creating configurations.</p>}
         <div className="space-y-2">
