@@ -20,3 +20,9 @@ Before a production release that changes touch, viewport, storage, workers, or d
 6. Open and close AI chat, help, Projects, and Settings.
 
 Record device, OS, Safari version, date, and findings here for each release. A real-device record is still required before issue #162 can close; WebKit automation is not evidence of iOS touch, virtual-keyboard, or Files integration.
+
+| Date | Device | OS | Safari | Result | Findings/issues | Tester |
+| --- | --- | --- | --- | --- | --- | --- |
+| Pending | iPhone or iPad | Current supported iOS/iPadOS | Current | Not run | Required before #162 closes | — |
+
+A pass requires all six checklist steps above. Use `Not run`, `Pass`, or `Fail` in Result; a failure must link the follow-up issue so the record remains auditable.

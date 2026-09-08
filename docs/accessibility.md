@@ -20,4 +20,13 @@ Tree action buttons provide keyboard alternatives to drag-and-drop for moving, d
 - Semantic review: modal focus trapping/restoration, live status regions, tree semantics, accessible names, visible focus, and reduced-motion behavior were reviewed in code and component tests.
 - Manual screen reader: VoiceOver + Safari and NVDA + Firefox remain a release checklist item because those assistive technologies are not available in the headless CI environment. Any findings must be recorded here before #146 is closed.
 
+### Manual screen-reader checklist
+
+Run the keyboard-only path above without using a pointer. For each combination, record whether focus order and announcements are correct for node creation and selection, property edits, save state, export progress/completion, validation errors, and opening/closing Help. Record every serious or critical finding as an issue before marking the run passed.
+
+| Date | OS | Browser | Screen reader | Version | Result | Findings/issues | Tester |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Pending | macOS | Safari | VoiceOver | — | Not run | Required before #146 closes | — |
+| Pending | Windows | Firefox | NVDA | — | Not run | Required before #146 closes | — |
+
 Known limitation: exact 3D shape inspection is visual. Sinter exposes node names, parameters, dimensions, validation state, and operations in DOM controls, but does not attempt to translate the rendered canvas surface into a tactile or spatial screen-reader representation.
