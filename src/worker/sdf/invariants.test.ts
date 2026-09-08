@@ -55,6 +55,24 @@ describe('invariant: computeBounds contains all solid', () => {
       { numRuns: RUNS },
     );
   });
+
+  it('contains a rounded draft at a non-zero angle', () => {
+    const tree: SDFNode = {
+      kind: 'round', radius: 0.6206054687499934,
+      child: {
+        kind: 'draft', axis: 'x', angle: 26.10146616427167, reference: 0,
+        child: {
+          kind: 'extrude', depth: 1, zMin: 0, zMax: 1, taper: 26.10146616427167,
+          plane: 'xy', wallThickness: 0,
+          profile: { outer: [[-2, -2], [2, -2], [2, 2], [-2, 2]], holes: [] },
+        },
+      },
+    };
+    const bounds = computeBounds(tree);
+    // The outer round reads a non-zero level set of the normalized draft
+    // field. Its bounds must include the draft slope in that level-set scale.
+    expect(evaluateSDF(tree, [2, bounds.max[1] + 1e-4, 0.5])).toBeGreaterThanOrEqual(0);
+  });
 });
 
 describe('invariant: the reported distance is a valid clearance (ball property)', () => {

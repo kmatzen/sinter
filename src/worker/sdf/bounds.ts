@@ -338,7 +338,12 @@ export function fieldScale(node: SDFNode): number {
       return fieldScale(node.child) * MODIFIER_DISTANCE_SAFETY;
     case 'draft':
       if (Math.abs(node.angle) <= SDF_PARAM_EPSILON) return fieldScale(node.child);
-      return fieldScale(node.child) * MODIFIER_DISTANCE_SAFETY;
+      // evaluate.ts normalizes the combined child/linear field by the length
+      // of its draft slope. Preserve that correction here: outer modifiers
+      // use fieldScale() to turn their level-set distance into a conservative
+      // bounds expansion, and otherwise a round/offset can escape the box.
+      return fieldScale(node.child) * MODIFIER_DISTANCE_SAFETY *
+        Math.hypot(1, Math.tan(node.angle * Math.PI / 180));
     case 'twist': {
       if (Math.abs(node.angle) <= SDF_PARAM_EPSILON) return fieldScale(node.child);
       const bounds = computeBounds(node.child);
