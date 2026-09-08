@@ -101,6 +101,34 @@ function boxBossSTL(half = 9, baseBottom = -2, baseTop = 2, bossRadius = 3, boss
   return buffer;
 }
 
+function boxCapsuleBossSTL(half = 9, baseBottom = -2, baseTop = 2, radius = 3, segmentTop = 8, segments = 32, capSteps = 8): Buffer {
+  const triangles: number[][][] = [], center = (y: number) => [0, y, 0];
+  const ring = (radial: number, y: number) => [...Array(segments)].map((_, index) => [radial * Math.cos(index * 2 * Math.PI / segments), y, radial * Math.sin(index * 2 * Math.PI / segments)]);
+  const inner = ring(radius, baseTop);
+  const outer = [...Array(segments)].map((_, index) => {
+    const angle = index * 2 * Math.PI / segments, x = Math.cos(angle), z = Math.sin(angle), factor = half / Math.max(Math.abs(x), Math.abs(z));
+    return [x * factor, baseTop, z * factor];
+  });
+  for (let index = 0; index < segments; index++) {
+    const next = (index + 1) % segments, ob = [...outer[index]]; ob[1] = baseBottom; const onb = [...outer[next]]; onb[1] = baseBottom;
+    triangles.push([center(baseBottom), ob, onb], [ob, outer[index], outer[next]], [ob, outer[next], onb], [outer[index], inner[next], outer[next]], [outer[index], inner[index], inner[next]]);
+  }
+  const capsuleRings = [inner, ring(radius, segmentTop)];
+  for (let step = 1; step <= capSteps; step++) {
+    const angle = step * Math.PI / (2 * capSteps);
+    capsuleRings.push(ring(radius * Math.cos(angle), segmentTop + radius * Math.sin(angle)));
+  }
+  for (let level = 0; level < capsuleRings.length - 1; level++) for (let index = 0; index < segments; index++) {
+    const next = (index + 1) % segments, lower = capsuleRings[level], upper = capsuleRings[level + 1];
+    if (level === capsuleRings.length - 2) triangles.push([lower[index], upper[0], lower[next]]);
+    else triangles.push([lower[index], upper[index], upper[next]], [lower[index], upper[next], lower[next]]);
+  }
+  const buffer = Buffer.alloc(84 + triangles.length * 50); buffer.writeUInt32LE(triangles.length, 80);
+  let offset = 84;
+  for (const triangle of triangles) { offset += 12; for (const vertex of triangle) { for (let axis = 0; axis < 3; axis++) buffer.writeFloatLE(vertex[axis], offset + axis * 4); offset += 12; } offset += 2; }
+  return buffer;
+}
+
 async function enterModeler(page: Page) {
   await page.goto('/', { waitUntil: 'domcontentloaded' });
   const accept = page.locator('button:has-text("Accept")');
@@ -202,6 +230,22 @@ test.describe('Fit a primitive to an imported mesh', () => {
     await expect(replace).toBeVisible({ timeout: PRECONDITION_TIMEOUT });
     await replace.click();
     await expect.poll(() => page.evaluate(() => (window as any).__MODELER_STORE__.tree?.kind), { timeout: 20_000 }).toBe('union');
+    await page.waitForFunction(() => !(window as any).__MODELER_STORE__?.evaluating, null, { timeout: PRECONDITION_TIMEOUT });
+    expect(await page.evaluate(() => (window as any).__MODELER_STORE__.error)).toBeFalsy();
+  });
+
+  test('recovers a capsule boss whose lower cap is hidden by its base', async ({ page }) => {
+    await enterModeler(page);
+    await importAndSelect(page, boxCapsuleBossSTL());
+    await page.getByRole('button', { name: 'Find best primitive' }).click();
+    await expect(page.getByText('Verified 1 regional primitive candidate against mesh occupancy.')).toBeVisible({ timeout: PRECONDITION_TIMEOUT });
+    const replace = page.getByRole('button', { name: 'Replace with recovered CSG' });
+    await expect(replace).toBeVisible({ timeout: PRECONDITION_TIMEOUT });
+    await replace.click();
+    await expect.poll(() => page.evaluate(() => {
+      const kinds: string[] = [], walk = (node: any) => { if (!node) return; kinds.push(node.kind); (node.children ?? []).forEach(walk); };
+      walk((window as any).__MODELER_STORE__.tree); return kinds;
+    }), { timeout: 20_000 }).toEqual(expect.arrayContaining(['union', 'capsule']));
     await page.waitForFunction(() => !(window as any).__MODELER_STORE__?.evaluating, null, { timeout: PRECONDITION_TIMEOUT });
     expect(await page.evaluate(() => (window as any).__MODELER_STORE__.error)).toBeFalsy();
   });
