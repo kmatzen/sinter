@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useMemo } from 'react';
+import { memo, useState, useRef, useEffect, useMemo } from 'react';
 import { useModelerStore } from '../../store/modelerStore';
 import { useViewportStore } from '../../store/viewportStore';
 import { useTreeUiStore } from '../../store/treeUiStore';
@@ -27,12 +27,35 @@ interface Props {
   groupNames?: string[];
 }
 
-export function TreeNode({ node, depth, isLast = true, incompleteIds: incompleteIdsProp, forceExpanded = false, groupNames: groupNamesProp }: Props) {
+function sameSet(a: Set<string>, b: Set<string>): boolean {
+  if (a.size !== b.size) return false;
+  for (const value of a) if (!b.has(value)) return false;
+  return true;
+}
+
+function useStableSet(value: Set<string>): Set<string> {
+  const stable = useRef(value);
+  if (!sameSet(stable.current, value)) stable.current = value;
+  return stable.current;
+}
+
+function useStableStrings(value: string[]): string[] {
+  const stable = useRef(value);
+  if (stable.current.length !== value.length || stable.current.some((item, index) => item !== value[index])) {
+    stable.current = value;
+  }
+  return stable.current;
+}
+
+export const TreeNode = memo(function TreeNode({ node, depth, isLast = true, incompleteIds: incompleteIdsProp, forceExpanded = false, groupNames: groupNamesProp }: Props) {
   // Only subscribe to tree at the root level (when incompleteIdsProp is not provided)
   const tree = useModelerStore((s) => incompleteIdsProp ? null : s.tree);
-  const selectedId = useModelerStore((s) => s.selectedNodeId);
-  const selectedIds = useModelerStore((s) => s.selectedNodeIds);
-  const expandedNodes = useModelerStore((s) => s.expandedNodes);
+  // Subscribe to row-local booleans. Selecting or expanding one item should
+  // not notify every visible row through a shared array/Set identity change.
+  const isPrimary = useModelerStore((s) => s.selectedNodeId === node.id);
+  const rootHasSelection = useModelerStore((s) => depth === 0 && s.selectedNodeId !== null);
+  const isSelected = useModelerStore((s) => s.selectedNodeIds.includes(node.id));
+  const isExplicitlyExpanded = useModelerStore((s) => s.expandedNodes.has(node.id));
   const selectNode = useModelerStore((s) => s.selectNode);
   const toggleExpanded = useModelerStore((s) => s.toggleExpanded);
   const toggleNode = useModelerStore((s) => s.toggleNode);
@@ -60,27 +83,28 @@ export function TreeNode({ node, depth, isLast = true, incompleteIds: incomplete
   const actionsRef = useRef<HTMLDetailsElement>(null);
 
   // Compute incomplete IDs once at the root, pass down to children
-  const incompleteIds = useMemo(
+  const computedIncompleteIds = useMemo(
     () => incompleteIdsProp ?? incompleteNodeIds(tree),
     [incompleteIdsProp, tree],
   );
+  // Numeric edits replace the root path but do not normally change structural
+  // completeness. Preserve identity so memoized sibling rows can bail out.
+  const incompleteIds = useStableSet(computedIncompleteIds);
   const isIncomplete = node.enabled && incompleteIds.has(node.id);
   const isMoving = movingNodeId === node.id;
   const isMoveTarget = !!movingNodeId && !isMoving;
 
   const rowRef = useRef<HTMLDivElement>(null);
-  const isSelected = selectedIds.includes(node.id);
-  const isPrimary = selectedId === node.id;
   const expected = expectedChildren(node.kind);
   const hasChildren = node.children.length > 0 || expected > 0;
-  const isExpanded = forceExpanded || expandedNodes.has(node.id) || isIncomplete;
+  const isExpanded = forceExpanded || isExplicitlyExpanded || isIncomplete;
   const missingSlots = Math.max(0, expected - node.children.length);
   const summary = nodeSummary(node);
   const color = KIND_COLORS[node.kind] || '#888';
   const kindLabel = NODE_LABELS[node.kind] || node.kind;
   const displayLabel = node.label || kindLabel;
   const accessibleLabel = displayLabel === kindLabel ? kindLabel : `${displayLabel}, ${kindLabel}`;
-  const groupNames = useMemo(() => {
+  const computedGroupNames = useMemo(() => {
     if (groupNamesProp) return groupNamesProp;
     const names = new Set<string>();
     const visit = (current: SDFNodeUI | null) => {
@@ -91,6 +115,7 @@ export function TreeNode({ node, depth, isLast = true, incompleteIds: incomplete
     visit(tree ?? node);
     return [...names].sort((a, b) => a.localeCompare(b));
   }, [groupNamesProp, tree, node]);
+  const groupNames = useStableStrings(computedGroupNames);
   const visualDepth = Math.min(depth, MAX_VISUAL_DEPTH);
   const leftPad = visualDepth * INDENT + 6;
 
@@ -134,7 +159,7 @@ export function TreeNode({ node, depth, isLast = true, incompleteIds: incomplete
       <div
         ref={rowRef}
         role="treeitem"
-        tabIndex={isPrimary || (!selectedId && depth === 0) ? 0 : -1}
+        tabIndex={isPrimary || (!rootHasSelection && depth === 0) ? 0 : -1}
         aria-selected={isSelected}
         aria-expanded={hasChildren ? isExpanded : undefined}
         aria-label={`${accessibleLabel}${isIncomplete ? ', incomplete' : ''}${node.enabled ? '' : ', disabled'}${isLocked ? ', locked' : ''}${isHidden ? ', hidden in viewport' : ''}${isolatedNodeId === node.id ? ', isolated' : ''}`}
@@ -379,7 +404,7 @@ export function TreeNode({ node, depth, isLast = true, incompleteIds: incomplete
       )}
     </div>
   );
-}
+});
 
 function PlaceholderSlot({ parentId, depth, isLast, urgent }: { parentId: string; depth: number; isLast: boolean; urgent?: boolean }) {
   const moveNode = useModelerStore((s) => s.moveNode);
