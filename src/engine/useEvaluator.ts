@@ -197,8 +197,26 @@ export function useEvaluator() {
       }, 0); // Immediate — codegen is <1ms
     }
 
-    const unsub1 = useModelerStore.subscribe(() => triggerEval());
-    const unsub2 = useTreeUiStore.subscribe(() => triggerEval());
+    const unsub1 = useModelerStore.subscribe((state, previous) => {
+      // Evaluation publishes sdfDisplay/evaluating/error back into this same
+      // store. Waking for those writes used to walk the complete model again
+      // (viewport projection + hot-path discovery) only to hit the identity
+      // guard above. On large documents that redundant O(nodes) work happened
+      // twice for every accepted edit and competed directly with pointer input.
+      if (
+        state.tree !== previous.tree ||
+        state.selectedNodeId !== previous.selectedNodeId ||
+        state.selectedNodeIds !== previous.selectedNodeIds
+      ) triggerEval();
+    });
+    const unsub2 = useTreeUiStore.subscribe((state, previous) => {
+      // Lock and move-mode are editor concerns. Only visibility changes alter
+      // the tree projected into the viewport worker.
+      if (
+        state.hiddenNodeIds !== previous.hiddenNodeIds ||
+        state.isolatedNodeId !== previous.isolatedNodeId
+      ) triggerEval();
+    });
     const unsub3 = useViewportStore.subscribe((state, previous) => {
       if (previous.dragging && !state.dragging) triggerEval(true);
     });

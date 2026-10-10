@@ -21,6 +21,25 @@ export function interactivePixelRatio(full: number, paramCount: number): number 
   return Math.min(full, target);
 }
 
+type ViewportSnapshot = ReturnType<typeof useViewportStore.getState>;
+
+/** Whether a viewport-store write can change pixels in the WebGL canvas. */
+export function viewportChangeAffectsCanvas(state: ViewportSnapshot, previous: ViewportSnapshot): boolean {
+  return state.projection !== previous.projection ||
+    state.dragging !== previous.dragging ||
+    state.gizmoMode !== previous.gizmoMode ||
+    state.gizmoSpace !== previous.gizmoSpace ||
+    state.gizmoPivot !== previous.gizmoPivot ||
+    state.customPivot !== previous.customPivot ||
+    state.snapEnabled !== previous.snapEnabled ||
+    state.snapSize !== previous.snapSize ||
+    state.objectSnapEnabled !== previous.objectSnapEnabled ||
+    state.clipEnabled !== previous.clipEnabled ||
+    state.clipAxis !== previous.clipAxis ||
+    state.clipFlip !== previous.clipFlip ||
+    state.clipPosition !== previous.clipPosition;
+}
+
 export class ThreeEngine {
   renderer: THREE.WebGLRenderer;
   scene: THREE.Scene;
@@ -191,7 +210,11 @@ export class ThreeEngine {
     this.unsubscribes.push(useViewportStore.subscribe((state, previous) => {
       if (state.projection !== this.projection) this.setProjection(state.projection);
       if (state.dragging !== previous.dragging) this.applyPixelRatio();
-      this.invalidate();
+      // This store also owns high-frequency UI-only state such as hovered node,
+      // cursor measurements and snap labels. None of those is consumed by the
+      // WebGL scene. Invalidating here unconditionally turned a tree-row hover
+      // into a complete SDF raymarch, even though only React styling changed.
+      if (viewportChangeAffectsCanvas(state, previous)) this.invalidate();
     }));
   }
 
