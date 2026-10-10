@@ -367,6 +367,10 @@ export class SdfMesh {
   private lastTextureKey = '';
   private lastBBKey = '';
   private renderedSdf: SDFDisplayData | null = null;
+  /** Last immutable display revision copied into model-dependent uniforms. */
+  private appliedSdf: SDFDisplayData | null = null;
+  /** Scratch storage for renderer size; update() runs once per drawn frame. */
+  private readonly renderSize = new THREE.Vector2();
   private rebuilding = false;
   private unsubs: (() => void)[] = [];
 
@@ -550,6 +554,9 @@ export class SdfMesh {
     this.material = nextMaterial;
     this.mesh = nextMesh;
     this.renderedSdf = sdf as SDFDisplayData;
+    // Force the first update to expand shader bounds to the proxy cube and
+    // initialize derived values such as stepFloor.
+    this.appliedSdf = null;
     this.engine.scene.add(nextMesh);
     return true;
   }
@@ -572,7 +579,8 @@ export class SdfMesh {
     u.u_interacting.value = this.engine.isInteractionActive?.() ? 1.0 : 0.0;
 
     const sdf = this.renderedSdf;
-    if (sdf) {
+    if (sdf && sdf !== this.appliedSdf) {
+      this.appliedSdf = sdf;
       const [x0, y0, z0] = sdf.bbMin;
       const [x1, y1, z1] = sdf.bbMax;
       const cx = (x0+x1)/2, cy = (y0+y1)/2, cz = (z0+z1)/2;
@@ -581,17 +589,6 @@ export class SdfMesh {
       u.u_bbMin.value.set(cx - half, cy - half, cz - half);
       u.u_bbMax.value.set(cx + half, cy + half, cz + half);
 
-      // One pixel's world-space width per unit of camera distance. The marcher
-      // states both its hit threshold and its normal offset against this, so
-      // both track zoom instead of tracking the scene's size or the model's
-      // distance from the world origin.
-      const cam = this.engine.camera;
-      const size = new THREE.Vector2();
-      this.engine.renderer.getSize(size);
-      const heightPx = Math.max(1, size.y * this.engine.renderer.getPixelRatio());
-      u.u_pixelRadius.value = cam instanceof THREE.OrthographicCamera
-        ? (cam.top - cam.bottom) / cam.zoom / heightPx
-        : (2 * Math.tan((cam.fov * Math.PI) / 360)) / heightPx;
       // A ray that starts inside the bounding box has t = 0, where a purely
       // relative threshold is zero and the march would spend its whole budget
       // creeping. Tied to the model rather than to a constant so it means the
@@ -615,8 +612,16 @@ export class SdfMesh {
       for (let i = 0; i < sdf.paramValues.length && i < arr.length; i++) {
         arr[i] = sdf.paramValues[i];
       }
-
     }
+
+    // One pixel's world-space width per unit of camera distance. This remains
+    // camera-dynamic (orthographic zoom changes it), but reuses scratch storage
+    // instead of allocating a Vector2 for every orbit frame.
+    this.engine.renderer.getSize(this.renderSize);
+    const heightPx = Math.max(1, this.renderSize.y * this.engine.renderer.getPixelRatio());
+    u.u_pixelRadius.value = cam instanceof THREE.OrthographicCamera
+      ? (cam.top - cam.bottom) / cam.zoom / heightPx
+      : (2 * Math.tan((cam.fov * Math.PI) / 360)) / heightPx;
   }
 
   dispose() {

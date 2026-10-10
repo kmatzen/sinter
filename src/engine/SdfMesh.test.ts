@@ -177,6 +177,24 @@ describe('SdfMesh GPU resource lifecycle', () => {
     expect(first.position.x).toBe(10);
     expect(first.scale.x).toBeGreaterThan(4);
   });
+
+  it('does not recopy model uniforms on camera-only frames', () => {
+    useModelerStore.setState({
+      sdfDisplay: display('float sdf(vec3 p){return u_p[0];}', 0, { paramValues: [7] }),
+    });
+    const sdfMesh = new SdfMesh(renderableEngine());
+    sdfMesh.update();
+    const material = currentResources(sdfMesh).material!;
+    const boundsSet = vi.spyOn(material.uniforms.u_bbMin.value as THREE.Vector3, 'set');
+    const params = material.uniforms.u_p.value as Float32Array;
+
+    // A camera frame still refreshes camera-derived uniforms, but an unchanged
+    // immutable display revision must not redo bounds/key work or parameter copies.
+    params[0] = 123;
+    sdfMesh.update();
+    expect(boundsSet).not.toHaveBeenCalled();
+    expect(params[0]).toBe(123);
+  });
 });
 
 describe('shader capacity preflight', () => {
