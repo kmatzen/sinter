@@ -320,13 +320,6 @@ export function simplifyMesh(mesh: MeshResult, target: number | SimplifyOptions,
     }
   }
 
-  /** Compute triangle normal (unnormalized) */
-  function triNormal(v0: number, v1: number, v2: number): [number, number, number] {
-    const e1x = vx[v1] - vx[v0], e1y = vy[v1] - vy[v0], e1z = vz[v1] - vz[v0];
-    const e2x = vx[v2] - vx[v0], e2y = vy[v2] - vy[v0], e2z = vz[v2] - vz[v0];
-    return [e1y * e2z - e1z * e2y, e1z * e2x - e1x * e2z, e1x * e2y - e1y * e2x];
-  }
-
   /**
    * Check if collapsing edge (ra, rb) to position pos would flip any
    * adjacent triangle's normal or create degenerate slivers.
@@ -347,25 +340,35 @@ export function simplifyMesh(mesh: MeshResult, target: number | SimplifyOptions,
         const touches = (i0 === ra || i0 === rb ? 1 : 0) + (i1 === ra || i1 === rb ? 1 : 0) + (i2 === ra || i2 === rb ? 1 : 0);
         if (touches >= 2) continue;
 
-        // Compute normal before collapse
-        const nBefore = triNormal(i0, i1, i2);
-        const lenBefore = Math.sqrt(nBefore[0] ** 2 + nBefore[1] ** 2 + nBefore[2] ** 2);
+        // Compute both normals in scalars. This check runs for every triangle
+        // around every candidate collapse; allocating vertex and normal tuples
+        // here made rejected candidates particularly expensive.
+        const b0x = vx[i0], b0y = vy[i0], b0z = vz[i0];
+        const b1x = vx[i1], b1y = vy[i1], b1z = vz[i1];
+        const b2x = vx[i2], b2y = vy[i2], b2z = vz[i2];
+        const be1x = b1x - b0x, be1y = b1y - b0y, be1z = b1z - b0z;
+        const be2x = b2x - b0x, be2y = b2y - b0y, be2z = b2z - b0z;
+        const nbx = be1y * be2z - be1z * be2y;
+        const nby = be1z * be2x - be1x * be2z;
+        const nbz = be1x * be2y - be1y * be2x;
+        const lenBefore = Math.sqrt(nbx * nbx + nby * nby + nbz * nbz);
         if (lenBefore < 1e-20) continue; // already degenerate
 
         // Simulate the collapse: replace ra/rb with pos
-        const sv0 = (i0 === ra || i0 === rb) ? pos : [vx[i0], vy[i0], vz[i0]] as [number, number, number];
-        const sv1 = (i1 === ra || i1 === rb) ? pos : [vx[i1], vy[i1], vz[i1]] as [number, number, number];
-        const sv2 = (i2 === ra || i2 === rb) ? pos : [vx[i2], vy[i2], vz[i2]] as [number, number, number];
+        const c0 = i0 === ra || i0 === rb, c1 = i1 === ra || i1 === rb, c2 = i2 === ra || i2 === rb;
+        const a0x = c0 ? pos[0] : b0x, a0y = c0 ? pos[1] : b0y, a0z = c0 ? pos[2] : b0z;
+        const a1x = c1 ? pos[0] : b1x, a1y = c1 ? pos[1] : b1y, a1z = c1 ? pos[2] : b1z;
+        const a2x = c2 ? pos[0] : b2x, a2y = c2 ? pos[1] : b2y, a2z = c2 ? pos[2] : b2z;
 
-        const ae1x = sv1[0] - sv0[0], ae1y = sv1[1] - sv0[1], ae1z = sv1[2] - sv0[2];
-        const ae2x = sv2[0] - sv0[0], ae2y = sv2[1] - sv0[1], ae2z = sv2[2] - sv0[2];
-        const nAfter: [number, number, number] = [
-          ae1y * ae2z - ae1z * ae2y, ae1z * ae2x - ae1x * ae2z, ae1x * ae2y - ae1y * ae2x,
-        ];
-        const lenAfter = Math.sqrt(nAfter[0] ** 2 + nAfter[1] ** 2 + nAfter[2] ** 2);
+        const ae1x = a1x - a0x, ae1y = a1y - a0y, ae1z = a1z - a0z;
+        const ae2x = a2x - a0x, ae2y = a2y - a0y, ae2z = a2z - a0z;
+        const nax = ae1y * ae2z - ae1z * ae2y;
+        const nay = ae1z * ae2x - ae1x * ae2z;
+        const naz = ae1x * ae2y - ae1y * ae2x;
+        const lenAfter = Math.sqrt(nax * nax + nay * nay + naz * naz);
 
         // Reject if the triangle would flip (normal reverses direction)
-        const dot = nBefore[0] * nAfter[0] + nBefore[1] * nAfter[1] + nBefore[2] * nAfter[2];
+        const dot = nbx * nax + nby * nay + nbz * naz;
         if (dot < 0) return false;
 
         // Reject if the triangle becomes a sliver (very thin)
@@ -374,7 +377,7 @@ export function simplifyMesh(mesh: MeshResult, target: number | SimplifyOptions,
         if (lenAfter < 1e-20) return false; // degenerate
         const l0 = Math.sqrt(ae1x ** 2 + ae1y ** 2 + ae1z ** 2);
         const l1 = Math.sqrt(ae2x ** 2 + ae2y ** 2 + ae2z ** 2);
-        const ae3x = sv2[0] - sv1[0], ae3y = sv2[1] - sv1[1], ae3z = sv2[2] - sv1[2];
+        const ae3x = a2x - a1x, ae3y = a2y - a1y, ae3z = a2z - a1z;
         const l2 = Math.sqrt(ae3x ** 2 + ae3y ** 2 + ae3z ** 2);
         const maxEdge = Math.max(l0, l1, l2);
         if (maxEdge < 1e-20) return false;
@@ -409,10 +412,20 @@ export function simplifyMesh(mesh: MeshResult, target: number | SimplifyOptions,
     const currentGen = edgeGen.get(ek);
     if (currentGen !== undefined && top.gen < currentGen) continue;
 
+    // The heap is ordered by the costs calculated when entries are inserted.
+    // For an entry whose endpoints and generation are still current, that
+    // stored cost is exact. If the cheapest such entry is already outside the
+    // error budget, every remaining heap entry is at least as expensive and no
+    // further collapse can change the mesh, so avoid draining and re-solving
+    // the rest of the heap just to reject it edge by edge.
+    const unchanged = currentGen === top.gen &&
+      ((ra === top.va && rb === top.vb) || (ra === top.vb && rb === top.va));
+    if (unchanged && top.cost > maxErrorSq) break;
+
     const { cost, pos } = computeEdgeCost(ra, rb);
 
-    // Over the error budget — leave this edge alone. (Not a break: cheaper
-    // edges may still surface as collapses elsewhere lower neighbors' costs.)
+    // A stale entry may recompute above budget even though another current
+    // edge is cheaper, so only the exact current-entry case above can break.
     if (cost > maxErrorSq) continue;
 
     // Reject collapses that would flip triangles or create slivers
