@@ -90,6 +90,29 @@ export function NumberInput({ label, value, unit = 'mm', min, max, step = 1, onC
   const transactionActive = useRef(false);
   const interactionActive = useRef(false);
   const gestureCleanup = useRef<(() => void) | null>(null);
+  const pendingContinuousValue = useRef<number | null>(null);
+  const continuousFrame = useRef<number | null>(null);
+
+  const flushContinuousChange = () => {
+    if (continuousFrame.current !== null) {
+      cancelAnimationFrame(continuousFrame.current);
+      continuousFrame.current = null;
+    }
+    const pending = pendingContinuousValue.current;
+    pendingContinuousValue.current = null;
+    if (pending !== null) onChange(pending);
+  };
+
+  const scheduleContinuousChange = (next: number) => {
+    pendingContinuousValue.current = next;
+    if (continuousFrame.current !== null) return;
+    continuousFrame.current = requestAnimationFrame(() => {
+      continuousFrame.current = null;
+      const pending = pendingContinuousValue.current;
+      pendingContinuousValue.current = null;
+      if (pending !== null) onChange(pending);
+    });
+  };
 
   const beginContinuousEdit = () => {
     if (!interactionActive.current) {
@@ -103,6 +126,12 @@ export function NumberInput({ label, value, unit = 'mm', min, max, step = 1, onC
   };
 
   const finishContinuousEdit = (commitChange: boolean) => {
+    if (commitChange) flushContinuousChange();
+    else {
+      if (continuousFrame.current !== null) cancelAnimationFrame(continuousFrame.current);
+      continuousFrame.current = null;
+      pendingContinuousValue.current = null;
+    }
     if (interactionActive.current) {
       interactionActive.current = false;
       useViewportStore.getState().setDragging(false);
@@ -214,7 +243,7 @@ export function NumberInput({ label, value, unit = 'mm', min, max, step = 1, onC
               let v = startVal + delta;
               if (min !== undefined) v = Math.max(min, v);
               if (max !== undefined) v = Math.min(max, v);
-              onChange(Math.round(v * 1000) / 1000);
+              scheduleContinuousChange(Math.round(v * 1000) / 1000);
             };
             const cleanup = () => {
               setIsDragging(false);
@@ -252,6 +281,8 @@ export function NumberInput({ label, value, unit = 'mm', min, max, step = 1, onC
             // same value twice before React can refresh the `value` closure,
             // so one Undo appears to do nothing after an Enter edit.
             if (e.key === 'Enter') { e.preventDefault(); inputRef.current?.blur(); }
+            // Keyboard deltas are relative to the last rendered value, so do
+            // not coalesce them: collapsing two repeats would lose one step.
             if (e.key === 'ArrowUp') { e.preventDefault(); beginContinuousEdit(); onChange(constrain(value + step)); }
             if (e.key === 'ArrowDown') { e.preventDefault(); beginContinuousEdit(); onChange(constrain(value - step)); }
           }}
@@ -321,7 +352,7 @@ export function NumberInput({ label, value, unit = 'mm', min, max, step = 1, onC
                 }
               }}
               onBlur={() => finishContinuousEdit(true)}
-              onChange={(e) => onChange(parseFloat(e.target.value))}
+              onChange={(e) => scheduleContinuousChange(parseFloat(e.target.value))}
               aria-label={`${label} slider`}
               className="absolute inset-0 w-full opacity-0 cursor-pointer slider-hit"
             />
