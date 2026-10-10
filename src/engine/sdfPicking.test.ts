@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { attributePath, attributePoint } from './sdfPicking';
+import { attributePath, attributePoint, pickingCompileStats, resetPickingCompileCache } from './sdfPicking';
 import { NODE_DEFAULTS, NODE_LABELS } from '../types/operations';
 import type { SDFNodeUI } from '../types/operations';
 import type { Vec3 } from '../worker/sdf/types';
@@ -22,6 +22,25 @@ function emptySlot(): SDFNodeUI {
 }
 
 describe('attributePath', () => {
+  it('reuses compiled immutable subtrees across hover samples', () => {
+    resetPickingCompileCache();
+    const left = node('box', { width: 20, height: 20, depth: 20 });
+    const right = node('sphere', { radius: 5 });
+    const root = node('union', {}, [left, right]);
+
+    attributePath(root, [0, 0, 0]);
+    const afterFirst = pickingCompileStats().misses;
+    expect(afterFirst).toBeGreaterThan(0);
+    attributePath(root, [1, 0, 0]);
+    expect(pickingCompileStats().misses).toBe(afterFirst);
+
+    // Immutable editing replaces only the changed path. The unchanged right
+    // branch remains reusable while the replacement left branch compiles once.
+    const changed = { ...left, params: { ...left.params, width: 24 } };
+    attributePath({ ...root, children: [changed, right] }, [0, 0, 0]);
+    expect(pickingCompileStats().misses).toBeGreaterThan(afterFirst);
+  });
+
   it('names the leaf under the point and every node above it', () => {
     const sphere = node('sphere', { radius: 5 });
     const move = node('translate', { x: 30, y: 0, z: 0 }, [sphere]);

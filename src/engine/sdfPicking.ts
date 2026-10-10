@@ -57,25 +57,30 @@ const LEAF_KINDS = new Set([
 ]);
 
 /**
- * Cache of UI node -> compiled SDF node, for the duration of one pick.
+ * Cache of immutable UI node -> compiled SDF node across picks.
  *
- * Guarantees each UI node is compiled at most once per pick, no matter how many
+ * Guarantees each UI node is compiled at most once, no matter how many
  * of the branches below ask for it. It does *not* make the pick cheap:
  * `toSDFNode` compiles a node's whole subtree and recurses without consulting
- * this map, so a chain of nested booleans still compiles the deeper subtrees
- * once per level it descends through. Fixing that means memoising inside the
- * converter, which is a change to the worker's compile path rather than to
- * picking. This bounds what picking itself can duplicate, and picking now runs
- * on pointer moves rather than only on clicks — so the cheap guarantee is worth
- * stating rather than leaving to whoever adds the next branch.
+ * this map, so the first pick through a chain can still compile overlapping
+ * deeper subtrees once per level. Later hover samples reuse all of those
+ * results. Store edits are immutable, so changed paths receive new identities
+ * and miss automatically; WeakMap keys do not retain old history revisions.
  */
-type Compiled = Map<SDFNodeUI, ReturnType<typeof toSDFNode>>;
+type Compiled = WeakMap<SDFNodeUI, ReturnType<typeof toSDFNode>>;
+let compiledNodes: Compiled = new WeakMap();
+let compileMisses = 0;
+
+/** Test-only observability for the identity-cache performance contract. */
+export function pickingCompileStats() { return { misses: compileMisses }; }
+export function resetPickingCompileCache() { compiledNodes = new WeakMap(); compileMisses = 0; }
 
 function compile(cache: Compiled, ui: SDFNodeUI) {
   let node = cache.get(ui);
   if (node === undefined) {
     node = toSDFNode(ui);
     cache.set(ui, node);
+    compileMisses++;
   }
   return node;
 }
@@ -106,7 +111,7 @@ export interface PointAttribution {
 
 export function attributePointDetails(ui: SDFNodeUI, p: Vec3): PointAttribution | null {
   const trace: PointAttribution = { path: [], localPoint: [...p], patternInstances: {}, mirrorSigns: {} };
-  return descend(ui, p, trace, new Map()) ? trace : null;
+  return descend(ui, p, trace, compiledNodes) ? trace : null;
 }
 
 /**
