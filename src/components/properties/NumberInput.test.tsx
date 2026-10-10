@@ -51,6 +51,38 @@ describe('NumberInput constraints', () => {
     expect(useModelerStore.getState().tree!.params.width).toBe(10);
   });
 
+  it('coalesces a burst of scrub events to the latest value per frame', () => {
+    const callbacks = new Map<number, FrameRequestCallback>();
+    let nextFrame = 1;
+    const request = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+      const id = nextFrame++;
+      callbacks.set(id, callback);
+      return id;
+    });
+    const cancel = vi.spyOn(window, 'cancelAnimationFrame').mockImplementation((id) => {
+      callbacks.delete(id);
+    });
+    const onChange = vi.fn();
+    render(<NumberInput label="Width" value={10} min={0} max={100} onChange={onChange} />);
+
+    fireEvent.pointerDown(screen.getByText('Width'), { clientX: 100 });
+    fireEvent.pointerMove(window, { clientX: 110 });
+    fireEvent.pointerMove(window, { clientX: 120 });
+    fireEvent.pointerMove(window, { clientX: 130 });
+    expect(onChange).not.toHaveBeenCalled();
+    expect(callbacks.size).toBe(1);
+
+    const callback = [...callbacks.values()][0];
+    callbacks.clear();
+    callback(16);
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(onChange).toHaveBeenLastCalledWith(25);
+
+    fireEvent.pointerUp(window);
+    request.mockRestore();
+    cancel.mockRestore();
+  });
+
   it('commits a typed Enter edit exactly once', () => {
     const update = (width: number) => useModelerStore.getState().updateNodeParams('box', { width });
     render(<NumberInput label="Width" value={10} min={1} max={100} onChange={update} />);
