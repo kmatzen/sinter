@@ -24,6 +24,7 @@ import { useProjectComponentStore } from '../../store/componentLibrary';
 import { useConfigurationStore } from '../../store/configurationStore';
 import { parametersForConfiguration, type NamedConfiguration } from '../../types/configuration';
 import { resolveTreeFormulas } from '../../types/formulas';
+import { modelerChangeAffectsCloudDocument, viewportChangeAffectsCloudDocument } from '../../store/cloudDirtyInvalidation';
 
 function hasImportedMesh(node: ReturnType<typeof useModelerStore.getState>['tree']): boolean {
   return !!node && (node.kind === 'mesh' || node.children.some(hasImportedMesh));
@@ -98,11 +99,47 @@ export function Toolbar({ onMobileTree, onMobileProps }: { onMobileTree?: () => 
   // save.
   useEffect(() => {
     const check = () => setDirty(isCloudDirty());
-    const unsubModel = useModelerStore.subscribe(check);
-    const unsubProject = useProjectStore.subscribe(check);
-    const unsubComponents = useProjectComponentStore.subscribe(check);
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const markAndReconcile = () => {
+      // Immutable document writes prove that something changed and can enable
+      // Save immediately without serializing the complete project. Reconcile
+      // after the burst so undoing back to the saved value still clears dirty.
+      setDirty(true);
+      if (timer !== null) clearTimeout(timer);
+      timer = setTimeout(() => { timer = null; check(); }, 150);
+    };
+    const unsubModel = useModelerStore.subscribe((state, previous) => {
+      // Evaluator output/status shares this store but is not persisted. A
+      // complex edit publishes several of those fields; hashing on every one
+      // serialized the entire model multiple times per pointer frame.
+      if (modelerChangeAffectsCloudDocument(state, previous)) markAndReconcile();
+    });
+    const unsubProject = useProjectStore.subscribe((state, previous) => {
+      // A successful load/save changes the authoritative hash and should clear
+      // the conservative dirty bit immediately.
+      if (
+        state.lastSavedHash !== previous.lastSavedHash ||
+        state.projectId !== previous.projectId ||
+        state.provider !== previous.provider
+      ) check();
+    });
+    const unsubComponents = useProjectComponentStore.subscribe((state, previous) => {
+      if (state.components !== previous.components) markAndReconcile();
+    });
+    const unsubViewport = useViewportStore.subscribe((state, previous) => {
+      if (viewportChangeAffectsCloudDocument(state, previous)) markAndReconcile();
+    });
+    const unsubConfigurations = useConfigurationStore.subscribe((state, previous) => {
+      if (
+        state.configurations !== previous.configurations ||
+        state.activeId !== previous.activeId
+      ) markAndReconcile();
+    });
     check();
-    return () => { unsubModel(); unsubProject(); unsubComponents(); };
+    return () => {
+      if (timer !== null) clearTimeout(timer);
+      unsubModel(); unsubProject(); unsubComponents(); unsubViewport(); unsubConfigurations();
+    };
   }, []);
 
   // Close overflow menu on outside click
