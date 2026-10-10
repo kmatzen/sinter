@@ -28,6 +28,7 @@ import { validateModelingEnvelope } from './sdf/modelingEnvelope';
 import { partitionExportComponents, planComponentSampling } from './sdf/exportComponents';
 import type { MeshResult } from './sdf/marchingCubes';
 import { combineConformance, conformanceSourceBudget, sampleActiveGridSurface, verifyMeshConformance } from './sdf/meshConformance';
+import { deduplicatedProgress } from './progress';
 
 self.postMessage({ type: 'ready' });
 
@@ -62,7 +63,8 @@ function prepareBBox(root: SDFNode): BBox {
   // negative instead of composing a rule per node kind — the mesher should not
   // be able to clip geometry just because a bounds rule and the evaluator
   // disagree, which is what #70 and #73 both were.
-  const bbox = verifiedBounds(root, computeBounds(root)) ?? computeBounds(root);
+  const estimated = computeBounds(root);
+  const bbox = verifiedBounds(root, estimated) ?? estimated;
   const margin = Math.max(
     (bbox.max[0] - bbox.min[0]) * 0.1,
     (bbox.max[1] - bbox.min[1]) * 0.1,
@@ -247,9 +249,9 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
         if (!isTreeExportable(req.tree)) {
           self.postMessage({ type: 'error', rid, message: 'Complete every enabled operation before exporting' }); return;
         }
-        const progress: ProgressFn = (stage, percent) => {
-          self.postMessage({ type: 'progress', rid, stage, percent: Math.round(percent) });
-        };
+        const progress: ProgressFn = deduplicatedProgress((stage, percent) => {
+          self.postMessage({ type: 'progress', rid, stage, percent });
+        });
         const result = evaluateAndMeshWithProgress(req.tree, exportResolution(req.resolution), progress);
         if (!result) { self.postMessage({ type: 'error', rid, message: 'No geometry to export' }); return; }
         const { mesh, achievedTolerance, componentCount, conformance } = result;
@@ -266,9 +268,9 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
         if (!isTreeExportable(req.tree)) {
           self.postMessage({ type: 'error', rid, message: 'Complete every enabled operation before exporting' }); return;
         }
-        const progress: ProgressFn = (stage, percent) => {
-          self.postMessage({ type: 'progress', rid, stage, percent: Math.round(percent) });
-        };
+        const progress: ProgressFn = deduplicatedProgress((stage, percent) => {
+          self.postMessage({ type: 'progress', rid, stage, percent });
+        });
         const result = evaluateAndMeshWithProgress(req.tree, exportResolution(req.resolution), progress);
         if (!result) { self.postMessage({ type: 'error', rid, message: 'No geometry to export' }); return; }
         const { mesh, componentMeshes, achievedTolerance, componentCount, conformance } = result;
