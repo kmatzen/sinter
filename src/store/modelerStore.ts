@@ -5,7 +5,7 @@ import { NODE_LABELS, NODE_DEFAULTS, NODE_KINDS, expectedChildren } from '../typ
 import type { TriangulatedMesh } from '../types/geometry';
 import { applyNodeParamPatch, normalizeNodeParams, normalizeTreeParams } from '../types/parameterSchema';
 import { decodeProjectDocument, decodeTree } from '../types/documentDecoder';
-import { FormulaError, parameterUnitFor, resolveTreeFormulas } from '../types/formulas';
+import { FormulaError, parameterUnitFor, resolveNodeFormulas, resolveTreeFormulas } from '../types/formulas';
 import { useViewportStore } from './viewportStore';
 import { useTreeUiStore } from './treeUiStore';
 import * as THREE from 'three';
@@ -564,16 +564,30 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
     const { tree, namedParameters } = get();
     if (!tree) return;
     let error: string | undefined;
-    const newTree = updateInTree(tree, id, (node) => {
-      const result = applyNodeParamPatch(node, params);
-      error = result.error;
-      if (!result.params) return node;
-      const expressions = Object.fromEntries(Object.entries(node.expressions ?? {}).filter(([key]) => !(key in params)));
-      return { ...node, params: result.params, ...(Object.keys(expressions).length ? { expressions } : { expressions: undefined }) };
-    });
+    let newTree: SDFNodeUI;
+    try {
+      newTree = updateInTree(tree, id, (node) => {
+        const result = applyNodeParamPatch(node, params);
+        error = result.error;
+        if (!result.params) return node;
+        const expressions = Object.fromEntries(Object.entries(node.expressions ?? {}).filter(([key]) => !(key in params)));
+        const updated = { ...node, params: result.params, ...(Object.keys(expressions).length ? { expressions } : { expressions: undefined }) };
+        // Other driven fields on this node may impose cross-field constraints.
+        // Resolve just this node; named parameters and every other node are
+        // unchanged, so traversing the complete document is unnecessary.
+        return resolveNodeFormulas(updated, namedParameters);
+      });
+    } catch (formulaError) {
+      set({ error: formulaError instanceof Error ? formulaError.message : 'Formula is invalid' });
+      return;
+    }
     if (error) { set({ error }); return; }
-    try { set(commit(get(), resolveTreeFormulas(newTree, namedParameters), { error: null })); }
-    catch (formulaError) { set({ error: formulaError instanceof Error ? formulaError.message : 'Formula is invalid' }); }
+    // A direct numeric edit cannot affect formulas elsewhere: node formulas
+    // reference named parameters only, and namedParameters is unchanged here.
+    // applyNodeParamPatch already validates this field and the edited key's
+    // expression was removed above. Re-resolving every expression in the full
+    // tree on every pointer frame was therefore pure O(nodes) work.
+    set(commit(get(), newTree, { error: null }));
   },
   setEffectiveNodeTransform: (id, transform) => {
     const state = get();
