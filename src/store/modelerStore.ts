@@ -175,9 +175,11 @@ function commit(
   state: ModelerState,
   tree: SDFNodeUI | null,
   extra: Partial<ModelerState> = {},
+  selectionStillValid = false,
 ): Partial<ModelerState> {
+  const selection = selectionStillValid ? {} : selectionPatch(state, tree, extra);
   if (state.historyTransaction) {
-    return { ...extra, ...selectionPatch(state, tree, extra), tree };
+    return { ...extra, ...selection, tree };
   }
   let history = state.history.slice(0, state.historyIndex + 1);
   let parameterHistory = (state.parameterHistory ?? [state.namedParameters ?? []]).slice(0, state.historyIndex + 1);
@@ -198,7 +200,7 @@ function commit(
   // stops responding, with no visible reason why.
   return {
     ...extra,
-    ...selectionPatch(state, tree, extra),
+    ...selection,
     tree,
     history,
     parameterHistory,
@@ -575,7 +577,9 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
         // Other driven fields on this node may impose cross-field constraints.
         // Resolve just this node; named parameters and every other node are
         // unchanged, so traversing the complete document is unnecessary.
-        return resolveNodeFormulas(updated, namedParameters);
+        return Object.keys(expressions).length
+          ? resolveNodeFormulas(updated, namedParameters)
+          : updated;
       });
     } catch (formulaError) {
       set({ error: formulaError instanceof Error ? formulaError.message : 'Formula is invalid' });
@@ -587,7 +591,8 @@ export const useModelerStore = create<ModelerState>()((set, get) => ({
     // applyNodeParamPatch already validates this field and the edited key's
     // expression was removed above. Re-resolving every expression in the full
     // tree on every pointer frame was therefore pure O(nodes) work.
-    set(commit(get(), newTree, { error: null }));
+    // Updating an existing node cannot remove or replace any selected id.
+    set(commit(get(), newTree, { error: null }, true));
   },
   setEffectiveNodeTransform: (id, transform) => {
     const state = get();
