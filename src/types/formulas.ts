@@ -166,6 +166,16 @@ export function resolveTreeFormulas(tree: SDFNodeUI | null, definitions: NamedPa
   const values = new Map(resolved.map((item) => [item.name, item]));
   const visit = (node: SDFNodeUI): SDFNodeUI => {
     const children = node.children.map(visit);
+    return resolveNodeWithValues(node, values, children);
+  };
+  return tree ? visit(tree) : null;
+}
+
+function resolveNodeWithValues(
+  node: SDFNodeUI,
+  values: Map<string, ResolvedParameter>,
+  children: SDFNodeUI[],
+): SDFNodeUI {
     const childrenChanged = children.some((child, index) => child !== node.children[index]);
     if (!node.expressions || Object.keys(node.expressions).length === 0) {
       return childrenChanged ? { ...node, children } : node;
@@ -191,6 +201,11 @@ export function resolveTreeFormulas(tree: SDFNodeUI | null, definitions: NamedPa
     const params = result.params;
     const paramsChanged = Object.keys(params).some((key) => params[key] !== node.params[key]);
     return paramsChanged || childrenChanged ? { ...node, params, children } : node;
-  };
-  return tree ? visit(tree) : null;
+}
+
+/** Resolve and validate only this node's expressions, preserving its children. */
+export function resolveNodeFormulas(node: SDFNodeUI, definitions: NamedParameter[]): SDFNodeUI {
+  const resolved = resolveNamedParameters(definitions);
+  const values = new Map(resolved.map((item) => [item.name, item]));
+  return resolveNodeWithValues(node, values, node.children);
 }
