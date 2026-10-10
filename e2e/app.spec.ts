@@ -261,6 +261,15 @@ test.describe('Modeler: Viewport controls', () => {
     await expect(page.locator('[title="Scale (R)"]')).toBeVisible();
   });
 
+  test('desktop toolbar does not overlap the selection breadcrumb', async ({ page }) => {
+    await addShape(page, 'Box');
+    const toolbarBox = await page.getByTestId('viewport-top-toolbar').boundingBox();
+    const breadcrumbBox = await page.getByTestId('selection-breadcrumb').boundingBox();
+    expect(toolbarBox).not.toBeNull();
+    expect(breadcrumbBox).not.toBeNull();
+    expect(breadcrumbBox!.y).toBeGreaterThanOrEqual(toolbarBox!.y + toolbarBox!.height);
+  });
+
   test('snap button toggles', async ({ page }) => {
     const snap = page.locator('[title="Snap to grid"]');
     await expect(snap).toBeVisible();

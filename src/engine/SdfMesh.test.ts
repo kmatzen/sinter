@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import * as THREE from 'three';
-import { MAX_GENERATED_SHADER_CHARS, SdfMesh, shaderCapacityError } from './SdfMesh';
+import { MAX_GENERATED_SHADER_CHARS, MAX_VIEWPORT_FRAGMENT_UNIFORM_COMPONENTS, SdfMesh, shaderCapacityError } from './SdfMesh';
 import { useModelerStore, type SDFDisplayData } from '../store/modelerStore';
 import { useViewportStore } from '../store/viewportStore';
 import type { ThreeEngine } from './ThreeEngine';
@@ -173,6 +173,14 @@ describe('shader capacity preflight', () => {
       maxFragmentUniformComponents: 1_024,
       maxTextureImageUnits: 16,
     })).toMatch(/needs 1538.*supports 1024/);
+  });
+
+  it('keeps portable headroom below the advertised GPU uniform limit', () => {
+    const params = MAX_VIEWPORT_FRAGMENT_UNIFORM_COMPONENTS;
+    expect(shaderCapacityError(display('', 0, { paramCount: params }), {
+      maxFragmentUniformComponents: 16_384,
+      maxTextureImageUnits: 32,
+    })).toMatch(/portable .* budget/i);
   });
 
   it('accounts for fixed uniforms and imported-field samplers', () => {

@@ -1,0 +1,1374 @@
+{
+  "version": 2,
+  "projectName": "Renderer stress cow",
+  "tree": {
+    "id": "stress-cow-subtract-114",
+    "kind": "subtract",
+    "label": "Renderer stress cow",
+    "params": {
+      "smooth": 0.8
+    },
+    "children": [
+      {
+        "id": "stress-cow-subtract-113",
+        "kind": "subtract",
+        "label": "Facial detail",
+        "params": {
+          "smooth": 0.8
+        },
+        "children": [
+          {
+            "id": "stress-cow-subtract-112",
+            "kind": "subtract",
+            "label": "Facial detail",
+            "params": {
+              "smooth": 0.8
+            },
+            "children": [
+              {
+                "id": "stress-cow-subtract-111",
+                "kind": "subtract",
+                "label": "Facial detail",
+                "params": {
+                  "smooth": 0.8
+                },
+                "children": [
+                  {
+                    "id": "stress-cow-union-102",
+                    "kind": "union",
+                    "label": "Cow assembly",
+                    "params": {
+                      "smooth": 3.5
+                    },
+                    "children": [
+                      {
+                        "id": "stress-cow-union-101",
+                        "kind": "union",
+                        "label": "Cow assembly",
+                        "params": {
+                          "smooth": 3.5
+                        },
+                        "children": [
+                          {
+                            "id": "stress-cow-union-100",
+                            "kind": "union",
+                            "label": "Cow assembly",
+                            "params": {
+                              "smooth": 3.5
+                            },
+                            "children": [
+                              {
+                                "id": "stress-cow-union-99",
+                                "kind": "union",
+                                "label": "Cow assembly",
+                                "params": {
+                                  "smooth": 3.5
+                                },
+                                "children": [
+                                  {
+                                    "id": "stress-cow-union-98",
+                                    "kind": "union",
+                                    "label": "Cow assembly",
+                                    "params": {
+                                      "smooth": 3.5
+                                    },
+                                    "children": [
+                                      {
+                                        "id": "stress-cow-union-97",
+                                        "kind": "union",
+                                        "label": "Cow assembly",
+                                        "params": {
+                                          "smooth": 3.5
+                                        },
+                                        "children": [
+                                          {
+                                            "id": "stress-cow-union-96",
+                                            "kind": "union",
+                                            "label": "Cow assembly",
+                                            "params": {
+                                              "smooth": 3.5
+                                            },
+                                            "children": [
+                                              {
+                                                "id": "stress-cow-union-95",
+                                                "kind": "union",
+                                                "label": "Cow assembly",
+                                                "params": {
+                                                  "smooth": 3.5
+                                                },
+                                                "children": [
+                                                  {
+                                                    "id": "stress-cow-union-94",
+                                                    "kind": "union",
+                                                    "label": "Cow assembly",
+                                                    "params": {
+                                                      "smooth": 3.5
+                                                    },
+                                                    "children": [
+                                                      {
+                                                        "id": "stress-cow-union-93",
+                                                        "kind": "union",
+                                                        "label": "Cow assembly",
+                                                        "params": {
+                                                          "smooth": 3.5
+                                                        },
+                                                        "children": [
+                                                          {
+                                                            "id": "stress-cow-union-92",
+                                                            "kind": "union",
+                                                            "label": "Cow assembly",
+                                                            "params": {
+                                                              "smooth": 3.5
+                                                            },
+                                                            "children": [
+                                                              {
+                                                                "id": "stress-cow-union-91",
+                                                                "kind": "union",
+                                                                "label": "Cow assembly",
+                                                                "params": {
+                                                                  "smooth": 3.5
+                                                                },
+                                                                "children": [
+                                                                  {
+                                                                    "id": "stress-cow-union-90",
+                                                                    "kind": "union",
+                                                                    "label": "Cow assembly",
+                                                                    "params": {
+                                                                      "smooth": 3.5
+                                                                    },
+                                                                    "children": [
+                                                                      {
+                                                                        "id": "stress-cow-union-89",
+                                                                        "kind": "union",
+                                                                        "label": "Cow assembly",
+                                                                        "params": {
+                                                                          "smooth": 3.5
+                                                                        },
+                                                                        "children": [
+                                                                          {
+                                                                            "id": "stress-cow-union-88",
+                                                                            "kind": "union",
+                                                                            "label": "Cow assembly",
+                                                                            "params": {
+                                                                              "smooth": 3.5
+                                                                            },
+                                                                            "children": [
+                                                                              {
+                                                                                "id": "stress-cow-union-87",
+                                                                                "kind": "union",
+                                                                                "label": "Cow assembly",
+                                                                                "params": {
+                                                                                  "smooth": 3.5
+                                                                                },
+                                                                                "children": [
+                                                                                  {
+                                                                                    "id": "stress-cow-union-86",
+                                                                                    "kind": "union",
+                                                                                    "label": "Cow assembly",
+                                                                                    "params": {
+                                                                                      "smooth": 3.5
+                                                                                    },
+                                                                                    "children": [
+                                                                                      {
+                                                                                        "id": "stress-cow-union-85",
+                                                                                        "kind": "union",
+                                                                                        "label": "Cow assembly",
+                                                                                        "params": {
+                                                                                          "smooth": 3.5
+                                                                                        },
+                                                                                        "children": [
+                                                                                          {
+                                                                                            "id": "stress-cow-union-84",
+                                                                                            "kind": "union",
+                                                                                            "label": "Cow assembly",
+                                                                                            "params": {
+                                                                                              "smooth": 3.5
+                                                                                            },
+                                                                                            "children": [
+                                                                                              {
+                                                                                                "id": "stress-cow-union-83",
+                                                                                                "kind": "union",
+                                                                                                "label": "Cow assembly",
+                                                                                                "params": {
+                                                                                                  "smooth": 3.5
+                                                                                                },
+                                                                                                "children": [
+                                                                                                  {
+                                                                                                    "id": "stress-cow-union-82",
+                                                                                                    "kind": "union",
+                                                                                                    "label": "Cow assembly",
+                                                                                                    "params": {
+                                                                                                      "smooth": 3.5
+                                                                                                    },
+                                                                                                    "children": [
+                                                                                                      {
+                                                                                                        "id": "stress-cow-union-81",
+                                                                                                        "kind": "union",
+                                                                                                        "label": "Cow assembly",
+                                                                                                        "params": {
+                                                                                                          "smooth": 3.5
+                                                                                                        },
+                                                                                                        "children": [
+                                                                                                          {
+                                                                                                            "id": "stress-cow-union-80",
+                                                                                                            "kind": "union",
+                                                                                                            "label": "Cow assembly",
+                                                                                                            "params": {
+                                                                                                              "smooth": 3.5
+                                                                                                            },
+                                                                                                            "children": [
+                                                                                                              {
+                                                                                                                "id": "stress-cow-union-79",
+                                                                                                                "kind": "union",
+                                                                                                                "label": "Cow assembly",
+                                                                                                                "params": {
+                                                                                                                  "smooth": 3.5
+                                                                                                                },
+                                                                                                                "children": [
+                                                                                                                  {
+                                                                                                                    "id": "stress-cow-union-78",
+                                                                                                                    "kind": "union",
+                                                                                                                    "label": "Cow assembly",
+                                                                                                                    "params": {
+                                                                                                                      "smooth": 3.5
+                                                                                                                    },
+                                                                                                                    "children": [
+                                                                                                                      {
+                                                                                                                        "id": "stress-cow-union-77",
+                                                                                                                        "kind": "union",
+                                                                                                                        "label": "Cow assembly",
+                                                                                                                        "params": {
+                                                                                                                          "smooth": 3.5
+                                                                                                                        },
+                                                                                                                        "children": [
+                                                                                                                          {
+                                                                                                                            "id": "stress-cow-union-76",
+                                                                                                                            "kind": "union",
+                                                                                                                            "label": "Cow assembly",
+                                                                                                                            "params": {
+                                                                                                                              "smooth": 3.5
+                                                                                                                            },
+                                                                                                                            "children": [
+                                                                                                                              {
+                                                                                                                                "id": "stress-cow-union-75",
+                                                                                                                                "kind": "union",
+                                                                                                                                "label": "Cow assembly",
+                                                                                                                                "params": {
+                                                                                                                                  "smooth": 3.5
+                                                                                                                                },
+                                                                                                                                "children": [
+                                                                                                                                  {
+                                                                                                                                    "id": "stress-cow-union-74",
+                                                                                                                                    "kind": "union",
+                                                                                                                                    "label": "Cow assembly",
+                                                                                                                                    "params": {
+                                                                                                                                      "smooth": 3.5
+                                                                                                                                    },
+                                                                                                                                    "children": [
+                                                                                                                                      {
+                                                                                                                                        "id": "stress-cow-translate-2",
+                                                                                                                                        "kind": "translate",
+                                                                                                                                        "label": "Ribcage position",
+                                                                                                                                        "params": {
+                                                                                                                                          "x": 0,
+                                                                                                                                          "y": 49,
+                                                                                                                                          "z": 0
+                                                                                                                                        },
+                                                                                                                                        "children": [
+                                                                                                                                          {
+                                                                                                                                            "id": "stress-cow-ellipsoid-1",
+                                                                                                                                            "kind": "ellipsoid",
+                                                                                                                                            "label": "Ribcage",
+                                                                                                                                            "params": {
+                                                                                                                                              "width": 76,
+                                                                                                                                              "height": 50,
+                                                                                                                                              "depth": 112
+                                                                                                                                            },
+                                                                                                                                            "children": [],
+                                                                                                                                            "enabled": true
+                                                                                                                                          }
+                                                                                                                                        ],
+                                                                                                                                        "enabled": true
+                                                                                                                                      },
+                                                                                                                                      {
+                                                                                                                                        "id": "stress-cow-translate-4",
+                                                                                                                                        "kind": "translate",
+                                                                                                                                        "label": "Shoulders position",
+                                                                                                                                        "params": {
+                                                                                                                                          "x": 0,
+                                                                                                                                          "y": 52,
+                                                                                                                                          "z": -36
+                                                                                                                                        },
+                                                                                                                                        "children": [
+                                                                                                                                          {
+                                                                                                                                            "id": "stress-cow-ellipsoid-3",
+                                                                                                                                            "kind": "ellipsoid",
+                                                                                                                                            "label": "Shoulders",
+                                                                                                                                            "params": {
+                                                                                                                                              "width": 68,
+                                                                                                                                              "height": 54,
+                                                                                                                                              "depth": 54
+                                                                                                                                            },
+                                                                                                                                            "children": [],
+                                                                                                                                            "enabled": true
+                                                                                                                                          }
+                                                                                                                                        ],
+                                                                                                                                        "enabled": true
+                                                                                                                                      }
+                                                                                                                                    ],
+                                                                                                                                    "enabled": true
+                                                                                                                                  },
+                                                                                                                                  {
+                                                                                                                                    "id": "stress-cow-translate-6",
+                                                                                                                                    "kind": "translate",
+                                                                                                                                    "label": "Hips position",
+                                                                                                                                    "params": {
+                                                                                                                                      "x": 0,
+                                                                                                                                      "y": 52,
+                                                                                                                                      "z": 38
+                                                                                                                                    },
+                                                                                                                                    "children": [
+                                                                                                                                      {
+                                                                                                                                        "id": "stress-cow-ellipsoid-5",
+                                                                                                                                        "kind": "ellipsoid",
+                                                                                                                                        "label": "Hips",
+                                                                                                                                        "params": {
+                                                                                                                                          "width": 70,
+                                                                                                                                          "height": 52,
+                                                                                                                                          "depth": 50
+                                                                                                                                        },
+                                                                                                                                        "children": [],
+                                                                                                                                        "enabled": true
+                                                                                                                                      }
+                                                                                                                                    ],
+                                                                                                                                    "enabled": true
+                                                                                                                                  }
+                                                                                                                                ],
+                                                                                                                                "enabled": true
+                                                                                                                              },
+                                                                                                                              {
+                                                                                                                                "id": "stress-cow-translate-9",
+                                                                                                                                "kind": "translate",
+                                                                                                                                "label": "Neck position",
+                                                                                                                                "params": {
+                                                                                                                                  "x": 0,
+                                                                                                                                  "y": 66,
+                                                                                                                                  "z": -50
+                                                                                                                                },
+                                                                                                                                "children": [
+                                                                                                                                  {
+                                                                                                                                    "id": "stress-cow-rotate-8",
+                                                                                                                                    "kind": "rotate",
+                                                                                                                                    "label": "Neck angle",
+                                                                                                                                    "params": {
+                                                                                                                                      "x": -35,
+                                                                                                                                      "y": 0,
+                                                                                                                                      "z": 0
+                                                                                                                                    },
+                                                                                                                                    "children": [
+                                                                                                                                      {
+                                                                                                                                        "id": "stress-cow-capsule-7",
+                                                                                                                                        "kind": "capsule",
+                                                                                                                                        "label": "Neck",
+                                                                                                                                        "params": {
+                                                                                                                                          "radius": 18,
+                                                                                                                                          "height": 39
+                                                                                                                                        },
+                                                                                                                                        "children": [],
+                                                                                                                                        "enabled": true
+                                                                                                                                      }
+                                                                                                                                    ],
+                                                                                                                                    "enabled": true
+                                                                                                                                  }
+                                                                                                                                ],
+                                                                                                                                "enabled": true
+                                                                                                                              }
+                                                                                                                            ],
+                                                                                                                            "enabled": true
+                                                                                                                          },
+                                                                                                                          {
+                                                                                                                            "id": "stress-cow-translate-11",
+                                                                                                                            "kind": "translate",
+                                                                                                                            "label": "Head position",
+                                                                                                                            "params": {
+                                                                                                                              "x": 0,
+                                                                                                                              "y": 70,
+                                                                                                                              "z": -77
+                                                                                                                            },
+                                                                                                                            "children": [
+                                                                                                                              {
+                                                                                                                                "id": "stress-cow-ellipsoid-10",
+                                                                                                                                "kind": "ellipsoid",
+                                                                                                                                "label": "Head",
+                                                                                                                                "params": {
+                                                                                                                                  "width": 47,
+                                                                                                                                  "height": 42,
+                                                                                                                                  "depth": 52
+                                                                                                                                },
+                                                                                                                                "children": [],
+                                                                                                                                "enabled": true
+                                                                                                                              }
+                                                                                                                            ],
+                                                                                                                            "enabled": true
+                                                                                                                          }
+                                                                                                                        ],
+                                                                                                                        "enabled": true
+                                                                                                                      },
+                                                                                                                      {
+                                                                                                                        "id": "stress-cow-translate-13",
+                                                                                                                        "kind": "translate",
+                                                                                                                        "label": "Muzzle position",
+                                                                                                                        "params": {
+                                                                                                                          "x": 0,
+                                                                                                                          "y": 58,
+                                                                                                                          "z": -101
+                                                                                                                        },
+                                                                                                                        "children": [
+                                                                                                                          {
+                                                                                                                            "id": "stress-cow-ellipsoid-12",
+                                                                                                                            "kind": "ellipsoid",
+                                                                                                                            "label": "Muzzle",
+                                                                                                                            "params": {
+                                                                                                                              "width": 38,
+                                                                                                                              "height": 24,
+                                                                                                                              "depth": 32
+                                                                                                                            },
+                                                                                                                            "children": [],
+                                                                                                                            "enabled": true
+                                                                                                                          }
+                                                                                                                        ],
+                                                                                                                        "enabled": true
+                                                                                                                      }
+                                                                                                                    ],
+                                                                                                                    "enabled": true
+                                                                                                                  },
+                                                                                                                  {
+                                                                                                                    "id": "stress-cow-translate-16",
+                                                                                                                    "kind": "translate",
+                                                                                                                    "label": "Left front upper leg position",
+                                                                                                                    "params": {
+                                                                                                                      "x": -24,
+                                                                                                                      "y": 27,
+                                                                                                                      "z": -34
+                                                                                                                    },
+                                                                                                                    "children": [
+                                                                                                                      {
+                                                                                                                        "id": "stress-cow-rotate-15",
+                                                                                                                        "kind": "rotate",
+                                                                                                                        "label": "Left front upper leg angle",
+                                                                                                                        "params": {
+                                                                                                                          "x": 0,
+                                                                                                                          "y": 0,
+                                                                                                                          "z": -5
+                                                                                                                        },
+                                                                                                                        "children": [
+                                                                                                                          {
+                                                                                                                            "id": "stress-cow-capsule-14",
+                                                                                                                            "kind": "capsule",
+                                                                                                                            "label": "Left front upper leg",
+                                                                                                                            "params": {
+                                                                                                                              "radius": 8.5,
+                                                                                                                              "height": 27
+                                                                                                                            },
+                                                                                                                            "children": [],
+                                                                                                                            "enabled": true
+                                                                                                                          }
+                                                                                                                        ],
+                                                                                                                        "enabled": true
+                                                                                                                      }
+                                                                                                                    ],
+                                                                                                                    "enabled": true
+                                                                                                                  }
+                                                                                                                ],
+                                                                                                                "enabled": true
+                                                                                                              },
+                                                                                                              {
+                                                                                                                "id": "stress-cow-translate-19",
+                                                                                                                "kind": "translate",
+                                                                                                                "label": "Left front lower leg position",
+                                                                                                                "params": {
+                                                                                                                  "x": -22,
+                                                                                                                  "y": 4,
+                                                                                                                  "z": -36
+                                                                                                                },
+                                                                                                                "children": [
+                                                                                                                  {
+                                                                                                                    "id": "stress-cow-rotate-18",
+                                                                                                                    "kind": "rotate",
+                                                                                                                    "label": "Left front lower leg angle",
+                                                                                                                    "params": {
+                                                                                                                      "x": 0,
+                                                                                                                      "y": 0,
+                                                                                                                      "z": 3
+                                                                                                                    },
+                                                                                                                    "children": [
+                                                                                                                      {
+                                                                                                                        "id": "stress-cow-capsule-17",
+                                                                                                                        "kind": "capsule",
+                                                                                                                        "label": "Left front lower leg",
+                                                                                                                        "params": {
+                                                                                                                          "radius": 6.3,
+                                                                                                                          "height": 29
+                                                                                                                        },
+                                                                                                                        "children": [],
+                                                                                                                        "enabled": true
+                                                                                                                      }
+                                                                                                                    ],
+                                                                                                                    "enabled": true
+                                                                                                                  }
+                                                                                                                ],
+                                                                                                                "enabled": true
+                                                                                                              }
+                                                                                                            ],
+                                                                                                            "enabled": true
+                                                                                                          },
+                                                                                                          {
+                                                                                                            "id": "stress-cow-translate-22",
+                                                                                                            "kind": "translate",
+                                                                                                            "label": "Left rear thigh position",
+                                                                                                            "params": {
+                                                                                                              "x": -24,
+                                                                                                              "y": 29,
+                                                                                                              "z": 35
+                                                                                                            },
+                                                                                                            "children": [
+                                                                                                              {
+                                                                                                                "id": "stress-cow-rotate-21",
+                                                                                                                "kind": "rotate",
+                                                                                                                "label": "Left rear thigh angle",
+                                                                                                                "params": {
+                                                                                                                  "x": 8,
+                                                                                                                  "y": 0,
+                                                                                                                  "z": -7
+                                                                                                                },
+                                                                                                                "children": [
+                                                                                                                  {
+                                                                                                                    "id": "stress-cow-capsule-20",
+                                                                                                                    "kind": "capsule",
+                                                                                                                    "label": "Left rear thigh",
+                                                                                                                    "params": {
+                                                                                                                      "radius": 10,
+                                                                                                                      "height": 29
+                                                                                                                    },
+                                                                                                                    "children": [],
+                                                                                                                    "enabled": true
+                                                                                                                  }
+                                                                                                                ],
+                                                                                                                "enabled": true
+                                                                                                              }
+                                                                                                            ],
+                                                                                                            "enabled": true
+                                                                                                          }
+                                                                                                        ],
+                                                                                                        "enabled": true
+                                                                                                      },
+                                                                                                      {
+                                                                                                        "id": "stress-cow-translate-25",
+                                                                                                        "kind": "translate",
+                                                                                                        "label": "Left rear hock position",
+                                                                                                        "params": {
+                                                                                                          "x": -21,
+                                                                                                          "y": 4,
+                                                                                                          "z": 40
+                                                                                                        },
+                                                                                                        "children": [
+                                                                                                          {
+                                                                                                            "id": "stress-cow-rotate-24",
+                                                                                                            "kind": "rotate",
+                                                                                                            "label": "Left rear hock angle",
+                                                                                                            "params": {
+                                                                                                              "x": -10,
+                                                                                                              "y": 0,
+                                                                                                              "z": 4
+                                                                                                            },
+                                                                                                            "children": [
+                                                                                                              {
+                                                                                                                "id": "stress-cow-capsule-23",
+                                                                                                                "kind": "capsule",
+                                                                                                                "label": "Left rear hock",
+                                                                                                                "params": {
+                                                                                                                  "radius": 6.5,
+                                                                                                                  "height": 30
+                                                                                                                },
+                                                                                                                "children": [],
+                                                                                                                "enabled": true
+                                                                                                              }
+                                                                                                            ],
+                                                                                                            "enabled": true
+                                                                                                          }
+                                                                                                        ],
+                                                                                                        "enabled": true
+                                                                                                      }
+                                                                                                    ],
+                                                                                                    "enabled": true
+                                                                                                  },
+                                                                                                  {
+                                                                                                    "id": "stress-cow-translate-27",
+                                                                                                    "kind": "translate",
+                                                                                                    "label": "Left ear position",
+                                                                                                    "params": {
+                                                                                                      "x": -29,
+                                                                                                      "y": 79,
+                                                                                                      "z": -76
+                                                                                                    },
+                                                                                                    "children": [
+                                                                                                      {
+                                                                                                        "id": "stress-cow-ellipsoid-26",
+                                                                                                        "kind": "ellipsoid",
+                                                                                                        "label": "Left ear",
+                                                                                                        "params": {
+                                                                                                          "width": 23,
+                                                                                                          "height": 7,
+                                                                                                          "depth": 14
+                                                                                                        },
+                                                                                                        "children": [],
+                                                                                                        "enabled": true
+                                                                                                      }
+                                                                                                    ],
+                                                                                                    "enabled": true
+                                                                                                  }
+                                                                                                ],
+                                                                                                "enabled": true
+                                                                                              },
+                                                                                              {
+                                                                                                "id": "stress-cow-translate-30",
+                                                                                                "kind": "translate",
+                                                                                                "label": "Left horn position",
+                                                                                                "params": {
+                                                                                                  "x": -14,
+                                                                                                  "y": 93,
+                                                                                                  "z": -74
+                                                                                                },
+                                                                                                "children": [
+                                                                                                  {
+                                                                                                    "id": "stress-cow-rotate-29",
+                                                                                                    "kind": "rotate",
+                                                                                                    "label": "Left horn angle",
+                                                                                                    "params": {
+                                                                                                      "x": 0,
+                                                                                                      "y": 0,
+                                                                                                      "z": -18
+                                                                                                    },
+                                                                                                    "children": [
+                                                                                                      {
+                                                                                                        "id": "stress-cow-cone-28",
+                                                                                                        "kind": "cone",
+                                                                                                        "label": "Left horn",
+                                                                                                        "params": {
+                                                                                                          "radius": 4.5,
+                                                                                                          "height": 19
+                                                                                                        },
+                                                                                                        "children": [],
+                                                                                                        "enabled": true
+                                                                                                      }
+                                                                                                    ],
+                                                                                                    "enabled": true
+                                                                                                  }
+                                                                                                ],
+                                                                                                "enabled": true
+                                                                                              }
+                                                                                            ],
+                                                                                            "enabled": true
+                                                                                          },
+                                                                                          {
+                                                                                            "id": "stress-cow-translate-32",
+                                                                                            "kind": "translate",
+                                                                                            "label": "Left front outer claw position",
+                                                                                            "params": {
+                                                                                              "x": -26,
+                                                                                              "y": -15,
+                                                                                              "z": -40
+                                                                                            },
+                                                                                            "children": [
+                                                                                              {
+                                                                                                "id": "stress-cow-ellipsoid-31",
+                                                                                                "kind": "ellipsoid",
+                                                                                                "label": "Left front outer claw",
+                                                                                                "params": {
+                                                                                                  "width": 9,
+                                                                                                  "height": 8,
+                                                                                                  "depth": 20
+                                                                                                },
+                                                                                                "children": [],
+                                                                                                "enabled": true
+                                                                                              }
+                                                                                            ],
+                                                                                            "enabled": true
+                                                                                          }
+                                                                                        ],
+                                                                                        "enabled": true
+                                                                                      },
+                                                                                      {
+                                                                                        "id": "stress-cow-translate-34",
+                                                                                        "kind": "translate",
+                                                                                        "label": "Left front inner claw position",
+                                                                                        "params": {
+                                                                                          "x": -18,
+                                                                                          "y": -15,
+                                                                                          "z": -40
+                                                                                        },
+                                                                                        "children": [
+                                                                                          {
+                                                                                            "id": "stress-cow-ellipsoid-33",
+                                                                                            "kind": "ellipsoid",
+                                                                                            "label": "Left front inner claw",
+                                                                                            "params": {
+                                                                                              "width": 9,
+                                                                                              "height": 8,
+                                                                                              "depth": 20
+                                                                                            },
+                                                                                            "children": [],
+                                                                                            "enabled": true
+                                                                                          }
+                                                                                        ],
+                                                                                        "enabled": true
+                                                                                      }
+                                                                                    ],
+                                                                                    "enabled": true
+                                                                                  },
+                                                                                  {
+                                                                                    "id": "stress-cow-translate-36",
+                                                                                    "kind": "translate",
+                                                                                    "label": "Left rear outer claw position",
+                                                                                    "params": {
+                                                                                      "x": -25,
+                                                                                      "y": -15,
+                                                                                      "z": 43
+                                                                                    },
+                                                                                    "children": [
+                                                                                      {
+                                                                                        "id": "stress-cow-ellipsoid-35",
+                                                                                        "kind": "ellipsoid",
+                                                                                        "label": "Left rear outer claw",
+                                                                                        "params": {
+                                                                                          "width": 9,
+                                                                                          "height": 8,
+                                                                                          "depth": 21
+                                                                                        },
+                                                                                        "children": [],
+                                                                                        "enabled": true
+                                                                                      }
+                                                                                    ],
+                                                                                    "enabled": true
+                                                                                  }
+                                                                                ],
+                                                                                "enabled": true
+                                                                              },
+                                                                              {
+                                                                                "id": "stress-cow-translate-38",
+                                                                                "kind": "translate",
+                                                                                "label": "Left rear inner claw position",
+                                                                                "params": {
+                                                                                  "x": -17,
+                                                                                  "y": -15,
+                                                                                  "z": 43
+                                                                                },
+                                                                                "children": [
+                                                                                  {
+                                                                                    "id": "stress-cow-ellipsoid-37",
+                                                                                    "kind": "ellipsoid",
+                                                                                    "label": "Left rear inner claw",
+                                                                                    "params": {
+                                                                                      "width": 9,
+                                                                                      "height": 8,
+                                                                                      "depth": 21
+                                                                                    },
+                                                                                    "children": [],
+                                                                                    "enabled": true
+                                                                                  }
+                                                                                ],
+                                                                                "enabled": true
+                                                                              }
+                                                                            ],
+                                                                            "enabled": true
+                                                                          },
+                                                                          {
+                                                                            "id": "stress-cow-translate-41",
+                                                                            "kind": "translate",
+                                                                            "label": "Right front upper leg position",
+                                                                            "params": {
+                                                                              "x": 24,
+                                                                              "y": 27,
+                                                                              "z": -34
+                                                                            },
+                                                                            "children": [
+                                                                              {
+                                                                                "id": "stress-cow-rotate-40",
+                                                                                "kind": "rotate",
+                                                                                "label": "Right front upper leg angle",
+                                                                                "params": {
+                                                                                  "x": 0,
+                                                                                  "y": 0,
+                                                                                  "z": 5
+                                                                                },
+                                                                                "children": [
+                                                                                  {
+                                                                                    "id": "stress-cow-capsule-39",
+                                                                                    "kind": "capsule",
+                                                                                    "label": "Right front upper leg",
+                                                                                    "params": {
+                                                                                      "radius": 8.5,
+                                                                                      "height": 27
+                                                                                    },
+                                                                                    "children": [],
+                                                                                    "enabled": true
+                                                                                  }
+                                                                                ],
+                                                                                "enabled": true
+                                                                              }
+                                                                            ],
+                                                                            "enabled": true
+                                                                          }
+                                                                        ],
+                                                                        "enabled": true
+                                                                      },
+                                                                      {
+                                                                        "id": "stress-cow-translate-44",
+                                                                        "kind": "translate",
+                                                                        "label": "Right front lower leg position",
+                                                                        "params": {
+                                                                          "x": 22,
+                                                                          "y": 4,
+                                                                          "z": -36
+                                                                        },
+                                                                        "children": [
+                                                                          {
+                                                                            "id": "stress-cow-rotate-43",
+                                                                            "kind": "rotate",
+                                                                            "label": "Right front lower leg angle",
+                                                                            "params": {
+                                                                              "x": 0,
+                                                                              "y": 0,
+                                                                              "z": -3
+                                                                            },
+                                                                            "children": [
+                                                                              {
+                                                                                "id": "stress-cow-capsule-42",
+                                                                                "kind": "capsule",
+                                                                                "label": "Right front lower leg",
+                                                                                "params": {
+                                                                                  "radius": 6.3,
+                                                                                  "height": 29
+                                                                                },
+                                                                                "children": [],
+                                                                                "enabled": true
+                                                                              }
+                                                                            ],
+                                                                            "enabled": true
+                                                                          }
+                                                                        ],
+                                                                        "enabled": true
+                                                                      }
+                                                                    ],
+                                                                    "enabled": true
+                                                                  },
+                                                                  {
+                                                                    "id": "stress-cow-translate-47",
+                                                                    "kind": "translate",
+                                                                    "label": "Right rear thigh position",
+                                                                    "params": {
+                                                                      "x": 24,
+                                                                      "y": 29,
+                                                                      "z": 35
+                                                                    },
+                                                                    "children": [
+                                                                      {
+                                                                        "id": "stress-cow-rotate-46",
+                                                                        "kind": "rotate",
+                                                                        "label": "Right rear thigh angle",
+                                                                        "params": {
+                                                                          "x": 8,
+                                                                          "y": 0,
+                                                                          "z": 7
+                                                                        },
+                                                                        "children": [
+                                                                          {
+                                                                            "id": "stress-cow-capsule-45",
+                                                                            "kind": "capsule",
+                                                                            "label": "Right rear thigh",
+                                                                            "params": {
+                                                                              "radius": 10,
+                                                                              "height": 29
+                                                                            },
+                                                                            "children": [],
+                                                                            "enabled": true
+                                                                          }
+                                                                        ],
+                                                                        "enabled": true
+                                                                      }
+                                                                    ],
+                                                                    "enabled": true
+                                                                  }
+                                                                ],
+                                                                "enabled": true
+                                                              },
+                                                              {
+                                                                "id": "stress-cow-translate-50",
+                                                                "kind": "translate",
+                                                                "label": "Right rear hock position",
+                                                                "params": {
+                                                                  "x": 21,
+                                                                  "y": 4,
+                                                                  "z": 40
+                                                                },
+                                                                "children": [
+                                                                  {
+                                                                    "id": "stress-cow-rotate-49",
+                                                                    "kind": "rotate",
+                                                                    "label": "Right rear hock angle",
+                                                                    "params": {
+                                                                      "x": -10,
+                                                                      "y": 0,
+                                                                      "z": -4
+                                                                    },
+                                                                    "children": [
+                                                                      {
+                                                                        "id": "stress-cow-capsule-48",
+                                                                        "kind": "capsule",
+                                                                        "label": "Right rear hock",
+                                                                        "params": {
+                                                                          "radius": 6.5,
+                                                                          "height": 30
+                                                                        },
+                                                                        "children": [],
+                                                                        "enabled": true
+                                                                      }
+                                                                    ],
+                                                                    "enabled": true
+                                                                  }
+                                                                ],
+                                                                "enabled": true
+                                                              }
+                                                            ],
+                                                            "enabled": true
+                                                          },
+                                                          {
+                                                            "id": "stress-cow-translate-52",
+                                                            "kind": "translate",
+                                                            "label": "Right ear position",
+                                                            "params": {
+                                                              "x": 29,
+                                                              "y": 79,
+                                                              "z": -76
+                                                            },
+                                                            "children": [
+                                                              {
+                                                                "id": "stress-cow-ellipsoid-51",
+                                                                "kind": "ellipsoid",
+                                                                "label": "Right ear",
+                                                                "params": {
+                                                                  "width": 23,
+                                                                  "height": 7,
+                                                                  "depth": 14
+                                                                },
+                                                                "children": [],
+                                                                "enabled": true
+                                                              }
+                                                            ],
+                                                            "enabled": true
+                                                          }
+                                                        ],
+                                                        "enabled": true
+                                                      },
+                                                      {
+                                                        "id": "stress-cow-translate-55",
+                                                        "kind": "translate",
+                                                        "label": "Right horn position",
+                                                        "params": {
+                                                          "x": 14,
+                                                          "y": 93,
+                                                          "z": -74
+                                                        },
+                                                        "children": [
+                                                          {
+                                                            "id": "stress-cow-rotate-54",
+                                                            "kind": "rotate",
+                                                            "label": "Right horn angle",
+                                                            "params": {
+                                                              "x": 0,
+                                                              "y": 0,
+                                                              "z": 18
+                                                            },
+                                                            "children": [
+                                                              {
+                                                                "id": "stress-cow-cone-53",
+                                                                "kind": "cone",
+                                                                "label": "Right horn",
+                                                                "params": {
+                                                                  "radius": 4.5,
+                                                                  "height": 19
+                                                                },
+                                                                "children": [],
+                                                                "enabled": true
+                                                              }
+                                                            ],
+                                                            "enabled": true
+                                                          }
+                                                        ],
+                                                        "enabled": true
+                                                      }
+                                                    ],
+                                                    "enabled": true
+                                                  },
+                                                  {
+                                                    "id": "stress-cow-translate-57",
+                                                    "kind": "translate",
+                                                    "label": "Right front outer claw position",
+                                                    "params": {
+                                                      "x": 26,
+                                                      "y": -15,
+                                                      "z": -40
+                                                    },
+                                                    "children": [
+                                                      {
+                                                        "id": "stress-cow-ellipsoid-56",
+                                                        "kind": "ellipsoid",
+                                                        "label": "Right front outer claw",
+                                                        "params": {
+                                                          "width": 9,
+                                                          "height": 8,
+                                                          "depth": 20
+                                                        },
+                                                        "children": [],
+                                                        "enabled": true
+                                                      }
+                                                    ],
+                                                    "enabled": true
+                                                  }
+                                                ],
+                                                "enabled": true
+                                              },
+                                              {
+                                                "id": "stress-cow-translate-59",
+                                                "kind": "translate",
+                                                "label": "Right front inner claw position",
+                                                "params": {
+                                                  "x": 18,
+                                                  "y": -15,
+                                                  "z": -40
+                                                },
+                                                "children": [
+                                                  {
+                                                    "id": "stress-cow-ellipsoid-58",
+                                                    "kind": "ellipsoid",
+                                                    "label": "Right front inner claw",
+                                                    "params": {
+                                                      "width": 9,
+                                                      "height": 8,
+                                                      "depth": 20
+                                                    },
+                                                    "children": [],
+                                                    "enabled": true
+                                                  }
+                                                ],
+                                                "enabled": true
+                                              }
+                                            ],
+                                            "enabled": true
+                                          },
+                                          {
+                                            "id": "stress-cow-translate-61",
+                                            "kind": "translate",
+                                            "label": "Right rear outer claw position",
+                                            "params": {
+                                              "x": 25,
+                                              "y": -15,
+                                              "z": 43
+                                            },
+                                            "children": [
+                                              {
+                                                "id": "stress-cow-ellipsoid-60",
+                                                "kind": "ellipsoid",
+                                                "label": "Right rear outer claw",
+                                                "params": {
+                                                  "width": 9,
+                                                  "height": 8,
+                                                  "depth": 21
+                                                },
+                                                "children": [],
+                                                "enabled": true
+                                              }
+                                            ],
+                                            "enabled": true
+                                          }
+                                        ],
+                                        "enabled": true
+                                      },
+                                      {
+                                        "id": "stress-cow-translate-63",
+                                        "kind": "translate",
+                                        "label": "Right rear inner claw position",
+                                        "params": {
+                                          "x": 17,
+                                          "y": -15,
+                                          "z": 43
+                                        },
+                                        "children": [
+                                          {
+                                            "id": "stress-cow-ellipsoid-62",
+                                            "kind": "ellipsoid",
+                                            "label": "Right rear inner claw",
+                                            "params": {
+                                              "width": 9,
+                                              "height": 8,
+                                              "depth": 21
+                                            },
+                                            "children": [],
+                                            "enabled": true
+                                          }
+                                        ],
+                                        "enabled": true
+                                      }
+                                    ],
+                                    "enabled": true
+                                  },
+                                  {
+                                    "id": "stress-cow-translate-65",
+                                    "kind": "translate",
+                                    "label": "Udder position",
+                                    "params": {
+                                      "x": 0,
+                                      "y": 22,
+                                      "z": 25
+                                    },
+                                    "children": [
+                                      {
+                                        "id": "stress-cow-ellipsoid-64",
+                                        "kind": "ellipsoid",
+                                        "label": "Udder",
+                                        "params": {
+                                          "width": 30,
+                                          "height": 18,
+                                          "depth": 34
+                                        },
+                                        "children": [],
+                                        "enabled": true
+                                      }
+                                    ],
+                                    "enabled": true
+                                  }
+                                ],
+                                "enabled": true
+                              },
+                              {
+                                "id": "stress-cow-translate-68",
+                                "kind": "translate",
+                                "label": "Tail base position",
+                                "params": {
+                                  "x": 0,
+                                  "y": 60,
+                                  "z": 65
+                                },
+                                "children": [
+                                  {
+                                    "id": "stress-cow-rotate-67",
+                                    "kind": "rotate",
+                                    "label": "Tail base angle",
+                                    "params": {
+                                      "x": 68,
+                                      "y": 0,
+                                      "z": 0
+                                    },
+                                    "children": [
+                                      {
+                                        "id": "stress-cow-capsule-66",
+                                        "kind": "capsule",
+                                        "label": "Tail base",
+                                        "params": {
+                                          "radius": 4.8,
+                                          "height": 29
+                                        },
+                                        "children": [],
+                                        "enabled": true
+                                      }
+                                    ],
+                                    "enabled": true
+                                  }
+                                ],
+                                "enabled": true
+                              }
+                            ],
+                            "enabled": true
+                          },
+                          {
+                            "id": "stress-cow-translate-71",
+                            "kind": "translate",
+                            "label": "Tail lower position",
+                            "params": {
+                              "x": 0,
+                              "y": 49,
+                              "z": 84
+                            },
+                            "children": [
+                              {
+                                "id": "stress-cow-rotate-70",
+                                "kind": "rotate",
+                                "label": "Tail lower angle",
+                                "params": {
+                                  "x": -38,
+                                  "y": 0,
+                                  "z": 0
+                                },
+                                "children": [
+                                  {
+                                    "id": "stress-cow-capsule-69",
+                                    "kind": "capsule",
+                                    "label": "Tail lower",
+                                    "params": {
+                                      "radius": 3.5,
+                                      "height": 29
+                                    },
+                                    "children": [],
+                                    "enabled": true
+                                  }
+                                ],
+                                "enabled": true
+                              }
+                            ],
+                            "enabled": true
+                          }
+                        ],
+                        "enabled": true
+                      },
+                      {
+                        "id": "stress-cow-translate-73",
+                        "kind": "translate",
+                        "label": "Tail tuft position",
+                        "params": {
+                          "x": 0,
+                          "y": 37,
+                          "z": 95
+                        },
+                        "children": [
+                          {
+                            "id": "stress-cow-ellipsoid-72",
+                            "kind": "ellipsoid",
+                            "label": "Tail tuft",
+                            "params": {
+                              "width": 12,
+                              "height": 19,
+                              "depth": 11
+                            },
+                            "children": [],
+                            "enabled": true
+                          }
+                        ],
+                        "enabled": true
+                      }
+                    ],
+                    "enabled": true
+                  },
+                  {
+                    "id": "stress-cow-translate-104",
+                    "kind": "translate",
+                    "label": "Left eye socket position",
+                    "params": {
+                      "x": -15,
+                      "y": 72,
+                      "z": -101
+                    },
+                    "children": [
+                      {
+                        "id": "stress-cow-sphere-103",
+                        "kind": "sphere",
+                        "label": "Left eye socket",
+                        "params": {
+                          "radius": 4.2
+                        },
+                        "children": [],
+                        "enabled": true
+                      }
+                    ],
+                    "enabled": true
+                  }
+                ],
+                "enabled": true
+              },
+              {
+                "id": "stress-cow-translate-106",
+                "kind": "translate",
+                "label": "Right eye socket position",
+                "params": {
+                  "x": 15,
+                  "y": 72,
+                  "z": -101
+                },
+                "children": [
+                  {
+                    "id": "stress-cow-sphere-105",
+                    "kind": "sphere",
+                    "label": "Right eye socket",
+                    "params": {
+                      "radius": 4.2
+                    },
+                    "children": [],
+                    "enabled": true
+                  }
+                ],
+                "enabled": true
+              }
+            ],
+            "enabled": true
+          },
+          {
+            "id": "stress-cow-translate-108",
+            "kind": "translate",
+            "label": "Left nostril position",
+            "params": {
+              "x": -8,
+              "y": 59,
+              "z": -116
+            },
+            "children": [
+              {
+                "id": "stress-cow-sphere-107",
+                "kind": "sphere",
+                "label": "Left nostril",
+                "params": {
+                  "radius": 2.7
+                },
+                "children": [],
+                "enabled": true
+              }
+            ],
+            "enabled": true
+          }
+        ],
+        "enabled": true
+      },
+      {
+        "id": "stress-cow-translate-110",
+        "kind": "translate",
+        "label": "Right nostril position",
+        "params": {
+          "x": 8,
+          "y": 59,
+          "z": -116
+        },
+        "children": [
+          {
+            "id": "stress-cow-sphere-109",
+            "kind": "sphere",
+            "label": "Right nostril",
+            "params": {
+              "radius": 2.7
+            },
+            "children": [],
+            "enabled": true
+          }
+        ],
+        "enabled": true
+      }
+    ],
+    "enabled": true
+  },
+  "parameters": [],
+  "views": [],
+  "measurements": [],
+  "units": {
+    "displayUnit": "mm",
+    "decimalPrecision": 2,
+    "fractionalDenominator": 16
+  },
+  "components": []
+}

@@ -147,6 +147,25 @@ test('tablet portrait stays mobile and rotation does not resurrect a stale drawe
   await expect(page.getByRole('dialog', { name: 'Model tools' })).toBeHidden();
 });
 
+test('tablet touch toolbar does not overlap the selection breadcrumb', async ({ page }) => {
+  await page.setViewportSize({ width: 820, height: 1180 });
+  await enterModeler(page);
+  await page.locator('[aria-label="Node tree"]').click();
+  await overlay(page).locator('[title="Add Box"]').click();
+  await page.locator('[aria-label="Close node tree"]').click();
+
+  const breadcrumb = page.getByTestId('selection-breadcrumb');
+  const pivot = page.getByRole('combobox', { name: 'Transform pivot' });
+  await expect(breadcrumb).toBeVisible();
+  await expect(pivot).toBeVisible();
+
+  const breadcrumbBox = await breadcrumb.boundingBox();
+  const pivotBox = await pivot.boundingBox();
+  expect(breadcrumbBox).not.toBeNull();
+  expect(pivotBox).not.toBeNull();
+  expect(breadcrumbBox!.y).toBeGreaterThanOrEqual(pivotBox!.y + pivotBox!.height);
+});
+
 test('short landscape phones dock properties beside the viewport', async ({ page }) => {
   await page.setViewportSize({ width: 750, height: 342 });
   await enterModeler(page);
