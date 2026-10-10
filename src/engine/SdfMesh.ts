@@ -30,7 +30,16 @@ float clipCoord(vec3 p) {
 }
 `;
 
-function buildFrag(sdfFunc: string, paramCount: number, hasWarn: boolean): string {
+/** Transient ray budget; settled frames always retain the full 1,024 steps. */
+export function interactionStepBudget(sourceParamCount: number): number {
+  if (sourceParamCount > 900) return 128;
+  if (sourceParamCount > 700) return 160;
+  if (sourceParamCount > 450) return 192;
+  return 256;
+}
+
+function buildFrag(sdfFunc: string, paramCount: number, hasWarn: boolean, sourceParamCount = paramCount): string {
+  const transientSteps = interactionStepBudget(sourceParamCount);
   return `
 precision highp float;
 uniform float u_p[${paramCount}];
@@ -198,7 +207,7 @@ void main() {
     // Keep direct manipulation responsive on deep CSG trees. The full budget
     // is restored for the settled frame, so this can only reduce transient
     // preview completeness, never final accuracy or export geometry.
-    if (u_interacting > 0.5 && i >= 256) break;
+    if (u_interacting > 0.5 && i >= ${transientSteps}) break;
     p = ro + rd * t;
     minStep = max((u_orthographic > 0.5 ? 1.0 : t) * u_pixelRadius * 0.5, u_stepFloor);
     float radius = abs(sdf(p));
@@ -461,7 +470,7 @@ export class SdfMesh {
     }
   }
 
-  private rebuild(sdf: { glsl: string; paramCount: number; paramValues: number[]; textures: any[]; bbMin: [number,number,number]; bbMax: [number,number,number]; hasWarn: boolean }): boolean {
+  private rebuild(sdf: { glsl: string; paramCount: number; paramValues: number[]; sourceParamCount?: number; textures: any[]; bbMin: [number,number,number]; bbMax: [number,number,number]; hasWarn: boolean }): boolean {
     const initialParams = new Float32Array(sdf.paramCount);
     for (let i = 0; i < sdf.paramValues.length; i++) initialParams[i] = sdf.paramValues[i];
 
@@ -489,7 +498,7 @@ export class SdfMesh {
 
     const nextMaterial = new THREE.ShaderMaterial({
       vertexShader: VERT,
-      fragmentShader: buildFrag(sdf.glsl, sdf.paramCount, sdf.hasWarn),
+      fragmentShader: buildFrag(sdf.glsl, sdf.paramCount, sdf.hasWarn, sdf.sourceParamCount ?? sdf.paramCount),
       uniforms: {
         u_p: { value: initialParams },
         u_cameraPos: { value: new THREE.Vector3() },

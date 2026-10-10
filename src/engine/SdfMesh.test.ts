@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import * as THREE from 'three';
-import { MAX_GENERATED_SHADER_CHARS, MAX_VIEWPORT_FRAGMENT_UNIFORM_COMPONENTS, SdfMesh, shaderCapacityError } from './SdfMesh';
+import { interactionStepBudget, MAX_GENERATED_SHADER_CHARS, MAX_VIEWPORT_FRAGMENT_UNIFORM_COMPONENTS, SdfMesh, shaderCapacityError } from './SdfMesh';
 import { useModelerStore, type SDFDisplayData } from '../store/modelerStore';
 import { useViewportStore } from '../store/viewportStore';
 import type { ThreeEngine } from './ThreeEngine';
@@ -293,6 +293,20 @@ describe('interaction shader quality', () => {
     expect(material.fragmentShader).toContain('cross(dFdx(p), dFdy(p))');
     expect(material.fragmentShader).toContain('normal = calcNormal(p, t)');
     expect(material.fragmentShader).toContain('u_interacting > 0.5');
+  });
+
+  it('scales only the transient march budget with source complexity', () => {
+    expect(interactionStepBudget(200)).toBe(256);
+    expect(interactionStepBudget(500)).toBe(192);
+    expect(interactionStepBudget(800)).toBe(160);
+    expect(interactionStepBudget(950)).toBe(128);
+
+    useModelerStore.setState({
+      sdfDisplay: display('float sdf(vec3 p){return length(p)-1.0;}', 0, { sourceParamCount: 950 }),
+    });
+    const material = currentResources(new SdfMesh(renderableEngine())).material!;
+    expect(material.fragmentShader).toContain('u_interacting > 0.5 && i >= 128');
+    expect(material.fragmentShader).toContain('for (int i = 0; i < 1024; i++)');
   });
 });
 
