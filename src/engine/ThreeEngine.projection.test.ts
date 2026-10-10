@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { describe, expect, it, vi } from 'vitest';
-import { ThreeEngine, interactivePixelRatio } from './ThreeEngine';
+import { ThreeEngine, interactivePixelRatio, viewportChangeAffectsCanvas } from './ThreeEngine';
 import { useViewportStore } from '../store/viewportStore';
 
 function harness() {
@@ -29,6 +29,26 @@ describe('interactive pixel ratio', () => {
 
   it('never raises a low native pixel ratio', () => {
     expect(interactivePixelRatio(0.15, 800)).toBe(0.15);
+  });
+});
+
+describe('viewport invalidation filtering', () => {
+  it('does not redraw the SDF for UI-only hover and measurement writes', () => {
+    const previous = useViewportStore.getState();
+    expect(viewportChangeAffectsCanvas(
+      { ...previous, hoveredNodeId: 'box-1', hoverSource: 'ui' },
+      previous,
+    )).toBe(false);
+    expect(viewportChangeAffectsCanvas(
+      { ...previous, measurementPrecision: previous.measurementPrecision + 1 },
+      previous,
+    )).toBe(false);
+  });
+
+  it('redraws for clipping and gizmo changes', () => {
+    const previous = useViewportStore.getState();
+    expect(viewportChangeAffectsCanvas({ ...previous, clipPosition: previous.clipPosition + 1 }, previous)).toBe(true);
+    expect(viewportChangeAffectsCanvas({ ...previous, gizmoMode: 'rotate' }, previous)).toBe(true);
   });
 });
 

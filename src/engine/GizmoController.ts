@@ -320,8 +320,28 @@ export class GizmoController {
         state.selectedNodeIds !== previous.selectedNodeIds
       ) this.syncFromStore();
     }));
-    this.unsubs.push(useViewportStore.subscribe(() => this.syncFromStore()));
-    this.unsubs.push(useTreeUiStore.subscribe(() => this.syncFromStore()));
+    this.unsubs.push(useViewportStore.subscribe((state, previous) => {
+      // Hover, measurement, named-view and export-resolution writes do not
+      // alter TransformControls. Avoid walking the selected path and resetting
+      // its matrices for those UI-only events.
+      if (
+        state.gizmoMode !== previous.gizmoMode ||
+        state.gizmoSpace !== previous.gizmoSpace ||
+        state.gizmoPivot !== previous.gizmoPivot ||
+        state.customPivot !== previous.customPivot ||
+        state.dragging !== previous.dragging ||
+        state.snapEnabled !== previous.snapEnabled ||
+        state.snapSize !== previous.snapSize ||
+        state.objectSnapEnabled !== previous.objectSnapEnabled
+      ) this.syncFromStore();
+    }));
+    this.unsubs.push(useTreeUiStore.subscribe((state, previous) => {
+      if (
+        state.lockedNodeIds !== previous.lockedNodeIds ||
+        state.hiddenNodeIds !== previous.hiddenNodeIds ||
+        state.isolatedNodeId !== previous.isolatedNodeId
+      ) this.syncFromStore();
+    }));
   }
 
   private syncFromStore() {
