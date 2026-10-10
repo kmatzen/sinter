@@ -15,6 +15,8 @@ const PREVIOUS_KEY = 'previous';
 export interface LocalBackupRecord {
   json: string;
   savedAt: string;
+  /** Written only after trusted construction/full validation; restore validates again. */
+  validated?: true;
 }
 
 export interface LocalBackupSlots {
@@ -71,7 +73,7 @@ const indexedDBBackend: LocalBackupBackend = {
         const current = getCurrent.result as LocalBackupRecord | undefined;
         // Only advance a known-good snapshot. A corrupt current value must not
         // overwrite the last recoverable copy.
-        if (current && parseProject(current.json)) store.put(current, PREVIOUS_KEY);
+        if (current && validForRotation(current)) store.put(current, PREVIOUS_KEY);
         store.put(record, CURRENT_KEY);
       };
       getCurrent.onerror = () => tx.abort();
@@ -110,10 +112,18 @@ function parseProject(json: string): { projectName?: string; tree?: unknown } | 
   }
 }
 
+function validForRotation(record: LocalBackupRecord): boolean {
+  // IndexedDB commits records atomically. App-generated records were built
+  // from already-valid store state, while imported/legacy records receive the
+  // full decoder before the marker is added. Restore still validates JSON, so
+  // this marker only removes redundant validation during snapshot rotation.
+  return record.validated === true || parseProject(record.json) !== null;
+}
+
 function legacyRecord(): LocalBackupRecord | null {
   try {
     const json = localStorage.getItem(LEGACY_STORAGE_KEY);
-    return json && parseProject(json) ? { json, savedAt: new Date().toISOString() } : null;
+    return json && parseProject(json) ? { json, savedAt: new Date().toISOString(), validated: true } : null;
   } catch {
     return null;
   }
@@ -140,16 +150,33 @@ export async function saveToLocal(): Promise<boolean> {
     const granted = await ensureConsent('local');
     if (!granted) return false;
   }
-  const document = JSON.parse(useModelerStore.getState().toJSON());
+  const model = useModelerStore.getState();
+  const viewport = useViewportStore.getState();
   const configuration = useConfigurationStore.getState();
-  document.parameters = configuration.baseParameters.length ? configuration.baseParameters : document.parameters;
-  document.configurations = configuration.configurations;
-  document.activeConfigurationId = configuration.activeId;
-  const json = JSON.stringify(document, null, 2);
+  // Construct once from immutable store references. The old path serialized
+  // the complete project via toJSON(), parsed that string back into an object,
+  // then serialized it a second time. Imported-mesh payloads made all three
+  // simultaneous copies large enough to cause visible GC pauses.
+  const json = JSON.stringify({
+    version: 2,
+    projectName: model.projectName,
+    tree: model.tree,
+    parameters: configuration.baseParameters.length ? configuration.baseParameters : model.namedParameters,
+    views: viewport.namedViews,
+    measurements: viewport.pinnedMeasurements,
+    units: {
+      displayUnit: viewport.measurementUnit,
+      decimalPrecision: viewport.measurementPrecision,
+      fractionalDenominator: viewport.measurementFractionalDenominator,
+    },
+    components: useProjectComponentStore.getState().components,
+    configurations: configuration.configurations,
+    activeConfigurationId: configuration.activeId,
+  });
   useLocalBackupStore.setState({ status: 'saving', error: null });
   try {
     const savedAt = new Date().toISOString();
-    await backend.write({ json, savedAt });
+    await backend.write({ json, savedAt, validated: true });
     useLocalBackupStore.setState({ status: 'saved', error: null, lastSavedAt: savedAt });
     return true;
   } catch (error) {
@@ -209,7 +236,7 @@ export async function writeLocalBackupJSON(json: string): Promise<void> {
   const savedAt = new Date().toISOString();
   useLocalBackupStore.setState({ status: 'saving', error: null });
   try {
-    await backend.write({ json, savedAt });
+    await backend.write({ json, savedAt, validated: true });
     useLocalBackupStore.setState({ status: 'saved', error: null, lastSavedAt: savedAt });
   } catch (error) {
     useLocalBackupStore.setState({ status: 'failed', error: failureMessage(error) });
