@@ -36,7 +36,7 @@ function collapse(crumbs: Crumb[]): (Crumb | 'ellipsis')[] {
   return [crumbs[0], 'ellipsis', ...crumbs.slice(-(MAX_CRUMBS - 1))];
 }
 
-export function SelectionBreadcrumb() {
+export function SelectionBreadcrumb({ top }: { top?: number } = {}) {
   const tree = useModelerStore((s) => s.tree);
   const selectedId = useModelerStore((s) => s.selectedNodeId);
   const selectNode = useModelerStore((s) => s.selectNode);
@@ -61,6 +61,7 @@ export function SelectionBreadcrumb() {
       <div
         data-testid="selection-breadcrumb"
         className="absolute top-3 left-1/2 -translate-x-1/2 z-20 pointer-events-none max-w-[60%] hidden sm:block"
+        style={top === undefined ? undefined : { top }}
       >
         <div
           className="rounded-lg px-2.5 py-1 text-[10px] leading-normal font-mono text-center"
@@ -76,6 +77,7 @@ export function SelectionBreadcrumb() {
     <div
       data-testid="selection-breadcrumb"
       className="absolute top-3 left-1/2 -translate-x-1/2 z-20 max-w-[60%] hidden sm:block"
+      style={top === undefined ? undefined : { top }}
     >
       <div
         className="rounded-lg px-2.5 py-1 flex items-center gap-1 overflow-hidden"

@@ -32,6 +32,7 @@ vi.mock('./workerBridge', () => ({
 const { useEvaluator } = await import('./useEvaluator');
 const { useModelerStore } = await import('../store/modelerStore');
 const { useTreeUiStore } = await import('../store/treeUiStore');
+const { useViewportStore } = await import('../store/viewportStore');
 
 const box = (width = 100): SDFNodeUI => ({
   id: 'box-1',
@@ -65,6 +66,7 @@ beforeEach(() => {
   evaluate.mockResolvedValue(display);
   hydrate(null);
   useTreeUiStore.getState().resetViewState();
+  useViewportStore.getState().setDragging(false);
 });
 
 afterEach(() => {
@@ -176,17 +178,17 @@ describe('useEvaluator', () => {
     expect(evaluate.mock.calls[1][0]).toMatchObject({ params: { width: 200 } });
   });
 
-  it('clears a previous display immediately and keeps it cleared after failure', async () => {
+  it('preserves the previous display when replacement evaluation fails', async () => {
     const oldTree = box(100);
     hydrate(oldTree);
     useModelerStore.setState({ sdfDisplay: display, evaluatedTree: oldTree });
     evaluate.mockRejectedValueOnce(new Error('codegen failed'));
     renderHook(() => useEvaluator());
 
-    expect(useModelerStore.getState().sdfDisplay).toBeNull();
+    expect(useModelerStore.getState().sdfDisplay).toBe(display);
     await flush();
     expect(useModelerStore.getState()).toMatchObject({
-      sdfDisplay: null, evaluatedTree: null, evaluating: false, error: 'codegen failed',
+      sdfDisplay: display, evaluatedTree: oldTree, evaluating: false, error: 'codegen failed',
     });
   });
 
@@ -209,6 +211,41 @@ describe('useEvaluator', () => {
 
     expect(useModelerStore.getState()).toMatchObject({
       tree: secondTree, sdfDisplay: display, evaluatedTree: secondTree, error: null,
+    });
+  });
+
+  it('accepts completed intermediate frames during a continuous gizmo drag', async () => {
+    const first = deferred<unknown>();
+    const second = deferred<unknown>();
+    const firstDisplay = { ...display, paramValues: [1] };
+    const secondDisplay = { ...display, paramValues: [2] };
+    evaluate.mockImplementationOnce(() => first.promise).mockImplementationOnce(() => second.promise);
+    hydrate(null);
+    renderHook(() => useEvaluator());
+    useViewportStore.getState().setDragging(true);
+
+    const firstTree = box(100);
+    useModelerStore.getState().setTree(firstTree);
+    await flush();
+    const secondTree = box(200);
+    useModelerStore.getState().setTree(secondTree);
+    await flush();
+
+    first.resolve(firstDisplay);
+    await flush();
+    expect(useModelerStore.getState()).toMatchObject({
+      tree: secondTree,
+      sdfDisplay: firstDisplay,
+      evaluatedTree: firstTree,
+      evaluating: false,
+    });
+
+    second.resolve(secondDisplay);
+    await flush();
+    expect(useModelerStore.getState()).toMatchObject({
+      sdfDisplay: secondDisplay,
+      evaluatedTree: secondTree,
+      evaluating: false,
     });
   });
 

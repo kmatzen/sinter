@@ -296,6 +296,14 @@ export interface ShaderCapacity {
 
 export const MAX_GENERATED_SHADER_CHARS = 250_000;
 
+// Stay below the WebGL 2 minimum of 1024 fragment-uniform components. Drivers
+// reserve implementation-specific uniforms while linking, and models close to
+// the advertised ceiling have hung or lost the context instead of producing a
+// useful compile error. This headroom turns that GPU failure into a recoverable
+// capacity message and gives the future parameter-packing optimization a
+// deterministic regression target.
+export const MAX_VIEWPORT_FRAGMENT_UNIFORM_COMPONENTS = 896;
+
 // Scalars/vectors/matrix used by buildFrag apart from the generated u_p array.
 // Samplers have their own independently queried limit.
 const FIXED_FRAGMENT_UNIFORM_COMPONENTS = 38;
@@ -308,6 +316,9 @@ export function shaderCapacityError(
   const requiredComponents = sdf.paramCount + FIXED_FRAGMENT_UNIFORM_COMPONENTS;
   if (requiredComponents > capacity.maxFragmentUniformComponents) {
     return `Viewport unavailable: this model needs ${requiredComponents} fragment-uniform components, but this GPU supports ${capacity.maxFragmentUniformComponents}. Simplify or group repeated operations; CPU export remains available.`;
+  }
+  if (requiredComponents > MAX_VIEWPORT_FRAGMENT_UNIFORM_COMPONENTS) {
+    return `Viewport unavailable: this model needs ${requiredComponents} fragment-uniform components, above Sinter's portable ${MAX_VIEWPORT_FRAGMENT_UNIFORM_COMPONENTS}-component budget. Simplify or group repeated operations; CPU export remains available.`;
   }
   const textureCount = sdf.textures?.length ?? 0;
   if (textureCount > capacity.maxTextureImageUnits) {

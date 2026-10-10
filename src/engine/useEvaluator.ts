@@ -3,6 +3,7 @@ import type { SDFNodeUI } from '../types/operations';
 import { useModelerStore } from '../store/modelerStore';
 import { workerBridge } from './workerBridge';
 import { useTreeUiStore } from '../store/treeUiStore';
+import { useViewportStore } from '../store/viewportStore';
 import { expectedChildren } from '../types/operations';
 
 /**
@@ -50,6 +51,7 @@ export function useEvaluator() {
   const prevViewKeyRef = useRef<string | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const evalSeqRef = useRef(0);
+  const acceptedEvalSeqRef = useRef(0);
 
   useEffect(() => {
     function triggerEval() {
@@ -76,11 +78,15 @@ export function useEvaluator() {
       prevViewKeyRef.current = viewKey;
       const viewportTree = projectViewportTree(tree, viewState.hiddenNodeIds, viewState.isolatedNodeId);
 
-      // Invalidate the old render synchronously with the document change. A
-      // failed or delayed evaluation must never leave an older model looking
-      // like it belongs to the active tree.
+      // Keep the last accepted display while the replacement is evaluated.
+      // SdfMesh stages and compiles a replacement before swapping materials;
+      // clearing sdfDisplay here destroyed that material first, turning a
+      // recoverable shader-capacity/compile failure into a blank viewport.
+      // evaluatedTree still identifies which revision the visible preview
+      // belongs to, and the evaluating overlay makes the pending state clear.
       const seq = ++evalSeqRef.current;
-      useModelerStore.setState({ sdfDisplay: null, evaluatedTree: null, evaluatedViewTree: null, evaluating: !!tree, error: null });
+      const dragging = useViewportStore.getState().dragging;
+      useModelerStore.setState({ evaluating: !!tree && !dragging, error: null });
       if (debounceRef.current) clearTimeout(debounceRef.current);
       if (!tree) return;
 
@@ -88,18 +94,28 @@ export function useEvaluator() {
       debounceRef.current = setTimeout(() => {
         workerBridge.evaluate(viewportTree)
           .then((sdf) => {
-            if (seq !== evalSeqRef.current || useModelerStore.getState().tree !== tree) return;
+            const exact = seq === evalSeqRef.current && useModelerStore.getState().tree === tree;
+            // During a continuous gizmo drag, pointer events can arrive faster
+            // than the worker round trip. Requiring an exact tree identity
+            // discarded every completed frame until pointer-up. Accept the
+            // newest completed intermediate result while dragging; its GLSL
+            // structure is unchanged, so SdfMesh takes the uniform-only path.
+            const liveDragFrame = !!sdf
+              && useViewportStore.getState().dragging
+              && seq > acceptedEvalSeqRef.current;
+            if (!exact && !liveDragFrame) return;
+            acceptedEvalSeqRef.current = seq;
             useModelerStore.setState({
               sdfDisplay: sdf,
               evaluatedTree: tree,
               evaluatedViewTree: viewportTree,
               lastValidTree: sdf ? tree : useModelerStore.getState().lastValidTree,
-              evaluating: false,
+              evaluating: exact ? false : useModelerStore.getState().evaluating,
             });
           })
           .catch((err) => {
             if (seq !== evalSeqRef.current || useModelerStore.getState().tree !== tree) return;
-            useModelerStore.setState({ sdfDisplay: null, evaluatedTree: null, evaluatedViewTree: null, error: err.message, evaluating: false });
+            useModelerStore.setState({ error: err.message, evaluating: false });
           });
       }, 0); // Immediate — codegen is <1ms
     }

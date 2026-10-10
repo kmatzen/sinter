@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState } from 'react';
+import { useRef, useEffect, useState, useLayoutEffect } from 'react';
 import { ThreeEngine } from '../../engine/ThreeEngine';
 import { ViewportToolbar } from './ViewportToolbar';
 import { ShortcutOverlay } from './ShortcutOverlay';
@@ -13,6 +13,8 @@ import { MeasurementOverlay } from './MeasurementOverlay';
 export function Viewport() {
   const evaluating = useModelerStore((s) => s.evaluating);
   const containerRef = useRef<HTMLDivElement>(null);
+  const topToolbarRef = useRef<HTMLDivElement>(null);
+  const [breadcrumbTop, setBreadcrumbTop] = useState(12);
   const [engine, setEngine] = useState<ThreeEngine | null>(null);
   const [engineError, setEngineError] = useState<string | null>(null);
 
@@ -33,6 +35,17 @@ export function Viewport() {
       setEngine(null);
       setEngineRef(null);
     };
+  }, []);
+
+  useLayoutEffect(() => {
+    const toolbar = topToolbarRef.current;
+    if (!toolbar) return;
+    const update = () => setBreadcrumbTop(toolbar.offsetTop + toolbar.offsetHeight + 6);
+    update();
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(update);
+    observer.observe(toolbar);
+    return () => observer.disconnect();
   }, []);
 
   return (
@@ -57,9 +70,9 @@ export function Viewport() {
 
       <SelectionOverlay engine={engine} />
       <DimensionLabels engine={engine} />
-      <SelectionBreadcrumb />
+      <SelectionBreadcrumb top={breadcrumbTop} />
       <MeasurementOverlay />
-      <ViewportToolbar engine={engine} />
+      <ViewportToolbar engine={engine} topToolbarRef={topToolbarRef} />
       <ShortcutOverlay />
 
       {/* Evaluating overlay — centered spinner on the shape */}

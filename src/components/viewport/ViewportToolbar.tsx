@@ -2,7 +2,7 @@ import { useViewportStore } from '../../store/viewportStore';
 import { triggerDownload } from '../../utils/download';
 import { Move, RotateCcw, Magnet, Camera, Ruler, Scissors, Scaling, Crosshair, Plus, Trash2, Scan } from 'lucide-react';
 import type { ThreeEngine } from '../../engine/ThreeEngine';
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode, type Ref } from 'react';
 import * as THREE from 'three';
 import type { StandardView } from '../../engine/cameraViews';
 import { formatLength } from '../../types/units';
@@ -115,7 +115,7 @@ function OrientationWidget({ engine }: { engine: ThreeEngine | null }) {
   );
 }
 
-export function ViewportToolbar({ engine }: { engine: ThreeEngine | null }) {
+export function ViewportToolbar({ engine, topToolbarRef }: { engine: ThreeEngine | null; topToolbarRef?: Ref<HTMLDivElement> }) {
   const [selectedNamedViewId, setSelectedNamedViewId] = useState('');
   const clipEnabled = useViewportStore((s) => s.clipEnabled);
   const toggleClip = useViewportStore((s) => s.toggleClip);
@@ -163,7 +163,7 @@ export function ViewportToolbar({ engine }: { engine: ThreeEngine | null }) {
         more than an iPhone SE is wide. `right-3` gives the wrap something to
         wrap against, and `pl-safe` keeps it clear of a landscape notch.
       */}
-      <div className="absolute top-3 left-3 right-3 sm:right-20 flex flex-wrap items-start gap-1.5 pointer-events-none [&>*]:pointer-events-auto pl-safe">
+      <div ref={topToolbarRef} data-testid="viewport-top-toolbar" className="absolute top-3 left-3 right-3 sm:right-20 flex flex-wrap items-start gap-1.5 pointer-events-none [&>*]:pointer-events-auto pl-safe">
         <BtnGroup>
           {([['translate', 'Move (W)', Move], ['rotate', 'Rotate (E)', RotateCcw], ['scale', 'Scale (R)', Scaling]] as const).map(([mode, title, Icon]) => (
             <SmallBtn
