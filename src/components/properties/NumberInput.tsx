@@ -88,9 +88,14 @@ export function NumberInput({ label, value, unit = 'mm', min, max, step = 1, onC
   const [isDragging, setIsDragging] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const transactionActive = useRef(false);
+  const interactionActive = useRef(false);
   const gestureCleanup = useRef<(() => void) | null>(null);
 
   const beginContinuousEdit = () => {
+    if (!interactionActive.current) {
+      interactionActive.current = true;
+      useViewportStore.getState().setDragging(true);
+    }
     const store = useModelerStore.getState();
     if (transactionActive.current || store.historyTransaction) return;
     store.beginHistoryTransaction();
@@ -98,6 +103,10 @@ export function NumberInput({ label, value, unit = 'mm', min, max, step = 1, onC
   };
 
   const finishContinuousEdit = (commitChange: boolean) => {
+    if (interactionActive.current) {
+      interactionActive.current = false;
+      useViewportStore.getState().setDragging(false);
+    }
     if (!transactionActive.current) return;
     transactionActive.current = false;
     const store = useModelerStore.getState();

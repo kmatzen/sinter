@@ -14,6 +14,7 @@ export interface OutlinePassEngine {
   gizmoScene?: THREE.Scene;
   camera: THREE.PerspectiveCamera | THREE.OrthographicCamera;
   container: HTMLElement;
+  isInteractionActive?: () => boolean;
 }
 
 const GIZMO_OUTLINE_FRAG = `
@@ -149,8 +150,8 @@ void main() {
 /**
  * Device-pixel ratio the outline kernels were authored against.
  *
- * `ThreeEngine` renders at `MAX_DPR = 1.5` when idle and drops to `1.0` while
- * the camera moves. Both outline shaders originally measured their kernel in
+ * `ThreeEngine` renders at `MAX_DPR = 1.5` when idle and drops as low as `0.2`
+ * while an expensive model moves. Both outline shaders originally measured their kernel in
  * *texels of the depth texture*, so a fixed texel count spanned a different
  * number of CSS pixels at each ratio — the outline visibly thickened for the
  * duration of a drag and snapped back on settle (issue #121). The kernels look
@@ -380,12 +381,16 @@ export class OutlinePass {
     renderer.autoClear = false;
     renderer.render(this.blitScene, this.quadCamera);
 
-    // 3. Outline quad, masked by depth rather than by a stencil.
-    renderer.render(this.quadScene, this.quadCamera);
+    // 3. Outline quad, masked by depth rather than by a stencil. Its 49-tap
+    // depth kernel is decorative and surprisingly expensive on integrated
+    // GPUs, so leave it for the settled full-quality frame. The model colour,
+    // depth and gizmo remain visible throughout interaction.
+    const interacting = this.engine.isInteractionActive?.() ?? false;
+    if (!interacting) renderer.render(this.quadScene, this.quadCamera);
 
     // 4. Capture the gizmo alone, for edge detection. No reparenting: it has
     //    its own scene, so this is just a second render of a different scene.
-    if (gizmoVisible) {
+    if (gizmoVisible && !interacting) {
       renderer.setRenderTarget(this.gizmoTarget);
       renderer.clear();
       renderer.render(gizmo!, camera);

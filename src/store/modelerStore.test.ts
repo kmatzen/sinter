@@ -128,6 +128,21 @@ describe('Modeler editing scenarios', () => {
   });
 
   describe('Scenario: parameter invariants', () => {
+    it('preserves untouched branch identity during a leaf edit', () => {
+      getState().setTree({
+        id: 'root', kind: 'union', label: 'Union', params: { smooth: 0 }, enabled: true,
+        children: [
+          { id: 'left', kind: 'box', label: 'Left', params: { width: 10, height: 10, depth: 10 }, children: [], enabled: true },
+          { id: 'right', kind: 'sphere', label: 'Right', params: { radius: 5 }, children: [], enabled: true },
+        ],
+      });
+      const untouched = getState().tree!.children[1];
+
+      getState().updateNodeParams('left', { width: 20 });
+
+      expect(getState().tree!.children[1]).toBe(untouched);
+    });
+
     it('clamps every live mutation through the node schema', () => {
       getState().addPrimitive('box');
       getState().updateNodeParams(getState().tree!.id, { width: -10 });

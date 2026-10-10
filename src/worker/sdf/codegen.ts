@@ -1,15 +1,18 @@
 import type { SDFNode } from './types';
-import { hasGlyphOutlines, SDF_PARAM_EPSILON } from './types';
+import { hasGlyphOutlines, sdfSourceId, SDF_PARAM_EPSILON } from './types';
 import { linearWindow, circularWindow } from './patternWindow';
 import { computeBounds, fieldScale, MODIFIER_DISTANCE_SAFETY } from './bounds';
 import { arcGeometry } from './profile';
 
 let varCounter = 0;
 let paramIndex = 0;
+let sourceParamCount = 0;
 let paramValues: number[] = [];
 let textures: TextureData[] = [];
 let helperFunctions: string[] = [];
 let helperCounter = 0;
+let hotSourceIds: Set<string> | null = null;
+let currentSourceId: string | undefined;
 
 function nextVar(): string {
   return `d${varCounter++}`;
@@ -43,6 +46,8 @@ function mul3(a: Mat3, b: Mat3): Mat3 {
 // Register a parameter value as a uniform slot — returns GLSL reference
 function up(value: number): string {
   if (!isFinite(value) || isNaN(value)) value = 0;
+  sourceParamCount++;
+  if (hotSourceIds && (!currentSourceId || !hotSourceIds.has(currentSourceId))) return g(value);
   const idx = paramIndex++;
   paramValues.push(value);
   return `u_p[${idx}]`;
@@ -439,7 +444,7 @@ function emitProfileDistanceHelper(profile: Extract<SDFNode, { kind: 'extrude' }
   return fnName;
 }
 
-function emitNode(node: SDFNode, pVar: string, lines: string[]): string {
+function emitNodeInner(node: SDFNode, pVar: string, lines: string[]): string {
   const result = nextVar();
 
   switch (node.kind) {
@@ -794,6 +799,13 @@ function emitNode(node: SDFNode, pVar: string, lines: string[]): string {
   }
 }
 
+function emitNode(node: SDFNode, pVar: string, lines: string[]): string {
+  const previous = currentSourceId;
+  currentSourceId = sdfSourceId(node);
+  try { return emitNodeInner(node, pVar, lines); }
+  finally { currentSourceId = previous; }
+}
+
 export interface TextureData {
   name: string;
   width: number;
@@ -807,6 +819,7 @@ export interface SDFCompileResult {
   glsl: string;
   paramCount: number;
   paramValues: number[];
+  sourceParamCount: number;
   textures: TextureData[];
   hasWarn: boolean;
 }
@@ -853,15 +866,18 @@ function filterWarnTree(node: SDFNode): SDFNode {
 }
 
 // Compile SDF tree to GLSL with uniform parameters
-export function generateSDFFunction(root: SDFNode): SDFCompileResult {
+export function generateSDFFunction(root: SDFNode, options?: { hotSourceIds?: Iterable<string> }): SDFCompileResult {
   varCounter = 0;
   paramIndex = 0;
+  sourceParamCount = 0;
   paramValues = [];
   textures = [];
   helperFunctions = [];
   helperCounter = 0;
   glyphHelpersEmitted = false;
   meshHelpersEmitted = false;
+  hotSourceIds = options?.hotSourceIds ? new Set(options.hotSourceIds) : null;
+  currentSourceId = undefined;
   const lines: string[] = [];
   const finalVar = emitNode(root, 'p', lines);
 
@@ -887,7 +903,7 @@ export function generateSDFFunction(root: SDFNode): SDFCompileResult {
   return ${finalVar};
 }${warnFunc}`;
 
-  return { glsl, paramCount: count, paramValues: [...paramValues], textures: [...textures], hasWarn };
+  return { glsl, paramCount: count, paramValues: [...paramValues], sourceParamCount, textures: [...textures], hasWarn };
 }
 
 // Legacy: baked constants for export (no uniforms)

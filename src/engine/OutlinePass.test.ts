@@ -10,14 +10,14 @@ import {
 /**
  * Issue #121: the outline kernel was measured in depth-texture texels, so a
  * fixed texel count spanned a different on-screen width at each device-pixel
- * ratio. `ThreeEngine` uses 1.5 idle and 1.0 while the camera moves, so the
+ * ratio. This test uses the ordinary-model 0.35 interaction ratio, so the
  * outline thickened for the duration of a drag. `outlineTexelRadius` converts a
  * CSS-pixel radius to texels per frame so the on-screen width stays constant.
  */
 describe('outlineTexelRadius', () => {
   // The two device-pixel ratios ThreeEngine actually renders at.
   const IDLE_DPR = 1.5;
-  const INTERACTIVE_DPR = 1.0;
+  const INTERACTIVE_DPR = 0.35;
 
   it('holds a constant CSS width across the idle/interactive ratio switch', () => {
     for (const [css, max] of [

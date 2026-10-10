@@ -15,6 +15,12 @@ import { hasValidCameraBasis, type NamedProjectView } from '../types/view';
 
 interface PickResult { path: string[]; point?: Vec3; attribution?: PointAttribution }
 
+/** Pixel ratio for live manipulation, scaled by generated SDF complexity. */
+export function interactivePixelRatio(full: number, paramCount: number): number {
+  const target = paramCount > 900 ? 0.15 : paramCount > 700 ? 0.2 : paramCount > 450 ? 0.28 : 0.35;
+  return Math.min(full, target);
+}
+
 export class ThreeEngine {
   renderer: THREE.WebGLRenderer;
   scene: THREE.Scene;
@@ -51,13 +57,12 @@ export class ThreeEngine {
   private static readonly MAX_DPR = 1.5;
 
   /**
-   * Ratio used while the camera is moving. Dropping to ~0.44x the fragments
+   * Ratio used while the camera or a property gesture is moving. Dropping to
+   * ~0.054x the settled fragments keeps deep smooth-CSG trees interactive;
    * for the duration of a drag is the largest perceived-latency win available
    * here, and the full-resolution frame lands on idle — which is just another
    * invalidation, so it needs no machinery of its own.
    */
-  private static readonly INTERACTIVE_DPR = 1.0;
-
   /** How long after the last camera change to re-render at full resolution. */
   private static readonly SETTLE_MS = 180;
 
@@ -172,10 +177,20 @@ export class ThreeEngine {
 
     // New evaluated field, selection, warn state — SdfMesh.update() reads all
     // of them, and any of them can change a pixel.
-    this.unsubscribes.push(useModelerStore.subscribe(() => this.invalidate()));
+    this.unsubscribes.push(useModelerStore.subscribe((state, previous) => {
+      // Spinner/error/history/autosave bookkeeping does not change a viewport
+      // pixel. Rendering those store writes repeated the full raymarch for the
+      // same accepted SDF during every edit.
+      if (
+        state.sdfDisplay !== previous.sdfDisplay ||
+        state.selectedNodeId !== previous.selectedNodeId ||
+        state.selectedNodeIds !== previous.selectedNodeIds
+      ) this.invalidate();
+    }));
     // Clip plane, gizmo mode and space, dragging.
-    this.unsubscribes.push(useViewportStore.subscribe((state) => {
+    this.unsubscribes.push(useViewportStore.subscribe((state, previous) => {
       if (state.projection !== this.projection) this.setProjection(state.projection);
+      if (state.dragging !== previous.dragging) this.applyPixelRatio();
       this.invalidate();
     }));
   }
@@ -241,7 +256,10 @@ export class ThreeEngine {
 
   private applyPixelRatio() {
     const full = Math.min(window.devicePixelRatio, ThreeEngine.MAX_DPR);
-    const ratio = this.interacting ? Math.min(full, ThreeEngine.INTERACTIVE_DPR) : full;
+    const active = this.interacting || useViewportStore.getState().dragging;
+    const display = useModelerStore.getState().sdfDisplay;
+    const params = display?.sourceParamCount ?? display?.paramCount ?? 0;
+    const ratio = active ? interactivePixelRatio(full, params) : full;
     if (Math.abs(this.renderer.getPixelRatio() - ratio) < 1e-6) return;
     this.renderer.setPixelRatio(ratio);
     const w = this.container.clientWidth;
@@ -249,6 +267,11 @@ export class ThreeEngine {
     if (w === 0 || h === 0) return;
     this.renderer.setSize(w, h);
     this.outlinePass.resize(w, h);
+  }
+
+  /** Expensive decorative passes may yield until the settled-quality frame. */
+  isInteractionActive() {
+    return this.interacting || useViewportStore.getState().dragging;
   }
 
   private pointerStart: { x: number; y: number } = { x: 0, y: 0 };

@@ -5,6 +5,64 @@ import { workerBridge } from './workerBridge';
 import { useTreeUiStore } from '../store/treeUiStore';
 import { useViewportStore } from '../store/viewportStore';
 import { expectedChildren } from '../types/operations';
+import { toSDFNode } from '../worker/sdf/convert';
+import { generateSDFFunction } from '../worker/sdf/codegen';
+import { computeBounds } from '../worker/sdf/bounds';
+
+/**
+ * Produce a same-shader preview without waiting for verifiedBounds in the
+ * worker. The old and newly-computed envelopes are unioned so a moving shape
+ * cannot be clipped while the authoritative worker result catches up.
+ */
+export function optimisticUniformDisplay(
+  tree: SDFNodeUI | null,
+  current: ReturnType<typeof useModelerStore.getState>['sdfDisplay'],
+  hotSourceIds?: Iterable<string>,
+  allowShaderChange = false,
+) {
+  if (!tree || !current) return null;
+  try {
+    const root = toSDFNode(tree);
+    if (!root) return null;
+    const compiled = generateSDFFunction(root, { hotSourceIds });
+    if (!allowShaderChange && (compiled.glsl !== current.glsl || compiled.paramCount !== current.paramCount)) return null;
+    const bounds = computeBounds(root);
+    const span = Math.max(
+      bounds.max[0] - bounds.min[0],
+      bounds.max[1] - bounds.min[1],
+      bounds.max[2] - bounds.min[2],
+      10,
+    );
+    const margin = span * 0.1;
+    return {
+      ...current,
+      glsl: compiled.glsl,
+      paramCount: compiled.paramCount,
+      paramValues: compiled.paramValues,
+      textures: compiled.textures,
+      hasWarn: compiled.hasWarn,
+      bbMin: current.bbMin.map((value, axis) => Math.min(value, bounds.min[axis] - margin)) as [number, number, number],
+      bbMax: current.bbMax.map((value, axis) => Math.max(value, bounds.max[axis] + margin)) as [number, number, number],
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** Selected nodes and their ancestors are the only values kept hot. */
+export function collectHotSourceIds(tree: SDFNodeUI | null, selectedIds: readonly string[]): string[] {
+  if (!tree || selectedIds.length === 0) return [];
+  const selected = new Set(selectedIds);
+  const hot: string[] = [];
+  const visit = (node: SDFNodeUI): boolean => {
+    let contains = selected.has(node.id);
+    for (const child of node.children) contains = visit(child) || contains;
+    if (contains) hot.push(node.id);
+    return contains;
+  };
+  visit(tree);
+  return hot;
+}
 
 /**
  * Sentinel for "nothing evaluated yet".
@@ -49,15 +107,19 @@ export function projectViewportTree(
 export function useEvaluator() {
   const prevTreeRef = useRef<SDFNodeUI | null | typeof NOT_EVALUATED>(NOT_EVALUATED);
   const prevViewKeyRef = useRef<string | null>(null);
+  const prevHotKeyRef = useRef<string | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const evalSeqRef = useRef(0);
   const acceptedEvalSeqRef = useRef(0);
 
   useEffect(() => {
-    function triggerEval() {
+    function triggerEval(force = false) {
       const tree = useModelerStore.getState().tree;
       const viewState = useTreeUiStore.getState();
       const viewKey = `${[...viewState.hiddenNodeIds].sort().join(',')}|${viewState.isolatedNodeId ?? ''}`;
+      const viewportTree = projectViewportTree(tree, viewState.hiddenNodeIds, viewState.isolatedNodeId);
+      const hotSourceIds = collectHotSourceIds(viewportTree, useModelerStore.getState().selectedNodeIds);
+      const hotKey = hotSourceIds.join(',');
         // Object identity, not a serialisation.
         //
         // This subscribes to the whole store, and `setEvaluating` and
@@ -73,10 +135,19 @@ export function useEvaluator() {
         // object. The converse (a new object with identical content) costs one
         // extra evaluation that the bridge supersedes anyway, which is a much
         // better trade than stringifying a megabyte on every store event.
-      if (tree === prevTreeRef.current && viewKey === prevViewKeyRef.current) return;
+      if (!force && tree === prevTreeRef.current && viewKey === prevViewKeyRef.current && hotKey === prevHotKeyRef.current) return;
+      const selectionOnly = tree === prevTreeRef.current && viewKey === prevViewKeyRef.current && hotKey !== prevHotKeyRef.current;
       prevTreeRef.current = tree;
       prevViewKeyRef.current = viewKey;
-      const viewportTree = projectViewportTree(tree, viewState.hiddenNodeIds, viewState.isolatedNodeId);
+      prevHotKeyRef.current = hotKey;
+
+      // Numeric property edits normally retain identical GLSL: values live in
+      // u_p and SdfMesh can upload them without compiling a material. Publish
+      // that preview synchronously; verified bounds and validation still run
+      // in the worker and replace it with the authoritative result.
+      const optimistic = optimisticUniformDisplay(viewportTree, useModelerStore.getState().sdfDisplay, hotSourceIds, selectionOnly);
+      if (optimistic) useModelerStore.setState({ sdfDisplay: optimistic });
+      if (selectionOnly && optimistic) return;
 
       // Keep the last accepted display while the replacement is evaluated.
       // SdfMesh stages and compiles a replacement before swapping materials;
@@ -90,9 +161,15 @@ export function useEvaluator() {
       if (debounceRef.current) clearTimeout(debounceRef.current);
       if (!tree) return;
 
+      // A same-shader continuous edit already has an exact live preview.
+      // verifiedBounds is hundreds of milliseconds on a complex tree; running
+      // it repeatedly in the worker competes with rendering and can only return
+      // stale intermediate envelopes. Verify the final value on pointer-up.
+      if (dragging && optimistic) return;
+
       // Evaluate immediately — codegen is <1ms, no need for debounce.
       debounceRef.current = setTimeout(() => {
-        workerBridge.evaluate(viewportTree)
+        workerBridge.evaluate(viewportTree, undefined, undefined, hotSourceIds)
           .then((sdf) => {
             const exact = seq === evalSeqRef.current && useModelerStore.getState().tree === tree;
             // During a continuous gizmo drag, pointer events can arrive faster
@@ -120,8 +197,11 @@ export function useEvaluator() {
       }, 0); // Immediate — codegen is <1ms
     }
 
-    const unsub1 = useModelerStore.subscribe(triggerEval);
-    const unsub2 = useTreeUiStore.subscribe(triggerEval);
+    const unsub1 = useModelerStore.subscribe(() => triggerEval());
+    const unsub2 = useTreeUiStore.subscribe(() => triggerEval());
+    const unsub3 = useViewportStore.subscribe((state, previous) => {
+      if (previous.dragging && !state.dragging) triggerEval(true);
+    });
 
     // Evaluate whatever is already in the store, because subscribing only
     // reacts to *future* mutations. A loaded project is hydrated into the store
@@ -144,6 +224,7 @@ export function useEvaluator() {
     return () => {
       unsub1();
       unsub2();
+      unsub3();
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
   }, []);

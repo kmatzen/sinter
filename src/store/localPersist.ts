@@ -237,7 +237,16 @@ export async function startLocalAutoSave(): Promise<void> {
     if (debounceTimer) clearTimeout(debounceTimer);
     debounceTimer = setTimeout(() => { void saveToLocal(); }, 1000);
   };
-  const unsubModeler = useModelerStore.subscribe(schedule);
+  const unsubModeler = useModelerStore.subscribe((state, previous) => {
+    // Only fields serialized by toJSON should reset the backup timer. Worker
+    // results, evaluating/error state and selection are transient; busy edits
+    // used to postpone autosave and allocate a timer for every worker frame.
+    if (
+      state.tree !== previous.tree ||
+      state.projectName !== previous.projectName ||
+      state.namedParameters !== previous.namedParameters
+    ) schedule();
+  });
   const unsubViewport = useViewportStore.subscribe((state, previous) => {
     if (state.namedViews !== previous.namedViews || state.pinnedMeasurements !== previous.pinnedMeasurements) schedule();
   });

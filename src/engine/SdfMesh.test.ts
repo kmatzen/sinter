@@ -157,6 +157,26 @@ describe('SdfMesh GPU resource lifecycle', () => {
     sdfMesh.dispose();
     expect(engine.scene.children).toHaveLength(0);
   });
+
+  it('reuses geometry when only dynamic bounds change', () => {
+    useModelerStore.setState({ sdfDisplay: display('float sdf(vec3 p){return 1.0;}') });
+    const sdfMesh = new SdfMesh(renderableEngine());
+    const first = currentResources(sdfMesh).mesh!;
+    const geometry = first.geometry;
+    const disposeSpy = vi.spyOn(geometry, 'dispose');
+
+    useModelerStore.setState({
+      sdfDisplay: display('float sdf(vec3 p){return 1.0;}', 0, {
+        bbMin: [8, -2, -2], bbMax: [12, 2, 2],
+      }),
+    });
+    sdfMesh.update();
+
+    expect(currentResources(sdfMesh).mesh!.geometry).toBe(geometry);
+    expect(disposeSpy).not.toHaveBeenCalled();
+    expect(first.position.x).toBe(10);
+    expect(first.scale.x).toBeGreaterThan(4);
+  });
 });
 
 describe('shader capacity preflight', () => {
@@ -172,7 +192,7 @@ describe('shader capacity preflight', () => {
     expect(shaderCapacityError({ ...display(generated.glsl), ...generated }, {
       maxFragmentUniformComponents: 1_024,
       maxTextureImageUnits: 16,
-    })).toMatch(/needs 1538.*supports 1024/);
+    })).toMatch(/needs 1539.*supports 1024/);
   });
 
   it('keeps portable headroom below the advertised GPU uniform limit', () => {
@@ -244,6 +264,17 @@ describe('viewport clipping uniforms', () => {
     expect(material.uniforms.u_clipAxis.value).toBe(2);
     expect(material.uniforms.u_clipPos.value).toBe(2.5);
     expect(material.uniforms.u_clipFlip.value).toBe(1);
+  });
+});
+
+describe('interaction shader quality', () => {
+  it('uses derivative normals only for the transient interaction branch', () => {
+    useModelerStore.setState({ sdfDisplay: display('float sdf(vec3 p){return length(p)-1.0;}') });
+    const sdfMesh = new SdfMesh(renderableEngine());
+    const material = currentResources(sdfMesh).material!;
+    expect(material.fragmentShader).toContain('cross(dFdx(p), dFdy(p))');
+    expect(material.fragmentShader).toContain('normal = calcNormal(p, t)');
+    expect(material.fragmentShader).toContain('u_interacting > 0.5');
   });
 });
 

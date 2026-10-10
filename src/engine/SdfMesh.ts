@@ -52,6 +52,7 @@ uniform float u_pixelRadius;
 // Absolute floor for that, so a ray starting at t = 0 (camera inside the
 // bounding box) still advances instead of spinning out its step budget.
 uniform float u_stepFloor;
+uniform float u_interacting;
 
 varying vec3 vWorldPos;
 varying vec3 vViewDir;
@@ -194,6 +195,10 @@ void main() {
   float prevRadius = 0.0;
   float stepLength = 0.0;
   for (int i = 0; i < 1024; i++) {
+    // Keep direct manipulation responsive on deep CSG trees. The full budget
+    // is restored for the settled frame, so this can only reduce transient
+    // preview completeness, never final accuracy or export geometry.
+    if (u_interacting > 0.5 && i >= 256) break;
     p = ro + rd * t;
     minStep = max((u_orthographic > 0.5 ? 1.0 : t) * u_pixelRadius * 0.5, u_stepFloor);
     float radius = abs(sdf(p));
@@ -234,7 +239,17 @@ void main() {
   }
   if (!hit) discard;
 
-  vec3 normal = calcNormal(p, t);
+  vec3 normal;
+  if (u_interacting > 0.5) {
+    // p is the converged world-space surface position. Screen derivatives of
+    // that position yield the transient geometric normal without four more
+    // executions of the complete SDF program. Face it against the view ray so
+    // winding differences cannot invert the interaction lighting.
+    normal = normalize(cross(dFdx(p), dFdy(p)));
+    if (dot(normal, rd) > 0.0) normal = -normal;
+  } else {
+    normal = calcNormal(p, t);
+  }
   vec3 baseColor = vec3(0.45, 0.56, 0.82);
 ${hasWarn ? `  float warnDist = abs(sdfWarn(p));
   float warnEps = length(u_bbMax - u_bbMin) * 0.002;
@@ -302,11 +317,11 @@ export const MAX_GENERATED_SHADER_CHARS = 250_000;
 // useful compile error. This headroom turns that GPU failure into a recoverable
 // capacity message and gives the future parameter-packing optimization a
 // deterministic regression target.
-export const MAX_VIEWPORT_FRAGMENT_UNIFORM_COMPONENTS = 896;
+export const MAX_VIEWPORT_FRAGMENT_UNIFORM_COMPONENTS = 976;
 
 // Scalars/vectors/matrix used by buildFrag apart from the generated u_p array.
 // Samplers have their own independently queried limit.
-const FIXED_FRAGMENT_UNIFORM_COMPONENTS = 38;
+const FIXED_FRAGMENT_UNIFORM_COMPONENTS = 39;
 
 /** Return an actionable portability error before asking WebGL to link. */
 export function shaderCapacityError(
@@ -358,7 +373,9 @@ export class SdfMesh {
   constructor(engine: ThreeEngine) {
     this.engine = engine;
     this.unsubs.push(
-      useModelerStore.subscribe(() => this.onStoreChange())
+      useModelerStore.subscribe((state, previous) => {
+        if (state.sdfDisplay !== previous.sdfDisplay) this.onStoreChange();
+      })
     );
     this.onStoreChange();
   }
@@ -484,6 +501,7 @@ export class SdfMesh {
         u_projView: { value: new THREE.Matrix4() },
         u_pixelRadius: { value: 0.002 },
         u_stepFloor: { value: 1e-4 },
+        u_interacting: { value: 0.0 },
         ...texUniforms,
       },
       side: THREE.BackSide,
@@ -501,10 +519,16 @@ export class SdfMesh {
     const w = x1 - x0, h = y1 - y0, d = z1 - z0;
     const diag = Math.sqrt(w * w + h * h + d * d);
     const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2, cz = (z0 + z1) / 2;
-    const geo = new THREE.BoxGeometry(diag, diag, diag);
-    geo.translate(cx, cy, cz);
+    // Keep one unit cube for the material's lifetime. Bounds change on nearly
+    // every transform/size edit; reallocating and disposing a vertex/index
+    // buffer for each accepted frame caused GPU uploads and GC in the hottest
+    // interaction path. A mesh transform produces the same world-space cube.
+    const geo = new THREE.BoxGeometry(1, 1, 1);
 
     const nextMesh = new THREE.Mesh(geo, nextMaterial);
+    nextMesh.position.set(cx, cy, cz);
+    nextMesh.scale.setScalar(diag);
+    this.lastBBKey = `${x0},${y0},${z0},${x1},${y1},${z1}`;
     const renderer = this.engine.renderer;
     if (typeof renderer?.compile === 'function') {
       const staging = new THREE.Scene();
@@ -545,6 +569,7 @@ export class SdfMesh {
     u.u_clipPos.value = vs.clipPosition;
     u.u_clipAxis.value = vs.clipAxis === 'x' ? 0 : vs.clipAxis === 'z' ? 2 : 1;
     u.u_clipFlip.value = vs.clipFlip ? 1.0 : 0.0;
+    u.u_interacting.value = this.engine.isInteractionActive?.() ? 1.0 : 0.0;
 
     const sdf = this.renderedSdf;
     if (sdf) {
@@ -573,16 +598,16 @@ export class SdfMesh {
       // same thing for a 1mm part and a 1m one.
       u.u_stepFloor.value = Math.max(half * 1e-5, 1e-9);
 
-      // Update mesh geometry if bounding box changed
+      // Update the persistent unit cube if bounding box changed. This changes
+      // only object uniforms/matrices; no GPU geometry is allocated.
       if (this.mesh) {
         const bbKey = `${x0},${y0},${z0},${x1},${y1},${z1}`;
         if (bbKey !== this.lastBBKey) {
           this.lastBBKey = bbKey;
-          this.mesh.geometry.dispose();
           const diag = half * 2;
-          const geo = new THREE.BoxGeometry(diag, diag, diag);
-          geo.translate(cx, cy, cz);
-          this.mesh.geometry = geo;
+          this.mesh.position.set(cx, cy, cz);
+          this.mesh.scale.setScalar(diag);
+          this.mesh.updateMatrixWorld();
         }
       }
 

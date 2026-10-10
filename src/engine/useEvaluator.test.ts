@@ -29,10 +29,12 @@ vi.mock('./workerBridge', () => ({
 }));
 
 // Imported after the mock is registered so the hook picks up the fake bridge.
-const { useEvaluator } = await import('./useEvaluator');
+const { useEvaluator, optimisticUniformDisplay } = await import('./useEvaluator');
 const { useModelerStore } = await import('../store/modelerStore');
 const { useTreeUiStore } = await import('../store/treeUiStore');
 const { useViewportStore } = await import('../store/viewportStore');
+const { toSDFNode } = await import('../worker/sdf/convert');
+const { generateSDFFunction } = await import('../worker/sdf/codegen');
 
 const box = (width = 100): SDFNodeUI => ({
   id: 'box-1',
@@ -58,7 +60,7 @@ function deferred<T>() {
 
 /** Hydrate a tree the way loading a project does: directly, before mount. */
 function hydrate(tree: SDFNodeUI | null) {
-  useModelerStore.setState({ tree, sdfDisplay: null, evaluatedTree: null, lastValidTree: null, evaluating: false, error: null });
+  useModelerStore.setState({ tree, selectedNodeId: null, selectedNodeIds: [], sdfDisplay: null, evaluatedTree: null, lastValidTree: null, evaluating: false, error: null });
 }
 
 beforeEach(() => {
@@ -74,6 +76,22 @@ afterEach(() => {
 });
 
 describe('useEvaluator', () => {
+  it('publishes same-shader property values without waiting for verified bounds', () => {
+    const first = box(100);
+    const compiled = generateSDFFunction(toSDFNode(first)!);
+    const current: SDFDisplayData = {
+      ...compiled, bbMin: [-60, -20, -30], bbMax: [60, 20, 30],
+    };
+
+    const preview = optimisticUniformDisplay(box(140), current);
+
+    expect(preview).not.toBeNull();
+    expect(preview!.glsl).toBe(current.glsl);
+    expect(preview!.paramValues).not.toEqual(current.paramValues);
+    expect(preview!.bbMin[0]).toBeLessThan(-70);
+    expect(preview!.bbMax[0]).toBeGreaterThan(70);
+  });
+
   it('evaluates a tree that was already in the store when it mounted (#68)', async () => {
     hydrate(box());
 
@@ -249,6 +267,33 @@ describe('useEvaluator', () => {
     });
   });
 
+  it('defers verified bounds for a same-shader property scrub until release', async () => {
+    const firstTree = box(100);
+    const compiled = generateSDFFunction(toSDFNode(firstTree)!, { hotSourceIds: ['box-1'] });
+    hydrate(firstTree);
+    useModelerStore.setState({ selectedNodeId: 'box-1', selectedNodeIds: ['box-1'] });
+    useModelerStore.setState({
+      sdfDisplay: { ...compiled, bbMin: [-60, -20, -30], bbMax: [60, 20, 30] },
+    });
+    renderHook(() => useEvaluator());
+    await flush();
+    useModelerStore.setState({
+      sdfDisplay: { ...compiled, bbMin: [-60, -20, -30], bbMax: [60, 20, 30] },
+    });
+    evaluate.mockClear();
+
+    useViewportStore.getState().setDragging(true);
+    useModelerStore.getState().updateNodeParams('box-1', { width: 110 });
+    useModelerStore.getState().updateNodeParams('box-1', { width: 120 });
+    await flush();
+    expect(evaluate).not.toHaveBeenCalled();
+
+    useViewportStore.getState().setDragging(false);
+    await flush();
+    expect(evaluate).toHaveBeenCalledTimes(1);
+    expect(evaluate.mock.calls[0][0]).toMatchObject({ params: { width: 120 } });
+  });
+
   it('evaluates exactly once across a StrictMode-style double mount', async () => {
     hydrate(box());
 
@@ -297,9 +342,12 @@ describe('useEvaluator dedup', () => {
   });
 
   it('does not re-evaluate when only the selection changes', async () => {
-    useModelerStore.setState({ tree: box() });
+    const tree = box();
+    useModelerStore.setState({ tree });
     renderHook(() => useEvaluator());
     await flush();
+    const compiled = generateSDFFunction(toSDFNode(tree)!, { hotSourceIds: [] });
+    useModelerStore.setState({ sdfDisplay: { ...compiled, bbMin: [-60, -20, -30], bbMax: [60, 20, 30] } });
     evaluate.mockClear();
 
     useModelerStore.getState().selectNode('box-1');
