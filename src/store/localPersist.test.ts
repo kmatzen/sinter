@@ -70,6 +70,8 @@ describe('IndexedDB local recovery', () => {
     await expect(saveToLocal()).resolves.toBe(true);
 
     expect(backend.current!.json.length).toBeGreaterThan(5 * 1024 * 1024);
+    expect(backend.current!.validated).toBe(true);
+    expect(backend.current!.json).not.toContain('\n');
     expect(useLocalBackupStore.getState().status).toBe('saved');
   });
 
