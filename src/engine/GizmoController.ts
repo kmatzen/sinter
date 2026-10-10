@@ -313,7 +313,13 @@ export class GizmoController {
     });
 
     // Store subscriptions
-    this.unsubs.push(useModelerStore.subscribe(() => this.syncFromStore()));
+    this.unsubs.push(useModelerStore.subscribe((state, previous) => {
+      if (
+        state.tree !== previous.tree ||
+        state.selectedNodeId !== previous.selectedNodeId ||
+        state.selectedNodeIds !== previous.selectedNodeIds
+      ) this.syncFromStore();
+    }));
     this.unsubs.push(useViewportStore.subscribe(() => this.syncFromStore()));
     this.unsubs.push(useTreeUiStore.subscribe(() => this.syncFromStore()));
   }

@@ -193,6 +193,7 @@ class WorkerBridge {
         glsl: msg.glsl,
         paramCount: msg.paramCount,
         paramValues: msg.paramValues,
+        sourceParamCount: msg.sourceParamCount,
         textures: msg.textures || [],
         bbMin: msg.bbMin,
         bbMax: msg.bbMax,
@@ -252,12 +253,12 @@ class WorkerBridge {
    * that never yields — see the note in `cancelExport` on why a `cancel`
    * message would not lower it.
    */
-  async evaluate(tree: SDFNodeUI | null, _resolution?: number, clip?: ClipPlane): Promise<SDFDisplayData | null> {
+  async evaluate(tree: SDFNodeUI | null, _resolution?: number, clip?: ClipPlane, hotSourceIds?: string[]): Promise<SDFDisplayData | null> {
     this.dropQueued(this.evalChannel, 'evaluate', (req) => req.resolve(null));
     const seq = ++this.evalSeq;
     return this.issue<SDFDisplayData | null>(
       this.evalChannel,
-      (rid) => ({ type: 'evaluate', rid, tree, clip }),
+      (rid) => ({ type: 'evaluate', rid, tree, clip, hotSourceIds }),
       { kind: 'evaluate', seq, mime: '' },
     );
   }

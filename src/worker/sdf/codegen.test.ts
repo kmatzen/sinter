@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { generateGLSL, generateSDFFunction } from './codegen';
-import type { SDFNode } from './types';
+import { markSDFSource, type SDFNode } from './types';
 import type { SDFNodeUI } from '../../types/operations';
 import { normalizeNodeParams } from '../../types/parameterSchema';
 import { toSDFNode } from './convert';
@@ -225,6 +225,30 @@ describe('generateGLSL', () => {
     const result = generateSDFFunction(node);
     expect(result.paramCount).toBeGreaterThanOrEqual(1);
     expect(result.paramValues).toContain(5);
+  });
+});
+
+describe('hot/cold viewport parameters', () => {
+  const tree = (hotRadius: number, coldRadius: number): SDFNode => markSDFSource({
+    kind: 'union', k: 0,
+    a: markSDFSource({ kind: 'sphere', radius: hotRadius }, 'hot'),
+    b: markSDFSource({ kind: 'sphere', radius: coldRadius }, 'cold'),
+  }, 'union');
+
+  it('keeps only the selected path in uniforms', () => {
+    const compiled = generateSDFFunction(tree(5, 9), { hotSourceIds: ['union', 'hot'] });
+    expect(compiled.paramValues).toEqual([5]);
+    expect(compiled.glsl).toContain('9.000000');
+  });
+
+  it('updates hot values without changing GLSL and bakes cold changes', () => {
+    const options = { hotSourceIds: ['union', 'hot'] };
+    const first = generateSDFFunction(tree(5, 9), options);
+    const hotEdit = generateSDFFunction(tree(7, 9), options);
+    const coldEdit = generateSDFFunction(tree(5, 11), options);
+    expect(hotEdit.glsl).toBe(first.glsl);
+    expect(hotEdit.paramValues).not.toEqual(first.paramValues);
+    expect(coldEdit.glsl).not.toBe(first.glsl);
   });
 });
 

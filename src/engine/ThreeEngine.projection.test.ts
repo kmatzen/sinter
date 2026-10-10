@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { describe, expect, it, vi } from 'vitest';
-import { ThreeEngine } from './ThreeEngine';
+import { ThreeEngine, interactivePixelRatio } from './ThreeEngine';
 import { useViewportStore } from '../store/viewportStore';
 
 function harness() {
@@ -18,6 +18,19 @@ function harness() {
   });
   return { engine, controls, gizmo };
 }
+
+describe('interactive pixel ratio', () => {
+  it('reserves progressively fewer fragments for more expensive shaders', () => {
+    expect(interactivePixelRatio(1.5, 200)).toBe(0.35);
+    expect(interactivePixelRatio(1.5, 500)).toBe(0.28);
+    expect(interactivePixelRatio(1.5, 800)).toBe(0.2);
+    expect(interactivePixelRatio(1.5, 950)).toBe(0.15);
+  });
+
+  it('never raises a low native pixel ratio', () => {
+    expect(interactivePixelRatio(0.15, 800)).toBe(0.15);
+  });
+});
 
 describe('ThreeEngine projection switching', () => {
   it('preserves target, direction, and apparent vertical framing round-trip', () => {

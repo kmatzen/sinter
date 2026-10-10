@@ -1,5 +1,5 @@
 import type { SDFNodeUI } from '../../types/operations';
-import type { SDFNode } from './types';
+import { markSDFSource, type SDFNode } from './types';
 import { bakeMeshField } from './meshField';
 import { MeshFieldCache } from './meshFieldCache';
 import { computeBounds } from './bounds';
@@ -46,6 +46,11 @@ function markWarn(node: SDFNode): SDFNode {
 
 /** Convert UI tree to internal SDFNode (strip UI metadata) */
 export function toSDFNode(ui: SDFNodeUI): SDFNode | null {
+  const node = toSDFNodeInner(ui);
+  return node ? markSDFSource(node, ui.id) : null;
+}
+
+function toSDFNodeInner(ui: SDFNodeUI): SDFNode | null {
   if (!ui.enabled) return null;
 
   const p = ui.params;

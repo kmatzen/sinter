@@ -14,6 +14,7 @@ describe('NumberInput constraints', () => {
     const tree = box();
     useModelerStore.setState({ tree, history: [tree], historyIndex: 0, historyTransaction: null });
     useViewportStore.getState().setUnitPreferences({ displayUnit: 'mm', decimalPrecision: 2, fractionalDenominator: 16 });
+    useViewportStore.getState().setDragging(false);
   });
 
   it('clamps keyboard stepping at the same minimum as typed input', () => {
@@ -37,9 +38,11 @@ describe('NumberInput constraints', () => {
     render(<NumberInput label="Width" value={10} min={1} max={100} onChange={update} />);
 
     fireEvent.pointerDown(screen.getByText('Width'), { clientX: 100 });
+    expect(useViewportStore.getState().dragging).toBe(true);
     fireEvent.pointerMove(window, { clientX: 120 });
     fireEvent.pointerMove(window, { clientX: 140 });
     fireEvent.pointerUp(window);
+    expect(useViewportStore.getState().dragging).toBe(false);
 
     expect(useModelerStore.getState().history).toHaveLength(2);
     const changed = useModelerStore.getState().tree!.params.width;

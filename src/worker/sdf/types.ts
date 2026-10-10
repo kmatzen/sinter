@@ -50,6 +50,18 @@ export type SDFNode =
   | { kind: 'mesh'; field: MeshFieldData; name?: string; warn?: boolean }
   | { kind: '_far'; warn?: boolean };
 
+const sourceIds = new WeakMap<object, string>();
+
+/** Attach editor ownership without bloating the serialized/evaluator shape. */
+export function markSDFSource<T extends SDFNode>(node: T, sourceId: string): T {
+  sourceIds.set(node, sourceId);
+  return node;
+}
+
+export function sdfSourceId(node: SDFNode): string | undefined {
+  return sourceIds.get(node);
+}
+
 /** A signed-distance grid baked from a triangle mesh. See `meshField.ts`. */
 export interface MeshFieldData {
   bbox: BBox;

@@ -75,7 +75,7 @@ export interface ClipPlane {
 // type — so concurrent requests cannot displace or settle each other. See
 // specs/WorkerBridgeFixed.tla.
 export type WorkerRequest =
-  | { type: 'evaluate'; rid: number; tree: SDFNodeUI | null; resolution?: number; clip?: ClipPlane }
+  | { type: 'evaluate'; rid: number; tree: SDFNodeUI | null; resolution?: number; clip?: ClipPlane; hotSourceIds?: string[] }
   // `resolution` is the export grid's samples per axis. Optional so an older
   // persisted request, or a caller that does not care, still means "the
   // default" rather than "zero".
@@ -154,7 +154,7 @@ export interface MeshRegionSurfaceFit {
 
 export type WorkerResponse =
   | { type: 'mesh'; rid: number; positions: ArrayBuffer; normals: ArrayBuffer; indices: ArrayBuffer; thickness?: ArrayBuffer }
-  | { type: 'sdf'; rid: number; glsl: string; paramCount: number; paramValues: number[]; textures?: { name: string; width: number; height: number; data: number[] }[]; bbMin: [number, number, number]; bbMax: [number, number, number]; hasWarn?: boolean }
+  | { type: 'sdf'; rid: number; glsl: string; paramCount: number; paramValues: number[]; sourceParamCount?: number; textures?: { name: string; width: number; height: number; data: number[] }[]; bbMin: [number, number, number]; bbMax: [number, number, number]; hasWarn?: boolean }
   | { type: 'exportResult'; rid: number; format: 'stl' | '3mf'; data: ArrayBuffer; vertexCount: number; triangleCount: number; diagnostics: ExportDiagnostics; achievedTolerance?: number; componentCount?: number; conformance: ExportConformance }
   | { type: 'fitResult'; rid: number; fit: MeshFitResult | null }
   | { type: 'progress'; rid: number; stage: string; percent: number }

@@ -16,6 +16,8 @@ export interface SDFDisplayData {
   glsl: string;
   paramCount: number;
   paramValues: number[];
+  /** Parameters before cold-value baking; used only for interaction quality. */
+  sourceParamCount?: number;
   textures: { name: string; width: number; height: number; data: number[] }[];
   bbMin: [number, number, number];
   bbMax: [number, number, number];
@@ -225,10 +227,20 @@ function selectedRoots(tree: SDFNodeUI, ids: string[]): string[] {
 // Apply an update to a node by ID, returning a new tree (immutable)
 function updateInTree(tree: SDFNodeUI, id: string, updater: (node: SDFNodeUI) => SDFNodeUI): SDFNodeUI {
   if (tree.id === id) return updater(tree);
-  return {
-    ...tree,
-    children: tree.children.map((child) => updateInTree(child, id, updater)),
-  };
+  for (let index = 0; index < tree.children.length; index++) {
+    const child = tree.children[index];
+    const next = updateInTree(child, id, updater);
+    if (next === child) continue;
+    return {
+      ...tree,
+      children: [
+        ...tree.children.slice(0, index),
+        next,
+        ...tree.children.slice(index + 1),
+      ],
+    };
+  }
+  return tree;
 }
 
 // A placeholder that occupies a boolean slot without producing geometry.
