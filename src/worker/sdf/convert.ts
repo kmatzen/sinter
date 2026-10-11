@@ -44,10 +44,20 @@ function markWarn(node: SDFNode): SDFNode {
   return { ...node, warn: true } as SDFNode;
 }
 
+/**
+ * Converted UI nodes are immutable snapshots. Store conversions by object
+ * identity so an edit only rebuilds its cloned ancestor path; untouched
+ * subtrees retain both their converted nodes and downstream WeakMap caches.
+ */
+const convertedNodeCache = new WeakMap<SDFNodeUI, SDFNode | null>();
+
 /** Convert UI tree to internal SDFNode (strip UI metadata) */
 export function toSDFNode(ui: SDFNodeUI): SDFNode | null {
+  if (convertedNodeCache.has(ui)) return convertedNodeCache.get(ui)!;
   const node = toSDFNodeInner(ui);
-  return node ? markSDFSource(node, ui.id) : null;
+  const converted = node ? markSDFSource(node, ui.id) : null;
+  convertedNodeCache.set(ui, converted);
+  return converted;
 }
 
 function toSDFNodeInner(ui: SDFNodeUI): SDFNode | null {
