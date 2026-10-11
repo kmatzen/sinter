@@ -8,6 +8,7 @@ let varCounter = 0;
 let paramIndex = 0;
 let sourceParamCount = 0;
 let paramValues: number[] = [];
+let paramSourceIds: string[] = [];
 let textures: TextureData[] = [];
 let helperFunctions: string[] = [];
 let helperCounter = 0;
@@ -43,6 +44,17 @@ function mul3(a: Mat3, b: Mat3): Mat3 {
   return out;
 }
 
+/** Uniform order emitted for a transform node. Shared with the live-edit fast path. */
+export function transformUniformValues(node: Extract<SDFNode, { kind: 'transform' }>): number[] {
+  const matrix = mul3(rotX(-node.rx), mul3(rotY(-node.ry), rotZ(-node.rz)));
+  return [
+    node.tx, node.ty, node.tz,
+    node.sx, node.sy, node.sz,
+    ...matrix,
+    Math.min(node.sx, node.sy, node.sz),
+  ];
+}
+
 // Register a parameter value as a uniform slot — returns GLSL reference
 function up(value: number): string {
   if (!isFinite(value) || isNaN(value)) value = 0;
@@ -50,6 +62,7 @@ function up(value: number): string {
   if (hotSourceIds && (!currentSourceId || !hotSourceIds.has(currentSourceId))) return g(value);
   const idx = paramIndex++;
   paramValues.push(value);
+  paramSourceIds.push(currentSourceId ?? '');
   return `u_p[${idx}]`;
 }
 
@@ -681,9 +694,10 @@ function emitNodeInner(node: SDFNode, pVar: string, lines: string[]): string {
     }
     case 'transform': {
       const tp = `tp_${result}`;
-      lines.push(`vec3 ${tp} = ${pVar} - vec3(${up(node.tx)}, ${up(node.ty)}, ${up(node.tz)});`);
+      const values = transformUniformValues(node);
+      lines.push(`vec3 ${tp} = ${pVar} - vec3(${up(values[0])}, ${up(values[1])}, ${up(values[2])});`);
       // Always emit scale (uniform can change from 1 to non-1)
-      lines.push(`${tp} = ${tp} / vec3(${up(node.sx)}, ${up(node.sy)}, ${up(node.sz)});`);
+      lines.push(`${tp} = ${tp} / vec3(${up(values[3])}, ${up(values[4])}, ${up(values[5])});`);
       // Rotation as a 3x3 matrix (9 uniforms) — computed on CPU from Euler
       // angles, which keeps Euler decomposition out of the shader.
       //
@@ -693,15 +707,13 @@ function emitNodeInner(node: SDFNode, pVar: string, lines: string[]): string {
       // different orientation for any node with two or more non-zero angles,
       // which is how the viewport and the exported mesh came to disagree.
       // Multiplied out rather than hand-expanded so the order stays legible.
-      const [m00, m01, m02, m10, m11, m12, m20, m21, m22] = mul3(
-        rotX(-node.rx), mul3(rotY(-node.ry), rotZ(-node.rz)),
-      );
+      const [m00, m01, m02, m10, m11, m12, m20, m21, m22] = values.slice(6, 15);
       const r00=up(m00), r01=up(m01), r02=up(m02);
       const r10=up(m10), r11=up(m11), r12=up(m12);
       const r20=up(m20), r21=up(m21), r22=up(m22);
       lines.push(`${tp} = vec3(${r00}*${tp}.x + ${r01}*${tp}.y + ${r02}*${tp}.z, ${r10}*${tp}.x + ${r11}*${tp}.y + ${r12}*${tp}.z, ${r20}*${tp}.x + ${r21}*${tp}.y + ${r22}*${tp}.z);`);
       const child = emitNode(node.child, tp, lines);
-      const ms = up(Math.min(node.sx, node.sy, node.sz));
+      const ms = up(values[15]);
       lines.push(`float ${result} = ${child} * ${ms};`);
       return result;
     }
@@ -819,6 +831,8 @@ export interface SDFCompileResult {
   glsl: string;
   paramCount: number;
   paramValues: number[];
+  /** Editor node that owns each uniform slot; empty for synthetic nodes. */
+  paramSourceIds: string[];
   sourceParamCount: number;
   textures: TextureData[];
   hasWarn: boolean;
@@ -871,6 +885,7 @@ export function generateSDFFunction(root: SDFNode, options?: { hotSourceIds?: It
   paramIndex = 0;
   sourceParamCount = 0;
   paramValues = [];
+  paramSourceIds = [];
   textures = [];
   helperFunctions = [];
   helperCounter = 0;
@@ -903,7 +918,7 @@ export function generateSDFFunction(root: SDFNode, options?: { hotSourceIds?: It
   return ${finalVar};
 }${warnFunc}`;
 
-  return { glsl, paramCount: count, paramValues: [...paramValues], sourceParamCount, textures: [...textures], hasWarn };
+  return { glsl, paramCount: count, paramValues: [...paramValues], paramSourceIds: [...paramSourceIds], sourceParamCount, textures: [...textures], hasWarn };
 }
 
 // Legacy: baked constants for export (no uniforms)

@@ -6,8 +6,55 @@ import { useTreeUiStore } from '../store/treeUiStore';
 import { useViewportStore } from '../store/viewportStore';
 import { expectedChildren } from '../types/operations';
 import { toSDFNode } from '../worker/sdf/convert';
-import { generateSDFFunction } from '../worker/sdf/codegen';
+import { generateSDFFunction, transformUniformValues } from '../worker/sdf/codegen';
 import { computeBounds } from '../worker/sdf/bounds';
+
+/** Changed nodes, only when object-identity changes are confined to transform params. */
+function transformEdits(before: SDFNodeUI | null, after: SDFNodeUI | null): SDFNodeUI[] | null {
+  if (!before || !after || before === after) return null;
+  const changed: SDFNodeUI[] = [];
+  const visit = (a: SDFNodeUI, b: SDFNodeUI): boolean => {
+    if (a === b) return true;
+    if (a.id !== b.id || a.kind !== b.kind || a.enabled !== b.enabled || a.data !== b.data || a.children.length !== b.children.length) return false;
+    if (a.params !== b.params) {
+      if (b.kind !== 'translate' && b.kind !== 'rotate' && b.kind !== 'scale') return false;
+      changed.push(b);
+    }
+    for (let i = 0; i < a.children.length; i++) if (!visit(a.children[i], b.children[i])) return false;
+    return true;
+  };
+  return visit(before, after) && changed.length > 0 ? changed : null;
+}
+
+/** Patch transform-owned uniform slots without regenerating identical GLSL. */
+function transformParamPatch(edits: readonly SDFNodeUI[], current: ReturnType<typeof useModelerStore.getState>['sdfDisplay']): {
+  paramValues: number[];
+  bounds: ReturnType<typeof computeBounds>[];
+} | null {
+  if (!current?.paramSourceIds || current.paramSourceIds.length !== current.paramValues.length) return null;
+  const transforms = new Map<string, number[]>();
+  const bounds: ReturnType<typeof computeBounds>[] = [];
+  for (const edit of edits) {
+    const node = toSDFNode(edit);
+    if (!node || node.kind !== 'transform') return null;
+    transforms.set(edit.id, transformUniformValues(node));
+    bounds.push(computeBounds(node));
+  }
+
+  const next = [...current.paramValues];
+  const offsets = new Map<string, number>();
+  for (let i = 0; i < current.paramSourceIds.length; i++) {
+    const id = current.paramSourceIds[i];
+    const values = transforms.get(id);
+    if (!values) continue;
+    const offset = offsets.get(id) ?? 0;
+    if (offset >= values.length) return null;
+    next[i] = values[offset];
+    offsets.set(id, offset + 1);
+  }
+  for (const [id, values] of transforms) if (offsets.get(id) !== values.length) return null;
+  return { paramValues: next, bounds };
+}
 
 /**
  * Produce a same-shader preview without waiting for verifiedBounds in the
@@ -19,9 +66,35 @@ export function optimisticUniformDisplay(
   current: ReturnType<typeof useModelerStore.getState>['sdfDisplay'],
   hotSourceIds?: Iterable<string>,
   allowShaderChange = false,
+  previousTree?: SDFNodeUI | null,
 ) {
   if (!tree || !current) return null;
   try {
+    const edits = previousTree ? transformEdits(previousTree, tree) : null;
+    const fastPatch = edits ? transformParamPatch(edits, current) : null;
+    if (fastPatch) {
+      const min: [number, number, number] = [Infinity, Infinity, Infinity];
+      const max: [number, number, number] = [-Infinity, -Infinity, -Infinity];
+      for (const bounds of fastPatch.bounds) {
+        for (let axis = 0; axis < 3; axis++) {
+          min[axis] = Math.min(min[axis], bounds.min[axis]);
+          max[axis] = Math.max(max[axis], bounds.max[axis]);
+        }
+      }
+      const span = Math.max(
+        max[0] - min[0],
+        max[1] - min[1],
+        max[2] - min[2],
+        10,
+      );
+      const margin = span * 0.1;
+      return {
+        ...current,
+        paramValues: fastPatch.paramValues,
+        bbMin: current.bbMin.map((value, axis) => Math.min(value, min[axis] - margin)) as [number, number, number],
+        bbMax: current.bbMax.map((value, axis) => Math.max(value, max[axis] + margin)) as [number, number, number],
+      };
+    }
     const root = toSDFNode(tree);
     if (!root) return null;
     const compiled = generateSDFFunction(root, { hotSourceIds });
@@ -39,6 +112,7 @@ export function optimisticUniformDisplay(
       glsl: compiled.glsl,
       paramCount: compiled.paramCount,
       paramValues: compiled.paramValues,
+      paramSourceIds: compiled.paramSourceIds,
       textures: compiled.textures,
       hasWarn: compiled.hasWarn,
       bbMin: current.bbMin.map((value, axis) => Math.min(value, bounds.min[axis] - margin)) as [number, number, number],
@@ -115,11 +189,13 @@ export function useEvaluator() {
   useEffect(() => {
     function triggerEval(force = false) {
       const tree = useModelerStore.getState().tree;
+      const previousTree = prevTreeRef.current === NOT_EVALUATED ? null : prevTreeRef.current;
       const viewState = useTreeUiStore.getState();
       const viewKey = `${[...viewState.hiddenNodeIds].sort().join(',')}|${viewState.isolatedNodeId ?? ''}`;
       const viewportTree = projectViewportTree(tree, viewState.hiddenNodeIds, viewState.isolatedNodeId);
       const hotSourceIds = collectHotSourceIds(viewportTree, useModelerStore.getState().selectedNodeIds);
       const hotKey = hotSourceIds.join(',');
+      const viewUnchanged = viewKey === prevViewKeyRef.current;
         // Object identity, not a serialisation.
         //
         // This subscribes to the whole store, and `setEvaluating` and
@@ -136,7 +212,7 @@ export function useEvaluator() {
         // extra evaluation that the bridge supersedes anyway, which is a much
         // better trade than stringifying a megabyte on every store event.
       if (!force && tree === prevTreeRef.current && viewKey === prevViewKeyRef.current && hotKey === prevHotKeyRef.current) return;
-      const selectionOnly = tree === prevTreeRef.current && viewKey === prevViewKeyRef.current && hotKey !== prevHotKeyRef.current;
+      const selectionOnly = tree === prevTreeRef.current && viewUnchanged && hotKey !== prevHotKeyRef.current;
       prevTreeRef.current = tree;
       prevViewKeyRef.current = viewKey;
       prevHotKeyRef.current = hotKey;
@@ -145,7 +221,13 @@ export function useEvaluator() {
       // u_p and SdfMesh can upload them without compiling a material. Publish
       // that preview synchronously; verified bounds and validation still run
       // in the worker and replace it with the authoritative result.
-      const optimistic = optimisticUniformDisplay(viewportTree, useModelerStore.getState().sdfDisplay, hotSourceIds, selectionOnly);
+      const optimistic = optimisticUniformDisplay(
+        viewportTree,
+        useModelerStore.getState().sdfDisplay,
+        hotSourceIds,
+        selectionOnly,
+        !selectionOnly && viewUnchanged ? previousTree : null,
+      );
       if (optimistic) useModelerStore.setState({ sdfDisplay: optimistic });
       if (selectionOnly && optimistic) return;
 
