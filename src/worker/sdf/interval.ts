@@ -120,6 +120,36 @@ function rotateAbout(axis: 'x' | 'y' | 'z', ang: number): (p: Vec3) => Vec3 {
   return (p) => [p[0] * c + p[2] * s, p[1], -p[0] * s + p[2] * c];
 }
 
+// Converted SDF nodes are immutable. Pattern orientation therefore only needs
+// to be normalized/trig-expanded once, not once per interval cell (hundreds of
+// thousands of times during verified bounds and grid octree evaluation).
+const linearAxisCache = new WeakMap<object, Vec3 | null>();
+function normalizedPatternAxis(node: Extract<SDFNode, { kind: 'linearPattern' }>): Vec3 | null {
+  const cached = linearAxisCache.get(node);
+  if (cached !== undefined) return cached;
+  const len = Math.hypot(node.axis[0], node.axis[1], node.axis[2]);
+  const axis: Vec3 | null = len < 1e-8
+    ? null
+    : [node.axis[0] / len, node.axis[1] / len, node.axis[2] / len];
+  linearAxisCache.set(node, axis);
+  return axis;
+}
+
+const circularRotationCache = new WeakMap<object, ((p: Vec3) => Vec3)[]>();
+function patternRotations(node: Extract<SDFNode, { kind: 'circularPattern' }>): ((p: Vec3) => Vec3)[] {
+  const cached = circularRotationCache.get(node);
+  if (cached) return cached;
+  const ax = node.axis;
+  const isX = Math.abs(ax[0]) > Math.abs(ax[1]) && Math.abs(ax[0]) > Math.abs(ax[2]);
+  const isZ = !isX && Math.abs(ax[2]) > Math.abs(ax[1]);
+  const which: 'x' | 'y' | 'z' = isX ? 'x' : isZ ? 'z' : 'y';
+  const sector = (2 * Math.PI) / node.count;
+  const rotations = new Array<(p: Vec3) => Vec3>(node.count);
+  for (let i = 0; i < node.count; i++) rotations[i] = rotateAbout(which, -i * sector);
+  circularRotationCache.set(node, rotations);
+  return rotations;
+}
+
 export function evaluateInterval(node: SDFNode, box: BBox): Interval {
   const [x, y, z] = boxToIntervals(box);
 
@@ -260,9 +290,8 @@ export function evaluateInterval(node: SDFNode, box: BBox): Interval {
     case 'linearPattern': {
       // Every instance, not a window: over a box the relevant instances vary,
       // and enumerating is sound and cheap for the counts the UI allows.
-      const len = Math.hypot(node.axis[0], node.axis[1], node.axis[2]);
-      if (len < 1e-8) return evaluateInterval(node.child, box);
-      const a: Vec3 = [node.axis[0] / len, node.axis[1] / len, node.axis[2] / len];
+      const a = normalizedPatternAxis(node);
+      if (!a) return evaluateInterval(node.child, box);
       let acc: Interval | null = null;
       for (let i = 0; i < node.count; i++) {
         const o = i * node.spacing;
@@ -276,14 +305,10 @@ export function evaluateInterval(node: SDFNode, box: BBox): Interval {
       return acc ?? WHOLE;
     }
     case 'circularPattern': {
-      const ax = node.axis;
-      const isX = Math.abs(ax[0]) > Math.abs(ax[1]) && Math.abs(ax[0]) > Math.abs(ax[2]);
-      const isZ = !isX && Math.abs(ax[2]) > Math.abs(ax[1]);
-      const which: 'x' | 'y' | 'z' = isX ? 'x' : isZ ? 'z' : 'y';
-      const sector = (2 * Math.PI) / node.count;
+      const rotations = patternRotations(node);
       let acc: Interval | null = null;
       for (let i = 0; i < node.count; i++) {
-        const v = evaluateInterval(node.child, mapBox(box, rotateAbout(which, -i * sector)));
+        const v = evaluateInterval(node.child, mapBox(box, rotations[i]));
         acc = acc ? minI(acc, v) : v;
       }
       return acc ?? WHOLE;
