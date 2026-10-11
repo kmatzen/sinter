@@ -304,7 +304,17 @@ export function computeBounds(node: SDFNode): BBox {
 // conservative under floating-point interpolation at those transitions.
 export const MODIFIER_DISTANCE_SAFETY = 2.1;
 
+const fieldScaleCache = new WeakMap<object, number>();
+
 export function fieldScale(node: SDFNode): number {
+  const cached = fieldScaleCache.get(node);
+  if (cached !== undefined) return cached;
+  const scale = computeFieldScale(node);
+  fieldScaleCache.set(node, scale);
+  return scale;
+}
+
+function computeFieldScale(node: SDFNode): number {
   switch (node.kind) {
     case 'transform': {
       const s = [Math.abs(node.sx), Math.abs(node.sy), Math.abs(node.sz)];
