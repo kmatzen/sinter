@@ -8,6 +8,27 @@ function node(kind: string, children: SDFNodeUI[] = []): SDFNodeUI {
 
 const empty = (): SDFNodeUI => ({ id: 'empty', kind: '_empty', label: '', params: {}, children: [], enabled: false });
 
+describe('conversion caching', () => {
+  it('reuses immutable subtrees and only rebuilds an edited path', () => {
+    const left = { ...node('sphere'), id: 'left' };
+    const right = { ...node('sphere'), id: 'right' };
+    const tree = { ...node('union', [left, right]), id: 'root' };
+    const first = toSDFNode(tree);
+    expect(toSDFNode(tree)).toBe(first);
+
+    const editedRight = { ...right, params: { radius: 7 } };
+    const editedTree = { ...tree, children: [left, editedRight] };
+    const second = toSDFNode(editedTree);
+
+    expect(first?.kind).toBe('union');
+    expect(second?.kind).toBe('union');
+    if (first?.kind !== 'union' || second?.kind !== 'union') throw new Error('expected unions');
+    expect(second.a).toBe(first.a);
+    expect(second.b).not.toBe(first.b);
+    expect(second.b).toMatchObject({ kind: 'sphere', radius: 7 });
+  });
+});
+
 describe('boolean operand conversion', () => {
   it('never turns a lone subtract cutter into positive geometry', () => {
     const tree = node('subtract', [empty(), node('sphere')]);
