@@ -206,7 +206,7 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
         const bbMin: [number, number, number] = [...bbox.min];
         const bbMax: [number, number, number] = [...bbox.max];
         const compiled = generateSDFFunction(root, { hotSourceIds: req.hotSourceIds });
-        self.postMessage({ type: 'sdf', rid, glsl: compiled.glsl, paramCount: compiled.paramCount, paramValues: compiled.paramValues, sourceParamCount: compiled.sourceParamCount, textures: compiled.textures, bbMin, bbMax, hasWarn: compiled.hasWarn });
+        self.postMessage({ type: 'sdf', rid, glsl: compiled.glsl, paramCount: compiled.paramCount, paramValues: compiled.paramValues, paramSourceIds: compiled.paramSourceIds, sourceParamCount: compiled.sourceParamCount, textures: compiled.textures, bbMin, bbMax, hasWarn: compiled.hasWarn });
         break;
       }
 

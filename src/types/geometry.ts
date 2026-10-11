@@ -154,7 +154,7 @@ export interface MeshRegionSurfaceFit {
 
 export type WorkerResponse =
   | { type: 'mesh'; rid: number; positions: ArrayBuffer; normals: ArrayBuffer; indices: ArrayBuffer; thickness?: ArrayBuffer }
-  | { type: 'sdf'; rid: number; glsl: string; paramCount: number; paramValues: number[]; sourceParamCount?: number; textures?: { name: string; width: number; height: number; data: number[] }[]; bbMin: [number, number, number]; bbMax: [number, number, number]; hasWarn?: boolean }
+  | { type: 'sdf'; rid: number; glsl: string; paramCount: number; paramValues: number[]; paramSourceIds?: string[]; sourceParamCount?: number; textures?: { name: string; width: number; height: number; data: number[] }[]; bbMin: [number, number, number]; bbMax: [number, number, number]; hasWarn?: boolean }
   | { type: 'exportResult'; rid: number; format: 'stl' | '3mf'; data: ArrayBuffer; vertexCount: number; triangleCount: number; diagnostics: ExportDiagnostics; achievedTolerance?: number; componentCount?: number; conformance: ExportConformance }
   | { type: 'fitResult'; rid: number; fit: MeshFitResult | null }
   | { type: 'progress'; rid: number; stage: string; percent: number }

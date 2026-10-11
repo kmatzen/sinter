@@ -16,6 +16,7 @@ export interface SDFDisplayData {
   glsl: string;
   paramCount: number;
   paramValues: number[];
+  paramSourceIds?: string[];
   /** Parameters before cold-value baking; used only for interaction quality. */
   sourceParamCount?: number;
   textures: { name: string; width: number; height: number; data: number[] }[];

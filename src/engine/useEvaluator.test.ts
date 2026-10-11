@@ -45,6 +45,11 @@ const box = (width = 100): SDFNodeUI => ({
   enabled: true,
 });
 
+const translatedSphere = (x: number): SDFNodeUI => ({
+  id: 'move-1', kind: 'translate', label: 'Move', params: { x, y: 2, z: 3 }, enabled: true,
+  children: [{ id: 'sphere-1', kind: 'sphere', label: 'Sphere', params: { radius: 5 }, children: [], enabled: true }],
+});
+
 /** A plausible evaluate result — only its identity matters here. */
 const display: SDFDisplayData = { glsl: 'float sdf(vec3 p){return 1.0;}', paramCount: 0, paramValues: [], textures: [], bbMin: [-1, -1, -1], bbMax: [1, 1, 1], hasWarn: false };
 
@@ -90,6 +95,26 @@ describe('useEvaluator', () => {
     expect(preview!.paramValues).not.toEqual(current.paramValues);
     expect(preview!.bbMin[0]).toBeLessThan(-70);
     expect(preview!.bbMax[0]).toBeGreaterThan(70);
+  });
+
+  it('patches transform-owned uniforms from compiler metadata', () => {
+    const first = translatedSphere(1);
+    const compiled = generateSDFFunction(toSDFNode(first)!, { hotSourceIds: ['move-1'] });
+    const current: SDFDisplayData = {
+      ...compiled, bbMin: [-10, -10, -10], bbMax: [10, 10, 10],
+    };
+
+    const preview = optimisticUniformDisplay(translatedSphere(9), current, ['move-1'], false, first);
+
+    expect(preview).not.toBeNull();
+    expect(preview!.glsl).toBe(current.glsl);
+    const owned = preview!.paramSourceIds!.map((id, index) => id === 'move-1' ? preview!.paramValues[index] : null).filter((v) => v !== null);
+    expect(owned).toHaveLength(16);
+    expect(owned[0]).toBe(9);
+    expect(owned.slice(1, 3)).toEqual([2, 3]);
+    const repeated = optimisticUniformDisplay(translatedSphere(9), preview!, ['move-1'], false, first);
+    expect(repeated!.bbMin).toEqual(preview!.bbMin);
+    expect(repeated!.bbMax).toEqual(preview!.bbMax);
   });
 
   it('evaluates a tree that was already in the store when it mounted (#68)', async () => {

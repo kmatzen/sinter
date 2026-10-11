@@ -193,6 +193,7 @@ class WorkerBridge {
         glsl: msg.glsl,
         paramCount: msg.paramCount,
         paramValues: msg.paramValues,
+        paramSourceIds: msg.paramSourceIds,
         sourceParamCount: msg.sourceParamCount,
         textures: msg.textures || [],
         bbMin: msg.bbMin,
