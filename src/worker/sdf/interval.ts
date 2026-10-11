@@ -378,37 +378,52 @@ export function classifyCell(node: SDFNode, box: BBox): CellVerdict {
 export function soundBounds(node: SDFNode, seed: BBox, depth = 6): BBox | null {
   const min: Vec3 = [Infinity, Infinity, Infinity];
   const max: Vec3 = [-Infinity, -Infinity, -Infinity];
+  // Interval evaluation is synchronous and never retains its box. Reuse one
+  // object for the branch-and-bound walk instead of allocating a BBox plus two
+  // three-element arrays at every octree cell (up to 299,593 cells at depth 6).
+  const box: BBox = { min: [0, 0, 0], max: [0, 0, 0] };
   let found = false;
 
-  const visit = (b: BBox, level: number) => {
+  const visit = (
+    minX: number, minY: number, minZ: number,
+    maxX: number, maxY: number, maxZ: number,
+    level: number,
+  ) => {
     // Already inside the running hull on every axis: cannot widen it.
     if (found && level > 0 &&
-        b.min[0] >= min[0] && b.max[0] <= max[0] &&
-        b.min[1] >= min[1] && b.max[1] <= max[1] &&
-        b.min[2] >= min[2] && b.max[2] <= max[2]) return;
+        minX >= min[0] && maxX <= max[0] &&
+        minY >= min[1] && maxY <= max[1] &&
+        minZ >= min[2] && maxZ <= max[2]) return;
 
-    const v = evaluateInterval(node, b);
+    box.min[0] = minX; box.min[1] = minY; box.min[2] = minZ;
+    box.max[0] = maxX; box.max[1] = maxY; box.max[2] = maxZ;
+    const v = evaluateInterval(node, box);
     if (v.lo > 0) return;                       // proved empty
     if (level === 0 || v.hi < 0) {              // occupied, or out of budget
       found = true;
-      for (let k = 0; k < 3; k++) {
-        min[k] = Math.min(min[k], b.min[k]);
-        max[k] = Math.max(max[k], b.max[k]);
-      }
+      min[0] = Math.min(min[0], minX); min[1] = Math.min(min[1], minY); min[2] = Math.min(min[2], minZ);
+      max[0] = Math.max(max[0], maxX); max[1] = Math.max(max[1], maxY); max[2] = Math.max(max[2], maxZ);
       return;
     }
-    const mid: Vec3 = [
-      (b.min[0] + b.max[0]) / 2, (b.min[1] + b.max[1]) / 2, (b.min[2] + b.max[2]) / 2,
-    ];
-    for (let i = 0; i < 8; i++) {
-      visit({
-        min: [i & 1 ? mid[0] : b.min[0], i & 2 ? mid[1] : b.min[1], i & 4 ? mid[2] : b.min[2]],
-        max: [i & 1 ? b.max[0] : mid[0], i & 2 ? b.max[1] : mid[1], i & 4 ? b.max[2] : mid[2]],
-      }, level - 1);
-    }
+    const midX = (minX + maxX) / 2;
+    const midY = (minY + maxY) / 2;
+    const midZ = (minZ + maxZ) / 2;
+    const next = level - 1;
+    visit(minX, minY, minZ, midX, midY, midZ, next);
+    visit(midX, minY, minZ, maxX, midY, midZ, next);
+    visit(minX, midY, minZ, midX, maxY, midZ, next);
+    visit(midX, midY, minZ, maxX, maxY, midZ, next);
+    visit(minX, minY, midZ, midX, midY, maxZ, next);
+    visit(midX, minY, midZ, maxX, midY, maxZ, next);
+    visit(minX, midY, midZ, midX, maxY, maxZ, next);
+    visit(midX, midY, midZ, maxX, maxY, maxZ, next);
   };
 
-  visit(seed, depth);
+  visit(
+    seed.min[0], seed.min[1], seed.min[2],
+    seed.max[0], seed.max[1], seed.max[2],
+    depth,
+  );
   return found ? { min, max } : null;
 }
 
