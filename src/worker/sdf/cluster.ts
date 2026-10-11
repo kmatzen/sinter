@@ -120,6 +120,7 @@ export function clusterByOctree(
   let nodes = new Map<number, Node>();
   // Vertices belonging to each node, as a linked list over `nextVert`.
   let nextVert = new Int32Array(vertCount).fill(-1);
+  let mergedVert = new Int32Array(vertCount);
   let nodeHead: number[] = [];
 
   let nodeCount = 0;
@@ -170,8 +171,11 @@ export function clusterByOctree(
     const size = 1 << level;
     const parents = new Map<number, Node>();
     const parentQ = new Float64Array(nodes.size * QEF_STRIDE);
-    // Vertices of a parent chain through its children's lists.
-    const childOf: number[][] = [];
+    // Children of each parent as linked lists over child node indices. A
+    // parent has at most eight children; typed links avoid one JS array and
+    // its iterator per parent at every octree level.
+    const parentHead = new Int32Array(nodes.size).fill(-1);
+    const childNext = new Int32Array(nodes.size).fill(-1);
     let pCount = 0;
 
     for (const [key, node] of nodes) {
@@ -181,18 +185,18 @@ export function clusterByOctree(
       if (par === undefined) {
         par = { qOff: pCount * QEF_STRIDE, ok: true, first: pCount };
         parents.set(pk, par);
-        childOf.push([]);
         pCount++;
       }
       for (let i = 0; i < QEF_STRIDE; i++) parentQ[par.qOff + i] += nodeQ[node.qOff + i];
-      childOf[par.first].push(node.first);
+      childNext[node.first] = parentHead[par.first];
+      parentHead[par.first] = node.first;
       if (!node.ok) par.ok = false;
     }
 
     // Promote every vertex under a parent that fitted.
     for (const [pk, par] of parents) {
       if (!par.ok || clusterError(parentQ, par.qOff) > maxErrorSq) { par.ok = false; continue; }
-      for (const childFirst of childOf[par.first]) {
+      for (let childFirst = parentHead[par.first]; childFirst !== -1; childFirst = childNext[childFirst]) {
         for (let v = nodeHead[childFirst]; v !== -1; v = nextVert[v]) {
           bestKey[v] = pk;
           bestLevel[v] = level;
@@ -201,17 +205,19 @@ export function clusterByOctree(
     }
 
     // Re-chain each parent's vertices so the next level can walk them.
-    const merged = new Int32Array(vertCount).fill(-1);
+    mergedVert.fill(-1);
     const newHead: number[] = new Array(pCount).fill(-1);
     for (const par of parents.values()) {
-      for (const childFirst of childOf[par.first]) {
+      for (let childFirst = parentHead[par.first]; childFirst !== -1; childFirst = childNext[childFirst]) {
         for (let v = nodeHead[childFirst]; v !== -1; v = nextVert[v]) {
-          merged[v] = newHead[par.first];
+          mergedVert[v] = newHead[par.first];
           newHead[par.first] = v;
         }
       }
     }
-    nextVert = merged;
+    const oldNext = nextVert;
+    nextVert = mergedVert;
+    mergedVert = oldNext;
     nodeHead = newHead;
     nodes = parents;
     nodeQ = parentQ;
@@ -219,13 +225,16 @@ export function clusterByOctree(
 
   // Distinct (key, level) pairs become the output vertices.
   const remap = new Int32Array(vertCount).fill(-1);
-  const ids = new Map<string, number>();
+  const ids = new Map<number, number>();
   const keyOut: number[] = [];
   const levelOut: number[] = [];
   const sizeOut: number[] = [];
   let count = 0;
   for (let v = 0; v < vertCount; v++) {
-    const id = `${bestKey[v]}:${bestLevel[v]}`;
+    // `bestLevel` is in [0, levels], so this mixed-radix integer is an exact,
+    // collision-free identity for both positive cell keys and the negative
+    // per-vertex keys used by unmergeable cells.
+    const id = bestKey[v] * (levels + 1) + bestLevel[v];
     let c = ids.get(id);
     if (c === undefined) {
       c = count++;
